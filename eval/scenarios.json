@@ -1,0 +1,42 @@
+[
+  {
+    "run_id": "R04",
+    "product_id": "samsung-knox-lockdown-mode",
+    "title": "Android 16 Advanced Protection Mode — no admin enforcement API",
+    "signal_text": "Android 16 introduces Advanced Protection Mode (APM) — a unified, one-toggle hardened security posture that simultaneously activates a set of high-value security controls: blocks app sideloading, disables 2G networks, prevents insecure Wi-Fi reconnection, locks USB data transfer when the device is locked, enforces automatic inactivity reboot after 72 hours, and prevents scam/web protections from being disabled.\n\nAPM is designed for high-risk individuals (journalists, executives, government personnel under targeted threat). However, as of Android 16 GA, APM can only be activated by the device user manually — there is no Android Management API (AMAPI) policy field or Device Policy Controller (DPC) mechanism that allows IT administrators to enforce or mandate APM across a managed fleet. Some third-party MDM vendors claim to work around this limitation, but no native, Google-supported admin enforcement path exists.",
+    "source_url": "https://bayton.org/android/android-16-enterprise-features/",
+    "expected_routing": "prd",
+    "expected_composite_range": [4.0, 5.0],
+    "notes": "Historical run 2026-04-18-android16-advanced-protection-mode. Composite 4.30, all assumptions Informing, Confidence 4 → PRD track."
+  },
+  {
+    "run_id": "R05",
+    "product_id": "samsung-knox-lockdown-mode",
+    "title": "Android 16 native NFC admin control — first standard AMAPI NFC toggle",
+    "signal_text": "Android 16 introduces native MDM control over the NFC radio: NfcAdapter.enable() / NfcAdapter.disable() via Device Policy Controller, and UserManager.DISALLOW_CHANGE_NEAR_FIELD_COMMUNICATION_RADIO to prevent users from modifying NFC state. This is the first time Android has exposed a native admin-controlled NFC toggle through AMAPI. Prior to Android 16, NFC state control on managed devices required OEM-specific extensions (e.g., Knox APIs). The new control is binary — NFC on or NFC off — with no per-reader or per-application granularity in the standard AMAPI.",
+    "source_url": "https://developer.android.com/work/versions/android-16",
+    "expected_routing": "prd",
+    "expected_composite_range": [4.0, 5.0],
+    "notes": "Historical run 2026-04-18-android16-nfc-admin-control. Composite 4.50, Confidence 3, no Blocking assumptions → PRD track (composite overrides low confidence)."
+  },
+  {
+    "run_id": "R06",
+    "product_id": "samsung-knox-lockdown-mode",
+    "title": "DISA Android 16 STIG mandates dedicated MTD app on government devices",
+    "signal_text": "DISA's Android 16 STIG introduces a mandatory requirement for Mobile Threat Defense (MTD) on all managed government devices. The compliance language states: 'In the mobile device management (MDM) console, verify an MTD app is listed as a managed app being deployed to site-managed devices. If an MTD app is not installed on the device, this is a finding.' This closes a loophole that previously allowed agencies to satisfy the 'compromised device detection' requirement via MDM-only checks (e.g., rooting/jailbreak detection). Active, real-time threat detection via a dedicated MTD application is now mandatory for DISA STIG compliance on Android 16 government deployments.",
+    "source_url": "https://zimperium.com/blog/the-global-gold-standard-disa-adds-active-defense-with-mtd-stig-requirement",
+    "expected_routing": "kill",
+    "expected_composite_range": [1.0, 2.0],
+    "notes": "Historical run 2026-04-18-disa-mtd-mandate. Composite 1.35, three Blocking assumptions (partner dependency, out-of-scope MTD, integration unknown) → Kill."
+  },
+  {
+    "run_id": "R07",
+    "product_id": "samsung-knox-lockdown-mode",
+    "title": "Android 16 RKP transition — short-lived attestation certificates replace factory keys",
+    "signal_text": "Android 16 completes the Remote Key Provisioning (RKP) transition: devices launching with Android 16 support only RKP for hardware attestation — factory-provisioned keys are no longer used. Attestation certificates are now short-lived, per-application, and generated through Google's RKP infrastructure rather than burned into the device at manufacture. Concurrently, RKP-enabled devices began receiving certificates rooted in a new root certificate in February 2026, with full cutover to the new root by April 10, 2026. Organizations relying on key attestation for device trust must update their validation infrastructure to support RKP-issued, short-lived certificates and the new root certificate chain.",
+    "source_url": "https://developer.android.com/privacy-and-security/security-key-attestation",
+    "expected_routing": "prd",
+    "expected_composite_range": [4.0, 5.0],
+    "notes": "Historical run 2026-04-18-android16-rkp-transition. Composite 4.30, Confidence 4, no Blocking assumptions → PRD track."
+  }
+]

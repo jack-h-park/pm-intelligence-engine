@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-system -type f | sort | head -60)",
+      "Read(//Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-system/**)",
+      "Bash(find /Users/jackpark/workspace/ai-assets/jackhpark-product-management-wiki -type f | sort | head -40)",
+      "Read(//Users/jackpark/workspace/ai-assets/jackhpark-product-management-wiki/**)",
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/unit/ -v)",
+      "Bash(python -m pytest tests/integration/ -v)",
+      "Bash(python eval/runner.py)",
+      "Read(//Users/jackpark/.claude/**)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(ls -la \"/Users/jackpark/Local Code Repositories/ai-agent-test/personal-poc/jack/\")",
+      "Read(//Users/jackpark/Local Code Repositories/ai-agent-test/personal-poc/**)",
+      "Bash(find \"/Users/jackpark\" -type d -name \"ai-agent-test\" 2>/dev/null | head -20)",
+      "Read(//Users/jackpark/**)",
+      "Bash(cat)",
+      "Read(//tmp/**)",
+      "Bash(python -m pytest tests/unit/test_s4.py tests/unit/test_s5.py -v)",
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import openai; print\\(openai.__version__\\)\")",
+      "Bash(python -m pytest tests/unit/ -q)"
+    ]
+  }
+}
