@@ -20,7 +20,9 @@
       "Bash(python -m pytest tests/unit/test_s4.py tests/unit/test_s5.py -v)",
       "Bash(python -c ' *)",
       "Bash(python -c \"import openai; print\\(openai.__version__\\)\")",
-      "Bash(python -m pytest tests/unit/ -q)"
+      "Bash(python -m pytest tests/unit/ -q)",
+      "Bash(python -m pytest tests/ --collect-only -q)",
+      "Bash(python -m pytest tests/unit/test_s5.py -q)"
     ]
   }
 }

@@ -15,6 +15,7 @@ class ClaudeProvider:
         messages: list[Message],
         model: str | None = None,
         max_tokens: int = 2048,
+        temperature: float | None = None,
     ) -> str:
         system_parts = [m["content"] for m in messages if m["role"] == "system"]
         non_system = [m for m in messages if m["role"] != "system"]
@@ -26,6 +27,8 @@ class ClaudeProvider:
         }
         if system_parts:
             kwargs["system"] = "\n\n".join(system_parts)
+        if temperature is not None:
+            kwargs["temperature"] = temperature
 
         response = await self._client.messages.create(**kwargs)
         return response.content[0].text

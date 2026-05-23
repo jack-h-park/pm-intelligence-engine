@@ -17,14 +17,30 @@ _JSON_SCHEMA = """{
   "reframing": "<common market framing> vs <correct framing for this product's segment>",
   "pillar_references": ["<pillar name or number from context>", "..."],
   "relevance_explanation": "<why this matters for this specific product — name a pillar, user segment, or pain point>",
+  "relevance_score": <integer 1–5>,
   "suggested_mode": "<one of: file | brief | opportunity | evaluate | decide>",
   "suggestion_reasoning": "<one sentence explaining why this depth is appropriate>"
 }"""
 
 _MODE_GUIDANCE = """
+## Relevance Scoring (1–5)
+
+Score the strategic relevance of this signal for this specific product:
+
+| Score | Meaning |
+|-------|---------|
+| 1 | Completely irrelevant — wrong product, wrong segment, no actionable implication |
+| 2 | Marginally related — tangential mention only, no clear action possible |
+| 3 | Borderline — potentially relevant but implication is unclear; PM should judge |
+| 4 | Clearly relevant — connects to a named strategy pillar or specific user need |
+| 5 | Highly relevant — direct, urgent, actionable implication for the product |
+
+Signals scored 1–2 must use `suggested_mode: file`.
+Signals scored 3–5 warrant PM attention at minimum.
+
 ## Suggested Pipeline Depth
 
-After extracting the insight, recommend how deeply to process this signal:
+After scoring relevance, recommend how deeply to process this signal:
 
 | Mode | When to suggest |
 |------|----------------|

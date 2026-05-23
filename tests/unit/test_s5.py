@@ -101,31 +101,36 @@ def test_composite_kill_range():
 # ---------------------------------------------------------------------------
 
 
-def test_routing_prd_no_blocking_high_confidence():
+def test_routing_prd_high_composite_no_blocking():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(4.30, skeptic_score=4, blocking=[]) == "prd"
+    assert _compute_routing(4.30, blocking=[]) == "prd"
 
 
-def test_routing_poc_low_confidence_no_blocking():
+def test_routing_prd_composite_at_threshold():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(4.50, skeptic_score=3, blocking=[]) == "poc"
+    assert _compute_routing(3.5, blocking=[]) == "prd"
+
+
+def test_routing_poc_composite_below_threshold():
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(3.0, blocking=[]) == "poc"
 
 
 def test_routing_kill_with_blocking_assumptions():
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Partner needed", severity="Blocking", reason="No partner = no product")]
-    assert _compute_routing(3.0, skeptic_score=3, blocking=blocking) == "kill"
+    assert _compute_routing(3.0, blocking=blocking) == "kill"
 
 
 def test_routing_kill_low_composite():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(1.35, skeptic_score=1, blocking=[]) == "kill"
+    assert _compute_routing(1.35, blocking=[]) == "kill"
 
 
 def test_routing_kill_blocking_overrides_high_composite():
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Fatal assumption", severity="Blocking", reason="Fatal")]
-    assert _compute_routing(4.5, skeptic_score=5, blocking=blocking) == "kill"
+    assert _compute_routing(4.5, blocking=blocking) == "kill"
 
 
 # ---------------------------------------------------------------------------
@@ -177,23 +182,26 @@ async def test_s5_kill_routing_with_blocking():
 
 
 @pytest.mark.asyncio
-async def test_s5_poc_routing_low_confidence():
+async def test_s5_poc_routing_low_composite():
+    """composite < 3.5 with no blocking assumptions → poc."""
     from app.stages import s5_prioritization
 
     llm = AsyncMock()
     llm.complete = AsyncMock(return_value=_LLM_RESPONSE_NO_BLOCKING)
     store = _make_store()
 
+    # explorer=3, strategist=3, builder=3, skeptic=3 → composite = 3.00 → poc
     with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
         MockTS.return_value.load_template.return_value = "template"
         output = await s5_prioritization.run(
-            S5Input(s4_output=_make_s4_output(explorer=5, strategist=5, builder=4, skeptic=3)),
+            S5Input(s4_output=_make_s4_output(explorer=3, strategist=3, builder=3, skeptic=3)),
             _make_context(),
             llm,
             store,
         )
 
     assert output.output.routing == "poc"
+    assert output.output.composite_score == pytest.approx(3.00, abs=0.01)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from app.api.approvals import router as approvals_router
 from app.api.direction import router as direction_router
+from app.api.routing_review import router as routing_review_router
 from app.api.runs import router as runs_router
 from app.api.signals import router as signals_router
 
@@ -27,6 +28,7 @@ app.include_router(signals_router)
 app.include_router(runs_router)
 app.include_router(direction_router)
 app.include_router(approvals_router)
+app.include_router(routing_review_router)
 
 
 @app.get("/health")

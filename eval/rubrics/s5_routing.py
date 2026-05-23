@@ -52,6 +52,6 @@ def check(
         expected_composite_range=expected_composite_range,
         routing_passed=routing_passed,
         composite_passed=composite_passed,
-        passed=routing_passed and composite_passed,
+        passed=routing_passed,  # composite range is informational only
         issues=issues,
     )

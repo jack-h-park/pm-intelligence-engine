@@ -186,7 +186,7 @@ pytest tests/integration/ -m "not slow"
 | R04 | Android 16 Advanced Protection Mode — no admin enforcement API | `prd` |
 | R05 | Android 16 native NFC admin control | `prd` |
 | R06 | DISA Android 16 STIG mandates dedicated MTD app | `kill` |
-| R07 | Android 16 RKP attestation transition | `prd` |
+| R07 | Android 16 RKP attestation transition | `kill` (Gate 3 override → `prd`) |
 
 **To add a new scenario to `eval/scenarios.json`:**
 ```json
