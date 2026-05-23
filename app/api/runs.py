@@ -159,8 +159,28 @@ async def _execute_s1_s2(
         recommendation = {
             "suggested_mode": s2_out.output.suggested_mode,
             "reasoning": s2_out.output.suggestion_reasoning,
+            "relevance_score": s2_out.output.relevance_score,
         }
         engine.store.update_run(run_id, recommendation_json=json.dumps(recommendation))
+
+        # Auto-triage: if relevance score is below threshold, skip Gate 1 entirely.
+        # The signal is archived to the wiki kills folder and the run completes silently.
+        from config import settings as _cfg
+        if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
+            engine.store.update_run(run_id, mode="file", status="completed", current_stage=None)
+            emit_event("run", "auto_triaged", run_id, {
+                "relevance_score": s2_out.output.relevance_score,
+                "threshold": _cfg.AUTO_TRIAGE_THRESHOLD,
+                "reasoning": s2_out.output.suggestion_reasoning,
+            })
+            _archive_auto_triaged(
+                run_id=run_id,
+                product_id=product_id,
+                signal_title=signal["title"],
+                s2_output=s2_out.output,
+                wiki_root=_cfg.WIKI_ROOT,
+            )
+            return
 
         if requested_mode is not None:
             # Mode was specified upfront — skip the awaiting_direction pause

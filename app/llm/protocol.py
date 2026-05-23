@@ -13,4 +13,5 @@ class LLMProvider(Protocol):
         messages: list[Message],
         model: str | None = None,
         max_tokens: int = 2048,
+        temperature: float | None = None,
     ) -> str: ...

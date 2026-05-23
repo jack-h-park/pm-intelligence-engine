@@ -103,6 +103,14 @@ class S2OutputData(BaseModel):
     relevance_explanation: str = Field(
         description="Why this signal matters for the specific product"
     )
+    relevance_score: int = Field(
+        ge=1,
+        le=5,
+        description=(
+            "Strategic relevance score 1–5. "
+            "1–2: noise; 3: borderline; 4–5: clearly relevant"
+        ),
+    )
     suggested_mode: Literal["file", "brief", "opportunity", "evaluate", "decide"] = Field(
         description="Recommended pipeline depth based on signal quality and relevance"
     )

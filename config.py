@@ -15,5 +15,10 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
+    # Auto-triage: runs with relevance_score strictly below this threshold are
+    # automatically completed as 'file' mode without pausing at Gate 1.
+    # Range 1–5. Default 3 means scores 1–2 are auto-triaged; score 3+ goes to PM.
+    AUTO_TRIAGE_THRESHOLD: int = 3
+
 
 settings = Settings()

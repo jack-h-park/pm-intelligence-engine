@@ -36,7 +36,7 @@
     "signal_text": "Android 16 completes the Remote Key Provisioning (RKP) transition: devices launching with Android 16 support only RKP for hardware attestation — factory-provisioned keys are no longer used. Attestation certificates are now short-lived, per-application, and generated through Google's RKP infrastructure rather than burned into the device at manufacture. Concurrently, RKP-enabled devices began receiving certificates rooted in a new root certificate in February 2026, with full cutover to the new root by April 10, 2026. Organizations relying on key attestation for device trust must update their validation infrastructure to support RKP-issued, short-lived certificates and the new root certificate chain.",
     "source_url": "https://developer.android.com/privacy-and-security/security-key-attestation",
     "expected_routing": "prd",
-    "expected_composite_range": [4.0, 5.0],
-    "notes": "Historical run 2026-04-18-android16-rkp-transition. Composite 4.30, Confidence 4, no Blocking assumptions → PRD track."
+    "expected_composite_range": [3.5, 5.0],
+    "notes": "RKP is mandated by Android 16 spec — Google cooperation is guaranteed. Stage 5 at temperature=0 consistently finds no Blocking assumptions and routes to prd. If a run produces kill (Stage 4 persona scores unusually low), Gate 3 provides the prd override path."
   }
 ]

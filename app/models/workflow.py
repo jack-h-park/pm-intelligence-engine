@@ -15,6 +15,7 @@ class RunStatus(str, enum.Enum):
     running = "running"
     awaiting_direction = "awaiting_direction"
     waiting_approval = "waiting_approval"
+    waiting_routing_review = "waiting_routing_review"
     completed = "completed"
     killed = "killed"
     failed = "failed"

@@ -77,16 +77,30 @@ In `decide` mode, after Stage 4 completes, the run pauses at `waiting_approval`.
 - **Revise** — provide written feedback; Stage 4 re-runs with feedback injected into every agent prompt, version number incremented
 - **Reject** — kill the run with a recorded reason
 
+### Gate 3 — Routing Review Gate (decide mode only, when Stage 5 routes to kill)
+
+Stage 5's kill decision is based on the LLM's classification of assumptions as Blocking. This classification can be wrong — the LLM may mark an assumption as Blocking when an alternative path exists in the persona arguments. A silent, incorrect kill is the most damaging outcome.
+
+When Stage 5 routes to kill, the run pauses at `waiting_routing_review`. The PM sees the composite score, blocking assumption list, and rationale, then can:
+- **Confirm** — agree with the kill decision; run moves to `killed`
+- **Override** — disagree with the blocking classification; choose `poc` or `prd` to proceed to Stage 6
+
+For prd and poc routing, no gate is needed — Stage 4 approval already implied a decision to proceed, and prd/poc just determines which Stage 6 runs.
+
 ### State Machine
 
 ```
 pending
   └─► running (Stage 1 + Stage 2)
-        └─► awaiting_direction          ← Gate 1: PM confirms or overrides mode
+        └─► awaiting_direction             ← Gate 1: PM confirms or overrides mode
               └─► running
-                    ├─► completed        (mode: file, brief, opportunity, evaluate)
-                    └─► waiting_approval ← Gate 2: decide mode only, after Stage 4
-                          ├─► running → completed  (approve → Stage 5–7)
+                    ├─► completed           (mode: file, brief, opportunity, evaluate)
+                    └─► waiting_approval    ← Gate 2: decide mode only, after Stage 4
+                          ├─► running → waiting_routing_review  (approve → Stage 5 → kill)
+                          │               └─► Gate 3: PM confirms or overrides kill
+                          │                     ├─► killed    (confirm)
+                          │                     └─► running → completed  (override to poc/prd)
+                          ├─► running → completed  (approve → Stage 5 → prd/poc → Stage 6–7)
                           ├─► running → waiting_approval  (revise → Stage 4 retry)
                           └─► killed    (reject)
 ```
@@ -261,11 +275,18 @@ The `POST /runs/start` request also accepts an optional `mode` field. If provide
 
 All approval endpoints return 409 if the run is not in `decide` mode.
 
+**Gate 3 — Routing Review Gate** (`app/api/routing_review.py`, fires only when Stage 5 routes to kill):
+- `POST /runs/{id}/routing-review { action: "confirm" }` → confirms kill; run moves to `killed`
+- `POST /runs/{id}/routing-review { action: "override", routing: "poc" | "prd" }` → PM overrides the blocking classification; Stage 6 runs with the chosen routing
+
+This gate exists because Stage 5's kill decision is driven by LLM assumption classification, which can misclassify an assumption as Blocking when an alternative path exists. A silent incorrect kill is the most costly outcome.
+
 **Acceptance criteria:**
 - Direction gate transitions: `awaiting_direction` → `running`, then appropriate stages execute
 - Approval gate transitions: `waiting_approval` → `running` on approve; `killed` on reject
+- Stage 5 kill routing → `waiting_routing_review`; prd/poc routing → Stage 6 immediately
+- Routing review confirm → `killed`; override → Stage 6 with chosen routing
 - Revise saves a new Stage 4 output with an incremented version number alongside the original
-- Approval and direction events stored with timestamps
 - Approval endpoints return 409 for non-`decide` mode runs
 
 ### 2.3 Stage 5: Prioritization and Routing

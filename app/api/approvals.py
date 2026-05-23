@@ -131,11 +131,15 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         )
 
         routing = s5_out.output.routing
-        engine.store.update_run(run_id, routing=routing, current_stage="s6")
+        engine.store.update_run(run_id, routing=routing)
 
         if routing == "kill":
-            engine.store.update_run(run_id, status="completed")
-            emit_event("run", "killed_by_routing", run_id, {"composite": s5_out.output.composite_score})
+            # Pause for PM review — kill based on LLM assumption classification may be incorrect
+            engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
+            emit_event("run", "waiting_routing_review", run_id, {
+                "composite": s5_out.output.composite_score,
+                "blocking_count": s5_out.output.blocking_count,
+            })
             return
 
         if routing == "poc":

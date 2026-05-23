@@ -105,8 +105,15 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
 
 Rules:
 - Only include assumptions that appear in the persona arguments or open questions above.
-- A Blocking assumption is one where the opportunity is worthless if the assumption is false.
-- An Informing assumption narrows scope but does not kill the opportunity.
+- A Blocking assumption requires BOTH conditions to be true:
+    (1) The opportunity is worthless if the assumption is false, AND
+    (2) No alternative path to the same value is described in the persona arguments.
+  If any persona already mentions a workaround, fallback, or alternative implementation path,
+  the assumption is Informing — not Blocking.
+- An Informing assumption narrows scope, slows execution, or raises uncertainty,
+  but an alternative path survives and the core value proposition holds.
+- When in doubt, prefer Informing. Reserve Blocking for assumptions where failure
+  leaves zero residual value with no alternative.
 - Limit to 5 assumptions maximum."""
 
     raw = await llm.complete(
@@ -115,6 +122,7 @@ Rules:
             {"role": "user", "content": user_message},
         ],
         max_tokens=1024,
+        temperature=0,  # deterministic — blocking classification must be consistent
     )
 
     data = _parse_json(raw)
@@ -123,7 +131,7 @@ Rules:
 
     # Deterministic routing rule (never delegated to LLM)
     blocking = [a for a in assumptions if a.severity == "Blocking"]
-    routing = _compute_routing(composite, skeptic_score, blocking)
+    routing = _compute_routing(composite, blocking)
 
     output_data = S5OutputData(
         impact_score=scores.get("explorer", 3),
@@ -162,11 +170,11 @@ Rules:
     return output
 
 
-def _compute_routing(composite: float, skeptic_score: int, blocking: list[Assumption]) -> str:
+def _compute_routing(composite: float, blocking: list[Assumption]) -> str:
     """Deterministic routing — not delegated to the LLM."""
     if blocking or composite <= 1.5:
         return "kill"
-    if skeptic_score >= 4:
+    if composite >= 3.5:
         return "prd"
     return "poc"
 
