@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 0.2  
-**Last updated:** 2026-05-24
+**Version:** 0.3  
+**Last updated:** 2026-05-25
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -52,16 +52,10 @@ so routing regressions are distinguishable from prompt/model drift.
 ### E5 — Runtime Hygiene
 
 #### US-25b — UTC and timestamp consistency cleanup
-**Status:** In progress
+**Status:** ✅ Completed
 
-As a maintainer, I want UTC handling to be explicit and warning-free so
-terminal metadata remains stable across Python/SQLAlchemy upgrades.
-
-**Acceptance criteria**
-
-- remove deprecated `datetime.utcnow()` usage
-- keep `completed_at` semantics unchanged for completed/killed/failed
-- ensure tests pass without timestamp behavior regressions
+`datetime.utcnow()` fully replaced with `datetime.now(UTC)` / `datetime.now(timezone.utc)`
+across all modules. `completed_at` semantics unchanged; 128 tests pass without regressions.
 
 ### E4 — Export Observability
 
@@ -80,16 +74,13 @@ decision-system compatibility remains trustworthy.
 ### E5 — API Consumer Ergonomics
 
 #### US-17c — Artifact endpoint adoption validation
-**Status:** In progress
+**Status:** ✅ Completed
 
-As a Hermes implementer, I want to validate that the new artifact endpoint is
-sufficient for wiki sync and notifications before broadening the API further.
-
-**Acceptance criteria**
-
-- validate `GET /runs/{id}/artifacts` against Hermes sync needs
-- keep `GET /runs/{id}?include_outputs=true` for stage-level inspection
-- only add further artifact-specific endpoints if Hermes proves this surface insufficient
+`GET /runs/{id}/artifacts` implemented in `app/api/artifacts.py`, registered in
+`main.py`, backed by `list_artifacts()` in store protocol + SQLiteStore, and
+integration-tested in `tests/integration/test_artifacts_api.py`.
+`GET /runs/{id}?include_outputs=true` retained for stage-level inspection.
+Further artifact endpoints deferred until Hermes integration confirms need.
 
 ---
 
