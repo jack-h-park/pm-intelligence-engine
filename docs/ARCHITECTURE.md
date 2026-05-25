@@ -33,6 +33,7 @@ Hermes may absorb this concern later.
 │                          notifier.py (FanoutNotifier)                   │
 │                           Gate 1 alert (Telegram/Slack)                 │
 │                           Gate 2 alert + review page link               │
+│                           Gate 3 alert (kill routing review)            │
 └─────────────────────────────────────────────────────────────────────────┘
         ↑ read context / write runs              ↑ (export on completion)
 decision-context-companion-repo/          decision-context-companion-repo/runs/
@@ -69,7 +70,7 @@ jackhpark-pm-agentic-platform API        product-management-wiki-repo/
 | Persistence (runs, artifacts) | pm-platform | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-platform | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate notifications | pm-platform | `notifier.py` fires Gate 1 alert (after S2) and Gate 2 alert (after S4); Gate 2 alert includes link to `GET /runs/{id}/review`; Hermes may absorb later |
+| Gate notifications | pm-platform | `notifier.py` fires Gate 1 alert (after S2), Gate 2 alert (after S4, includes link to `GET /runs/{id}/review`), and Gate 3 alert (after S5 routing=kill); Hermes bridges PM responses back via API |
 | Operational scheduling | Hermes | Cron/harvest jobs |
 | Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 
@@ -104,8 +105,9 @@ operational scheduling, pattern accumulation.
 **Integration:** Hermes interacts with pm-platform exclusively via the HTTP API.
 Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
 
-**Note on notifications:** Gate 1 and Gate 2 alerts are currently fired by pm-platform's
-built-in `FanoutNotifier`. Hermes may absorb this responsibility in a future version.
+**Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are fired by pm-platform's
+built-in `FanoutNotifier`. Hermes-ops bridges PM responses back to pm-platform via the gate
+API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`).
 
 ---
 
