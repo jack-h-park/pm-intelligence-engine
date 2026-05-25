@@ -7,12 +7,16 @@
 
 This platform is the **workflow execution engine** for a personal PM intelligence system.
 It is intentionally narrow: it runs stages, persists state, manages human gates, and exports
-artifacts to the decision-system. Signal harvesting, wiki sync, notifications, and operational
-scheduling are owned by a separate **Hermes operations plane**.
+artifacts to the decision-system. Signal harvesting, wiki sync, and operational scheduling are
+owned by the separate **Hermes operations plane**.
+
+The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
+MacBook) without port-forwarding. Gate notifications are fired directly by pm-platform;
+Hermes may absorb this concern later.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│              jackhpark-pm-agentic-platform (ENGINE)                     │
+│         jackhpark-pm-agentic-platform (ENGINE — hosted on iMac)         │
 │                                                                         │
 │   POST /signals ──▶  Signal DB  ──▶  S1–S7 Workflow  ──▶  Artifacts    │
 │                                       (FastAPI + SQLite)                │
@@ -25,16 +29,27 @@ scheduling are owned by a separate **Hermes operations plane**.
 │                                   run_finalizer.py                      │
 │                                      ├─ completed_at stamp              │
 │                                      └─ decision-system export          │
+│                                             │                           │
+│                          notifier.py (FanoutNotifier)                   │
+│                           Gate 1 alert (Telegram/Slack)                 │
+│                           Gate 2 alert + review page link               │
 └─────────────────────────────────────────────────────────────────────────┘
         ↑ read context / write runs              ↑ (export on completion)
 decision-context-companion-repo/          decision-context-companion-repo/runs/
+
+              │ Tailscale                    │ Gate 2 review link
+              │ (iMac reachable from         │ http://<imac-tailscale-ip>:8000
+              │  iPhone / MacBook)           │ /runs/{id}/review
+              ▼                             ▼
+        📱 Telegram / Slack           📱 Browser (PM's iPhone)
+            notification               review page → Approve/Revise/Reject
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │              External Operations Plane (Hermes — separate repo)         │
 │                                                                         │
 │   Signal harvesting (RSS, file watch)   Wiki sync (WIKI_ROOT writes)   │
-│   Gate notifications (Telegram, Slack)  Run monitoring / dashboards     │
-│   Operational scheduling (cron/harvest) Pattern accumulation            │
+│   Run monitoring / dashboards           Pattern accumulation            │
+│   Operational scheduling (cron/harvest)                                 │
 └─────────────────────────────────────────────────────────────────────────┘
         ↓ POST /signals                          ↓ wiki write (on run event)
 jackhpark-pm-agentic-platform API        product-management-wiki-repo/
@@ -54,7 +69,7 @@ jackhpark-pm-agentic-platform API        product-management-wiki-repo/
 | Persistence (runs, artifacts) | pm-platform | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-platform | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate notifications | pm-platform (current) / Hermes (optional) | Built-in notifier exists; Hermes may replace or absorb this operational concern later |
+| Gate notifications | pm-platform | `notifier.py` fires Gate 1 alert (after S2) and Gate 2 alert (after S4); Gate 2 alert includes link to `GET /runs/{id}/review`; Hermes may absorb later |
 | Operational scheduling | Hermes | Cron/harvest jobs |
 | Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 
@@ -84,10 +99,13 @@ The core workflow. A signal enters as raw text; a routing decision and artifact 
 Handles everything that requires always-on or scheduled operation.
 
 **Responsibilities:** RSS/file-watch signal harvesting, wiki sync, monitoring dashboards,
-notification bridging for mobile approval flows, operational scheduling.
+operational scheduling, pattern accumulation.
 
 **Integration:** Hermes interacts with pm-platform exclusively via the HTTP API.
 Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
+
+**Note on notifications:** Gate 1 and Gate 2 alerts are currently fired by pm-platform's
+built-in `FanoutNotifier`. Hermes may absorb this responsibility in a future version.
 
 ---
 
@@ -106,12 +124,17 @@ Direct database mutation or file-based approval are prohibited — see `docs/INT
 
 ### product-management-wiki-repo
 
-| Path | Usage | Direction |
-|---|---|---|
-| `raw/from-web/sensing/` | Watched for new signal files | Read |
-| `raw/from-decision-system/kills/` | Kill decision S7 reports | Write |
-| `raw/from-decision-system/prds/` | PRD decision S7 reports | Write |
-| `raw/from-decision-system/poc-upgrades/` | PoC decision S7 reports | Write |
+| Path | Usage | Direction | Owner |
+|---|---|---|---|
+| `raw/from-web/sensing/` | Source of new signal files (Hermes watches) | Read (by Hermes) | Hermes |
+| `raw/from-decision-system/kills/` | Kill decision S7 reports | Write | Hermes |
+| `raw/from-decision-system/prds/` | PRD decision S7 reports | Write | Hermes |
+| `raw/from-decision-system/poc-upgrades/` | PoC decision S7 reports | Write | Hermes |
+| `raw/from-decision-system/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-platform → Hermes |
+
+**pm-platform does not write to `WIKI_ROOT` as part of run completion.** Wiki writes are
+Hermes-owned. The auto-triage archive path is the only exception and is transitional — see
+`docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 Both paths are configured in `config.py` as `DECISION_SYSTEM_ROOT` and `WIKI_ROOT`.
 
@@ -146,6 +169,8 @@ app/
 │   ├── template_service.py Loads and renders prompt templates from /prompts/
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
 │   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
+│   ├── notifier.py        FanoutNotifier: fires Gate 1 + Gate 2 alerts via Telegram/Slack
+│   │                      Gate 2 alert includes link to /runs/{id}/review (see Section 11)
 │   └── wiki_sync.py       Utility adapter (canonical paths); not called from completion paths
 │                          (wiki writes are Hermes-owned — see EXPORT_AND_SYNC_CONTRACT.md)
 │
@@ -160,7 +185,9 @@ app/
 │   ├── direction.py       /runs/{id}/direction — Gate 1 response
 │   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2
 │   ├── routing_review.py  /runs/{id}/routing-review — Gate 3
+│   ├── artifacts.py       /runs/{id}/artifacts — artifact query endpoint
 │   └── review.py          /runs/{id}/review — browser-based Gate 2 review page
+│                          (HTML; linked from Gate 2 Telegram notification; see Section 11)
 │
 ├── llm/
 │   ├── protocol.py        LLMProvider Protocol: async complete(messages) -> str
@@ -385,3 +412,119 @@ eval/
 **Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned
 as in-process features (APScheduler). These have been moved to the Hermes operations plane.
 The pm-platform API (`POST /signals`) remains the stable integration point.
+
+---
+
+## 11. Human-in-the-Loop Notification and Review Flow
+
+### Overview
+
+pm-platform fires Gate notifications directly via `app/services/notifier.py`. Hermes does not
+participate in the notification loop. The Gate 2 notification includes a link to a browser-based
+review page, accessible from any device connected to the same Tailscale network.
+
+### Hosting and Tailscale
+
+pm-platform runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
+the lid suspends the process, breaking Hermes polling and making review links unreachable.
+
+**Tailscale** is installed on the iMac and the PM's iPhone (and optionally MacBook). Tailscale
+assigns the iMac a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
+the same Tailnet regardless of network location.
+
+`BASE_URL` in `.env` should be set to the iMac's Tailscale IP:
+
+```
+BASE_URL=http://100.x.x.x:8000
+```
+
+With this set, the review page link embedded in every Gate 2 Telegram notification remains
+valid whether the PM is at home, in transit, or on a different network.
+
+### Gate 1 Notification (after S2)
+
+Fired by `FanoutNotifier.send_gate1()` when a signal passes the auto-triage threshold and
+pm-platform is waiting for the PM to choose a run mode.
+
+**Content:**
+- Product name and signal title
+- Relevance score (S2 output)
+- Suggested mode (S2 recommendation)
+- Exact API call to start the run (`POST /runs/start`)
+
+**PM action:** Call the API (via curl, Shortcuts, or Hermes) to start the run with a chosen mode.
+
+### Gate 2 Notification (after S4)
+
+Fired by `FanoutNotifier.send_gate2()` after the four persona agents complete their evaluations
+and the run enters `waiting_approval` state.
+
+**Content:**
+- Product name and run ID
+- Scores for all four personas (Explorer / Strategist / Builder / Skeptic)
+- Skeptic's key concern (most likely reason for doubt)
+- Link to the browser review page: `{BASE_URL}/runs/{run_id}/review`
+
+**PM action:** Tap the review link → review persona cards in browser → tap Approve, Revise, or Reject.
+
+### Review Page (`GET /runs/{id}/review`)
+
+Served by `app/api/review.py`. Renders an HTML page showing:
+- All four persona evaluations with color-coded score cards
+- Approve / Revise / Reject action buttons (POST to the JSON API via fetch)
+- Revise requires a feedback text field (used to re-run S4 with PM direction)
+- Page becomes read-only after any action is taken (shows current status)
+
+### End-to-End Loop
+
+```
+[S2 completes — relevance passes threshold]
+        │
+        ▼
+FanoutNotifier.send_gate1()
+  → Telegram: "New signal: <title> — relevance 4/5 — POST /runs/start"
+        │
+        ▼ [PM starts run via API]
+[S3 → S4 complete — 4 personas scored]
+        │
+        ▼
+FanoutNotifier.send_gate2()
+  → Telegram: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
+        │
+        ▼ [PM taps link → iPhone browser opens review page via Tailscale]
+GET /runs/{id}/review   (served by iMac over Tailscale)
+        │
+   PM taps Approve
+        │
+        ▼
+POST /runs/{id}/approve
+  → S5 → S6 → S7 → completed
+  → run_finalizer exports to DECISION_SYSTEM_ROOT
+        │
+        ▼ [Hermes polls GET /runs?status=completed]
+Hermes reads artifacts → writes to WIKI_ROOT (Hermes-owned)
+```
+
+### Configuration Reference
+
+| Setting | Description | Example |
+|---------|-------------|---------|
+| `BASE_URL` | iMac's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
+| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | `7123456789:AAF...` |
+| `TELEGRAM_CHAT_ID` | Chat ID where alerts are sent (personal or group) | `123456789` |
+| `SLACK_WEBHOOK_URL` | Incoming Webhook URL from Slack app settings; leave empty to disable | `https://hooks.slack.com/...` |
+
+All four settings live in `.env`. Leave `TELEGRAM_BOT_TOKEN` or `SLACK_WEBHOOK_URL` empty to
+disable that provider. Both providers can be active simultaneously via `FanoutNotifier`.
+
+### iMac Setup Checklist
+
+1. Clone this repo on the iMac: `git clone ...`
+2. Clone external repos at the same paths configured in `.env`:
+   - `decision-context-companion-repo` → `DECISION_SYSTEM_ROOT`
+   - `product-management-wiki-repo` → `WIKI_ROOT`
+3. Install Tailscale on the iMac and ensure it is running
+4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
+5. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` in `.env`
+6. Start the API: `uvicorn app.api.main:app --reload` (or via launchd for auto-start)
+7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari

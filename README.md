@@ -69,9 +69,20 @@ Each signal runs through a sequential pipeline:
 
 ## Ownership Boundaries
 
-- `pm-platform` owns workflow execution, stage outputs, terminal state, and decision-system export.
-- Hermes owns harvesting, scheduling, notifications, wiki sync, and long-running operations.
+- `pm-platform` owns workflow execution, stage outputs, terminal state, decision-system export, and Gate 1/2 notifications.
+- Hermes owns signal harvesting, scheduling, wiki sync, and long-running operations.
+- Gate notifications (Telegram/Slack) are fired by pm-platform's built-in `FanoutNotifier`. Hermes may absorb this in a later version.
 - Auto-triage archive is transitional: local archive writes remain available behind `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` until Hermes takes over fully.
+
+## Hosting
+
+pm-platform runs on an always-on **iMac**. Running on a MacBook is not recommended — lid-close
+suspends the process, breaking Hermes polling and making Gate 2 review links unreachable.
+
+**Tailscale** connects the iMac, iPhone, and MacBook in a private network. `BASE_URL` in `.env`
+should be set to the iMac's Tailscale IP so that Gate 2 review page links work from iPhone even
+when away from home. See `docs/ARCHITECTURE.md` Section 11 for the full notification flow and
+iMac setup checklist.
 
 ## Project Structure
 
@@ -105,7 +116,7 @@ jackhpark-pm-agentic-platform/
 ## Setup
 
 ```bash
-# Clone and navigate
+# Clone on the iMac and navigate
 cd /Users/jackpark/workspace/code/core/jackhpark-pm-agentic-platform
 
 # Install dependencies
@@ -113,8 +124,13 @@ pip install -e ".[dev]"
 
 # Set environment variables
 cp .env.example .env
-# Edit .env: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required for notifications: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000
+# Optional: SLACK_WEBHOOK_URL
 # Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
+
+# Ensure external repos are cloned at the paths set in DECISION_SYSTEM_ROOT / WIKI_ROOT
 
 # Run the API
 uvicorn app.api.main:app --reload
