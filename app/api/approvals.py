@@ -89,10 +89,14 @@ async def reject_run(
     engine.store.record_approval(
         run_id=run_id, stage="s4", action="reject", feedback_text=body.reason
     )
-    engine.store.update_run(run_id, status="killed", routing=None)
+    engine.store.update_run(run_id, routing=None)  # clear routing before finalizing
 
-    from app.logging import emit_event
-    emit_event("run", "rejected", run_id, {"reason": body.reason})
+    from app.services.run_finalizer import finalize_run
+    finalize_run(
+        run_id, "killed", engine,
+        event_action="rejected",
+        event_detail={"reason": body.reason},
+    )
 
     return {"run_id": run_id, "action": "rejected"}
 
@@ -101,6 +105,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
     from app.logging import emit_event
     from app.models.stages import RunContext, S5Input, S6AInput, S6BInput, S7Input
     from app.stages import s5_prioritization, s6a_poc_plan, s6b_prd, s7_summary
+    from app.services.run_finalizer import finalize_run
     import json
 
     try:
@@ -158,18 +163,17 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         engine.store.update_run(run_id, current_stage="s7")
         await s7_summary.run(s7_in, context, engine.llm, engine.store)
 
-        engine.store.update_run(run_id, status="completed", current_stage=None)
-        emit_event("run", "completed", run_id)
+        finalize_run(run_id, "completed", engine)
 
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
 async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> None:
     from app.logging import emit_event
     from app.models.stages import RunContext, S4Input
     from app.stages import s4_evaluation
+    from app.services.run_finalizer import finalize_run
     import json
 
     try:
@@ -196,7 +200,10 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
 
         # Determine next version number
         existing_s4 = engine.store.get_stage_output(run_id, "s4")
-        next_version = (json.loads(existing_s4["output_json"]).get("version", 1) + 1) if existing_s4 else 2
+        next_version = (
+            (json.loads(existing_s4["output_json"]).get("version", 1) + 1)
+            if existing_s4 else 2
+        )
 
         await s4_evaluation.run(
             S4Input(s3_output=s3_output_data, feedback=feedback, version=next_version),
@@ -209,5 +216,4 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
         emit_event("run", "s4_retry_complete", run_id, {"version": next_version})
 
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

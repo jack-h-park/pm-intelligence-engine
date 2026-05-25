@@ -101,6 +101,11 @@ class SQLiteStore:
             for key, value in kwargs.items():
                 if key == "status":
                     value = RunStatus(value)
+                    # Stamp completed_at on first transition to a resolved state.
+                    # failed intentionally does NOT receive completed_at — the run
+                    # did not reach a meaningful endpoint and may need investigation.
+                    if value in {RunStatus.completed, RunStatus.killed} and r.completed_at is None:
+                        r.completed_at = datetime.utcnow()
                 elif key == "routing" and value is not None:
                     value = Routing(value)
                 elif key == "mode" and value is not None:

@@ -118,6 +118,7 @@ def _render_s2(s2: S2OutputData, s1: S1OutputData, date_str: str) -> str:
 
 **Signal ref:** {s1.signal_id} ({s1.title})
 **Date:** {date_str}
+**Relevance score:** {s2.relevance_score}/5
 
 ---
 

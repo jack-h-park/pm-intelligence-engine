@@ -1,10 +1,22 @@
-"""Wiki sync service — writes platform outputs to WIKI_ROOT.
+"""Wiki sync service — utility adapter for WIKI_ROOT file operations.
 
-Two responsibilities:
-1. archive_auto_triaged() — stores low-relevance signals in raw/kills/auto-triaged/
-   so the PM can spot-check auto-dropped signals without being interrupted.
-2. sync_executive_summary() — writes Stage 7 Executive Summary output to the
-   appropriate raw/ subdirectory after a full run completes (planned for Phase 4.3).
+Ownership (per EXPORT_AND_SYNC_CONTRACT.md):
+  - decision-system export: pm-platform (via run_exporter.py)
+  - wiki sync: Hermes operations plane (NOT pm-platform completion paths)
+
+This module is a utility/legacy adapter. pm-platform completion paths do NOT call
+sync_executive_summary() directly. Hermes consumes completed run events and calls
+these helpers (or its own equivalent) when writing to the wiki.
+
+Canonical wiki target paths:
+  prd   → WIKI_ROOT/raw/from-decision-system/prds/<date>-<slug>.md
+  poc   → WIKI_ROOT/raw/from-decision-system/poc-upgrades/<date>-<slug>.md
+  kill  → WIKI_ROOT/raw/from-decision-system/kills/<date>-<slug>.md
+
+Auto-triage archive (wiki only, no decision-system export):
+  WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/<date>-<slug>.md
+
+Modes that are NOT wiki sync targets: brief, opportunity, evaluate.
 """
 
 import re
@@ -26,7 +38,8 @@ def archive_auto_triaged(
     s2_output: S2OutputData,
     wiki_root: str,
 ) -> Path:
-    """Write an auto-triaged signal to WIKI_ROOT/raw/kills/auto-triaged/.
+    """Write an auto-triaged signal to
+    WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/.
 
     The file is written silently. If the wiki root does not exist (e.g. running
     in a CI environment without the external repo mounted), the error is swallowed
@@ -39,7 +52,9 @@ def archive_auto_triaged(
         slug = _slugify(signal_title)
         filename = f"{date_str}-{slug}.md"
 
-        target_dir = Path(wiki_root) / "raw" / "kills" / "auto-triaged"
+        target_dir = (
+            Path(wiki_root) / "raw" / "from-decision-system" / "kills" / "auto-triaged"
+        )
         target_dir.mkdir(parents=True, exist_ok=True)
 
         content = _render_auto_triaged(
@@ -65,7 +80,7 @@ def archive_auto_triaged(
 
 
 # ---------------------------------------------------------------------------
-# Executive summary sync (Phase 4.3 — placeholder)
+# Executive summary sync (Hermes-owned; this is a utility helper)
 # ---------------------------------------------------------------------------
 
 
@@ -77,29 +92,76 @@ def sync_executive_summary(
     signal_title: str,
     wiki_root: str,
 ) -> Path:
-    """Write a completed run's Executive Summary to the appropriate wiki subdirectory.
+    """Write a completed run's Executive Summary to the canonical wiki path.
 
-    routing == 'prd'  → raw/prds/<date>-<slug>.md
-    routing == 'poc'  → raw/poc-upgrades/<date>-<slug>.md
-    routing == 'kill' → raw/kills/<date>-<slug>.md
+    routing == 'prd'  → raw/from-decision-system/prds/<date>-<slug>.md
+    routing == 'poc'  → raw/from-decision-system/poc-upgrades/<date>-<slug>.md
+    routing == 'kill' → raw/from-decision-system/kills/<date>-<slug>.md
+
+    NOTE: pm-platform completion paths do not call this directly.
+    This is provided for Hermes (or manual use) as a utility helper.
     """
     routing_to_dir = {
         "prd": "prds",
         "poc": "poc-upgrades",
         "kill": "kills",
     }
-    subdir = routing_to_dir.get(routing, "kills")
+    subdir = routing_to_dir.get(routing)
+    if subdir is None:
+        raise ValueError(
+            f"Unknown routing '{routing}' for wiki sync. "
+            f"Expected one of: {', '.join(routing_to_dir)}"
+        )
 
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     slug = _slugify(signal_title)
     filename = f"{date_str}-{slug}.md"
 
-    target_dir = Path(wiki_root) / "raw" / subdir
+    target_dir = Path(wiki_root) / "raw" / "from-decision-system" / subdir
     target_dir.mkdir(parents=True, exist_ok=True)
 
     target_path = target_dir / filename
-    target_path.write_text(_add_frontmatter(markdown, run_id, product_id, routing, date_str), encoding="utf-8")
+    target_path.write_text(
+        _add_frontmatter(markdown, run_id, product_id, routing, date_str),
+        encoding="utf-8",
+    )
     return target_path
+
+
+def sync_executive_summary_safe(
+    run_id: str,
+    product_id: str,
+    routing: str,
+    markdown: str,
+    signal_title: str,
+    wiki_root: str,
+) -> None:
+    """Non-fatal wrapper around sync_executive_summary().
+
+    Swallows OSError (wiki root not mounted / not writable) and logs the skip
+    via emit_event. All other exceptions propagate so real bugs surface.
+    """
+    from app.logging import emit_event
+
+    try:
+        path = sync_executive_summary(
+            run_id=run_id,
+            product_id=product_id,
+            routing=routing,
+            markdown=markdown,
+            signal_title=signal_title,
+            wiki_root=wiki_root,
+        )
+        emit_event("wiki_sync", "summary_synced", run_id, {
+            "path": str(path),
+            "routing": routing,
+        })
+    except OSError:
+        emit_event("wiki_sync", "sync_skipped", run_id, {
+            "reason": "wiki_root not writable",
+            "wiki_root": wiki_root,
+            "routing": routing,
+        })
 
 
 # ---------------------------------------------------------------------------

@@ -123,6 +123,9 @@ python eval/runner.py
 ## Documentation
 
 - [PRD](docs/PRD.md) — problem definition, features, success metrics
+- [Reverse PRD](docs/PRD_REVERSE.md) — current product view including implemented capabilities
+- [Implementation Status](docs/IMPLEMENTATION_STATUS.md) — reverse PRD to code mapping and evidence
+- [Reverse Roadmap](docs/ROADMAP_REVERSE.md) — remaining gaps and sequencing after the current baseline
 - [Architecture](docs/ARCHITECTURE.md) — system design, data model, integration points
 - [Design Decisions](docs/DESIGN_DECISIONS.md) — why this is different from `ai-agent-test`
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) — phase-by-phase build order
