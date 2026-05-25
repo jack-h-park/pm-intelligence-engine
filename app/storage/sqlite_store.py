@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import create_engine
@@ -105,7 +105,7 @@ class SQLiteStore:
                     # failed intentionally does NOT receive completed_at — the run
                     # did not reach a meaningful endpoint and may need investigation.
                     if value in {RunStatus.completed, RunStatus.killed} and r.completed_at is None:
-                        r.completed_at = datetime.utcnow()
+                        r.completed_at = datetime.now(UTC)
                 elif key == "routing" and value is not None:
                     value = Routing(value)
                 elif key == "mode" and value is not None:
@@ -214,6 +214,19 @@ class SQLiteStore:
             session.commit()
             return artifact.artifact_id
 
+    def list_artifacts(
+        self,
+        run_id: str,
+        artifact_type: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]:
+        with self._Session() as session:
+            q = session.query(Artifact).filter(Artifact.run_id == run_id)
+            if artifact_type:
+                q = q.filter(Artifact.type == ArtifactType(artifact_type))
+            q = q.order_by(Artifact.created_at.desc()).limit(limit)
+            return [self._artifact_to_dict(a) for a in q.all()]
+
     # --- Serializers ---
 
     @staticmethod
@@ -255,4 +268,15 @@ class SQLiteStore:
             "output_json": so.output_json,
             "version": so.version,
             "created_at": so.created_at.isoformat(),
+        }
+
+    @staticmethod
+    def _artifact_to_dict(a: Artifact) -> dict:
+        return {
+            "artifact_id": a.artifact_id,
+            "run_id": a.run_id,
+            "type": a.type.value,
+            "content_md": a.content_md,
+            "content_json": a.content_json,
+            "created_at": a.created_at.isoformat(),
         }

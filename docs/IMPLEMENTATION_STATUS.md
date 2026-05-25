@@ -151,8 +151,8 @@ as Blocking in R04/R07 that historical Claude runs treated as Informing.
 
 ### Highest-value gaps (remaining)
 
-1. Prompt calibration for gpt-4o — Skeptic persona and S5 assumption classification need tuning
-2. auto-triage archive ownership — currently pm-platform utility; target is Hermes-owned
-3. No public artifact endpoint — `GET /runs/{id}?include_outputs=true` is the current access path
+1. Auto-triage archive ownership is still transitional — local archive writes remain until Hermes takes over fully
+2. Eval calibration for the active model baseline — R04/R07 still diverge under `gpt-4o`
+3. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
 
 See sequencing in [Reverse Roadmap](ROADMAP_REVERSE.md).

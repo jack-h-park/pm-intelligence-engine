@@ -22,6 +22,7 @@ version bump.
 | `POST` | `/runs/start` | Start a pipeline run | Optional (manual start) |
 | `GET` | `/runs` | List runs with filters | Polling actionable queues |
 | `GET` | `/runs/{id}` | Get run state + outputs | Completion artifact fetch |
+| `GET` | `/runs/{id}/artifacts` | List persisted artifacts for a run | Lightweight artifact fetch |
 | `POST` | `/runs/{id}/direction` | Gate 1 response | Bridge PM direction |
 | `POST` | `/runs/{id}/approve` | Gate 2 approve | Bridge PM approval |
 | `POST` | `/runs/{id}/revise` | Gate 2 revise | Bridge PM revision |
@@ -123,6 +124,32 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
 
 ---
 
+### `GET /runs/{id}/artifacts`
+List persisted artifacts for a run in reverse chronological order.
+
+**Query parameters:**
+- `artifact_type` — optional filter (`executive_summary`, `prd`, `poc_plan`)
+- `limit` — max results (default 20)
+
+**Response (200):**
+```json
+[
+  {
+    "artifact_id": "uuid",
+    "run_id": "uuid",
+    "type": "executive_summary",
+    "content_md": "# Summary",
+    "content_json": "{\"markdown\": \"# Summary\"}",
+    "created_at": "2026-05-24T10:12:34"
+  }
+]
+```
+
+Hermes should prefer this endpoint when it only needs persisted Markdown/JSON artifacts
+and does not need every stage output blob.
+
+---
+
 ### `POST /runs/{id}/direction`
 Gate 1 response — confirm or override the suggested mode.
 
@@ -212,6 +239,14 @@ GET /runs?status=killed                → record kill in wiki if applicable
 
 **Do not poll `running` or `pending`** — these are transient and change without
 Hermes intervention.
+
+### Consumer defaults
+
+- Sort assumption: responses are newest-first by `created_at`; Hermes should checkpoint by `run_id` + `completed_at`, not by array position.
+- Deduping rule: a terminal run may be observed more than once; Hermes should treat wiki sync and notifications as idempotent.
+- Artifact fetch rule: prefer `GET /runs/{id}/artifacts` for persisted artifacts; use `GET /runs/{id}?include_outputs=true` when stage-level detail is required.
+- Auto-triage detection: Hermes should treat `status=completed` + `mode=file` + `recommendation_json` present as the canonical auto-triage signature.
+- Recovery rule: if a run is `failed`, Hermes may notify or open an ops item, but must not mutate state except through documented gate endpoints.
 
 ---
 

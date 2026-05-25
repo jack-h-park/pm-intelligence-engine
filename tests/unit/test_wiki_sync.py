@@ -44,6 +44,46 @@ def _make_s2_output(
 FIXED_DATE = "2026-05-24"
 
 
+def test_archive_auto_triaged_if_enabled_skips_when_flag_disabled():
+    """The transitional local archive path can be disabled for Hermes cutover."""
+    from app.api.runs import _archive_auto_triaged_if_enabled
+
+    settings_obj = MagicMock()
+    settings_obj.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED = False
+    settings_obj.WIKI_ROOT = "/tmp/wiki"
+
+    with patch("app.api.runs._archive_auto_triaged") as mock_archive:
+        _archive_auto_triaged_if_enabled(
+            run_id="run-abc",
+            product_id="samsung-knox-lockdown-mode",
+            signal_title="Signal",
+            s2_output=_make_s2_output(),
+            settings_obj=settings_obj,
+        )
+
+    mock_archive.assert_not_called()
+
+
+def test_archive_auto_triaged_if_enabled_calls_legacy_helper_when_flag_enabled():
+    """The transitional local archive path remains callable until Hermes takeover."""
+    from app.api.runs import _archive_auto_triaged_if_enabled
+
+    settings_obj = MagicMock()
+    settings_obj.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED = True
+    settings_obj.WIKI_ROOT = "/tmp/wiki"
+
+    with patch("app.api.runs._archive_auto_triaged") as mock_archive:
+        _archive_auto_triaged_if_enabled(
+            run_id="run-abc",
+            product_id="samsung-knox-lockdown-mode",
+            signal_title="Signal",
+            s2_output=_make_s2_output(),
+            settings_obj=settings_obj,
+        )
+
+    mock_archive.assert_called_once()
+
+
 # ---------------------------------------------------------------------------
 # sync_executive_summary — canonical path mapping
 # ---------------------------------------------------------------------------
@@ -295,15 +335,17 @@ def test_decision_system_export_path_includes_product_and_date(tmp_path):
     store.get_all_stage_outputs.return_value = []
     store.get_stage_output.return_value = None
 
-    path = export_run(
-        run_id="run-export-test",
-        store=store,
-        decision_system_root=str(tmp_path),
-    )
+    with patch("app.services.run_exporter.datetime") as mock_dt:
+        mock_dt.now.return_value.strftime.return_value = FIXED_DATE
+        path = export_run(
+            run_id="run-export-test",
+            store=store,
+            decision_system_root=str(tmp_path),
+        )
 
     assert "samsung-knox-lockdown-mode" in str(path)
     assert "runs" in str(path)
-    assert "2026-05-24" in str(path) or "android" in str(path).lower()
+    assert FIXED_DATE in str(path) or "android" in str(path).lower()
     # Export dir must be created under the decision system root
     assert str(tmp_path) in str(path)
 

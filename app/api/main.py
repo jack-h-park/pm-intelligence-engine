@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.api.artifacts import router as artifacts_router
 from app.api.approvals import router as approvals_router
 from app.api.direction import router as direction_router
 from app.api.review import router as review_router
@@ -27,6 +28,7 @@ app = FastAPI(
 
 app.include_router(signals_router)
 app.include_router(runs_router)
+app.include_router(artifacts_router)
 app.include_router(direction_router)
 app.include_router(approvals_router)
 app.include_router(routing_review_router)

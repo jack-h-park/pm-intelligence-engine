@@ -75,3 +75,10 @@ class PMWorkflowStore(Protocol):
         content_md: str,
         content_json: str,
     ) -> str: ...
+
+    def list_artifacts(
+        self,
+        run_id: str,
+        artifact_type: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict]: ...

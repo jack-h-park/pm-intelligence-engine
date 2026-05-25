@@ -58,7 +58,8 @@ pm-platform does not write to `WIKI_ROOT` as part of run completion.
 it is not called from any completion path.
 
 **Allowed (Hermes):** Poll for `completed`/`killed` events via `GET /runs`,
-read artifact via `GET /runs/{id}?include_outputs=true`, write to wiki.
+read artifact via `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true`,
+write to wiki.
 
 **Forbidden (pm-platform completion paths):** Direct calls to
 `sync_executive_summary()` or any WIKI_ROOT write inside `run_finalizer`,
@@ -104,9 +105,9 @@ execution functions and `run_finalizer`. External callers must not pass
 | Bridge PM approval | `POST /runs/{id}/approve\|revise\|reject` |
 | Poll for Gate 3 runs | `GET /runs?status=waiting_routing_review` |
 | Bridge PM routing decision | `POST /runs/{id}/routing-review` |
-| Read completed run artifacts | `GET /runs/{id}?include_outputs=true` |
+| Read completed run artifacts | `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true` |
 | Write to wiki after completion | Direct WIKI_ROOT write (Hermes-owned) |
-| Send notifications | Hermes-owned (not pm-platform) |
+| Send notifications | Hermes-owned, or rely on pm-platform's built-in Gate 1/2 notifier during transition |
 | Schedule harvesting | Hermes-owned cron/jobs |
 
 ---
