@@ -24,6 +24,7 @@ def _make_s2_output() -> S2OutputData:
         reframing="Consumer feature → compliance gap for KPE Ultra segment.",
         pillar_references=["Reduce attack surface (Ingress & Egress)"],
         relevance_explanation="Directly addresses Pillar 1.",
+        relevance_score=4,
         suggested_mode="evaluate",
         suggestion_reasoning="Signal is directly relevant to a named strategy pillar.",
     )
