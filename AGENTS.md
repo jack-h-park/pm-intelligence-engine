@@ -27,11 +27,23 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wi
 - `products/<name>/context.md` — product-specific context
 - `products/<name>/signal-sources.md` — RSS/URL sources for signal collection
 - `prompts/s1/` through `prompts/s7/` — stage prompt templates
-- `products/<name>/runs/` — where completed run files are written
+- `products/<name>/runs/` — where completed run files are written (pm-platform writes here)
 
-**jackhpark-product-management-wiki** — source of:
-- `raw/from-web/sensing/` — watched for new signal files
-- `raw/from-decision-system/` — where Stage 7 Executive Summary reports are synced after completion
+**jackhpark-product-management-wiki** — used by Hermes (not pm-platform directly):
+- `raw/from-web/sensing/` — Hermes watches for new signal files
+- `raw/from-decision-system/` — Hermes writes wiki sync output after pm-platform completion
+
+---
+
+## Hosting
+
+pm-platform runs on an always-on **iMac**. Running on a MacBook is not recommended — closing
+the lid suspends the FastAPI process, breaking Hermes polling and making review links
+unreachable from iPhone.
+
+**Tailscale** is installed on the iMac and the PM's iPhone. `BASE_URL` in `.env` should be
+set to the iMac's Tailscale IP (e.g. `http://100.x.x.x:8000`) so Gate 2 Telegram
+notifications include a working review page link regardless of network location.
 
 ---
 
@@ -40,38 +52,55 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wi
 ```
 app/
 ├── models/
-│   ├── workflow.py       SQLAlchemy ORM models (5 tables)
-│   └── stages.py         Pydantic I/O schemas for each stage
-├── stages/               One async function per stage: s1_signal.py → s7_summary.py
-├── agents/               Stage 4 persona agents: explorer, strategist, builder, skeptic
+│   ├── workflow.py        SQLAlchemy ORM models (5 tables: signals, workflow_runs,
+│   │                      stage_outputs, approval_events, artifacts)
+│   └── stages.py          Pydantic I/O schemas for each stage
+│
+├── stages/                One async function per stage: s1_signal.py → s7_summary.py
+│
+├── agents/                Stage 4 persona agents: explorer, strategist, builder, skeptic
+│
 ├── services/
-│   ├── context_loader.py Reads 3-layer context from DECISION_SYSTEM_ROOT
+│   ├── context_loader.py  Reads 3-layer context from DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates
-│   ├── signal_collector.py RSS polling + file watch
-│   └── wiki_sync.py      Writes Stage 7 Executive Summary output to WIKI_ROOT
+│   ├── run_finalizer.py   Single exit point for all terminal transitions;
+│   │                      auto-stamps completed_at; triggers export for decide mode
+│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT/products/.../runs/
+│   ├── notifier.py        FanoutNotifier: fires Gate 1 + Gate 2 alerts via Telegram/Slack;
+│   │                      Gate 2 alert includes link to /runs/{id}/review
+│   └── wiki_sync.py       Utility adapter only — documents canonical wiki paths;
+│                          NOT called from any completion path (wiki writes are Hermes-owned)
+│
 ├── storage/
-│   ├── protocol.py       PMWorkflowStore Protocol (interface)
-│   └── sqlite_store.py   SQLite implementation
+│   ├── protocol.py        PMWorkflowStore Protocol (typed interface)
+│   └── sqlite_store.py    SQLite implementation; auto-stamps completed_at on terminal states
+│
 ├── llm/
-│   ├── protocol.py       LLMProvider Protocol
-│   ├── Codex.py         Anthropic implementation
-│   └── openai.py         OpenAI implementation
+│   ├── protocol.py        LLMProvider Protocol: async complete(messages) -> str
+│   ├── claude.py          Anthropic Claude implementation
+│   └── openai.py          OpenAI implementation
+│
 ├── api/
-│   ├── main.py           FastAPI app
-│   ├── signals.py        /signals routes
-│   ├── runs.py           /runs routes
-│   └── approvals.py      /runs/{id}/approve|revise|reject
-├── factory.py            build_engine(runtime) — dependency wiring
-└── logging.py            emit_event() — structured JSON logging
+│   ├── main.py            FastAPI app initialization and router registration
+│   ├── signals.py         /signals routes
+│   ├── runs.py            /runs routes + Gate 1 logic (direction prompt + notifier call)
+│   ├── direction.py       /runs/{id}/direction — Gate 1 response endpoint
+│   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2 endpoints
+│   ├── routing_review.py  /runs/{id}/routing-review — Gate 3 endpoint
+│   ├── artifacts.py       /runs/{id}/artifacts — artifact query endpoint
+│   └── review.py          /runs/{id}/review — browser-based Gate 2 HTML review page
+│
+├── factory.py             build_engine(runtime) — dependency wiring
+└── logging.py             emit_event() — structured JSON event logging
 
 eval/
-├── scenarios.json        Golden dataset (R01–R07 historical runs)
-├── runner.py             Full scenario regression runner
-└── rubrics/              Stage-specific quality evaluators
+├── scenarios.json         Golden dataset (R01–R07 historical runs)
+├── runner.py              Full scenario regression runner (S1–S5 pipeline)
+└── rubrics/               Stage-specific quality evaluators
 
 tests/
-├── unit/                 Per-stage unit tests with mocked LLM and store
-└── integration/          Full flow tests against SQLite + real file system
+├── unit/                  Per-stage and per-service unit tests with mocked LLM and store
+└── integration/           Full flow tests against real SQLite + real filesystem
 ```
 
 ---
@@ -79,29 +108,56 @@ tests/
 ## Architecture Summary
 
 ### Workflow stages (sequential)
+
 ```
-Stage 1: Signal Ingestion
-  → Stage 2: Insight Extraction
-  → Stage 3: Opportunity Creation
-  → Stage 4: Persona Evaluation [Explorer, Strategist, Builder, Skeptic run in parallel]
-  → [PM approval gate]
-  → Stage 5: Prioritization and Routing (prd / poc / kill)
+Stage 1: Signal Ingestion           (no LLM)
+  → Stage 2: Insight Extraction     (LLM)
+  → [auto-triage if relevance < threshold → completed, mode=file]
+  → [Gate 1: PM chooses mode via POST /runs/{id}/direction]
+  → Stage 3: Opportunity Creation   (LLM, decide mode only)
+  → Stage 4: Persona Evaluation     (LLM × 4 in parallel)
+      Explorer / Strategist / Builder / Skeptic
+  → [Gate 2: PM approves/revises/rejects via review page]
+  → Stage 5: Prioritization + Routing (prd / poc / kill)
+  → [Gate 3: routing review if S5 routes kill]
   → Stage 6A: PoC Plan  (if routing = poc)
      OR
      Stage 6B: PRD       (if routing = prd)
   → Stage 7: Executive Summary
+  → run_finalizer: completed_at stamp + decision-system export
 ```
 
 ### State machine (WorkflowRun.status)
+
 ```
-pending → running → waiting_approval → [approve] → running → completed
-                                      → [revise]  → running (Stage 4 re-runs with PM feedback)
-                                      → [reject]  → killed
+pending
+  → running
+  → [auto-triage] → completed (mode=file)
+  → awaiting_direction      ← Gate 1: POST /runs/{id}/direction
+  → running (mode set)
+  → [non-decide mode] → completed
+  → [decide mode, S4 done] → waiting_approval
+      → [approve]  → running → S5 → ...
+      → [revise]   → running (S4 re-runs with feedback)
+      → [reject]   → killed
+  → [S5 routes kill] → waiting_routing_review
+      → [confirm]  → killed
+      → [override] → running → S6 → S7 → completed
+  → [S5 routes prd/poc] → running → S6 → S7 → completed
 ```
 
+**Terminal states:**
+
+| Status | `completed_at` stamped | Decision-system export |
+|--------|------------------------|------------------------|
+| `completed` | ✅ | decide mode only |
+| `killed` | ✅ | never |
+| `failed` | ❌ intentionally unset | never |
+
 ### LLM abstraction
+
 All LLM calls go through `LLMProvider`. No stage imports an SDK directly.
-Set `LLM_PROVIDER=Codex` or `LLM_PROVIDER=openai` in `.env`.
+Set `LLM_PROVIDER=claude` or `LLM_PROVIDER=openai` in `.env`.
 
 ---
 
@@ -117,6 +173,7 @@ Set `LLM_PROVIDER=Codex` or `LLM_PROVIDER=openai` in `.env`.
 5. **Eval must pass before a phase is considered complete.** Run `python eval/runner.py` before marking any phase done.
 6. **Storage writes happen inside stages, not in API routes.**
 7. **Run files exported to `DECISION_SYSTEM_ROOT` must match the existing manual format exactly.**
+8. **pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 
 ---
 
@@ -128,7 +185,9 @@ pip install -e ".[dev,anthropic]"
 
 # Environment
 cp .env.example .env
-# Set: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required for notifications: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000
 
 # Start API
 uvicorn app.api.main:app --reload
@@ -146,17 +205,19 @@ pytest tests/integration/ -m "not slow"
 ## Key Data Contracts
 
 ### Stage output structure (all stages)
+
 ```json
 {
   "stage": "s3",
   "run_id": "uuid",
   "version": 1,
-  "output": { ... stage-specific fields ... },
+  "output": { "...stage-specific fields..." },
   "metadata": { "created_at": "...", "model_used": "..." }
 }
 ```
 
 ### Approval event
+
 ```json
 {
   "run_id": "uuid",
@@ -168,6 +229,7 @@ pytest tests/integration/ -m "not slow"
 ```
 
 ### WorkflowRun routing values
+
 - `"prd"` — proceed to Stage 6B: PRD generation
 - `"poc"` — proceed to Stage 6A: PoC Plan generation
 - `"kill"` — terminate run, record reason
@@ -188,7 +250,12 @@ pytest tests/integration/ -m "not slow"
 | R06 | DISA Android 16 STIG mandates dedicated MTD app | `kill` |
 | R07 | Android 16 RKP attestation transition | `kill` (Gate 3 override → `prd`) |
 
+**Current eval status (2026-05-24, gpt-4o):** R05/R06 pass; R04/R07 routing drift vs historical
+Claude runs — root cause is gpt-4o systematically assigning Skeptic 2/5. Pipeline behavior is
+correct; this is a model calibration gap. See `docs/IMPLEMENTATION_STATUS.md` for full analysis.
+
 **To add a new scenario to `eval/scenarios.json`:**
+
 ```json
 {
   "run_id": "R08",

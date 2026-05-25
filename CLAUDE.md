@@ -29,9 +29,12 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wi
 - `prompts/s1/` through `prompts/s7/` — stage prompt templates
 - `products/<name>/runs/` — where completed run files are written
 
-**jackhpark-product-management-wiki** — source of:
-- `raw/from-web/sensing/` — watched for new signal files
-- `raw/from-decision-system/` — where Stage 7 Executive Summary reports are synced after completion
+**jackhpark-product-management-wiki** — used by Hermes (not pm-platform directly):
+- `raw/from-web/sensing/` — Hermes watches for new signal files
+- `raw/from-decision-system/` — Hermes writes wiki sync output after pm-platform completion
+
+**pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
+See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
 
 ---
 
@@ -45,24 +48,30 @@ app/
 ├── stages/               One async function per stage: s1_signal.py → s7_summary.py
 ├── agents/               Stage 4 persona agents: explorer, strategist, builder, skeptic
 ├── services/
-│   ├── context_loader.py Reads 3-layer context from DECISION_SYSTEM_ROOT
+│   ├── context_loader.py  Reads 3-layer context from DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates
-│   ├── signal_collector.py RSS polling + file watch
-│   └── wiki_sync.py      Writes Stage 7 Executive Summary output to WIKI_ROOT
+│   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
+│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
+│   ├── notifier.py        FanoutNotifier: Gate 1 + Gate 2 Telegram/Slack alerts
+│   └── wiki_sync.py       Utility adapter only — NOT called from completion paths
 ├── storage/
-│   ├── protocol.py       PMWorkflowStore Protocol (interface)
-│   └── sqlite_store.py   SQLite implementation
+│   ├── protocol.py        PMWorkflowStore Protocol (interface)
+│   └── sqlite_store.py    SQLite implementation
 ├── llm/
-│   ├── protocol.py       LLMProvider Protocol
-│   ├── claude.py         Anthropic implementation
-│   └── openai.py         OpenAI implementation
+│   ├── protocol.py        LLMProvider Protocol
+│   ├── claude.py          Anthropic implementation
+│   └── openai.py          OpenAI implementation
 ├── api/
-│   ├── main.py           FastAPI app
-│   ├── signals.py        /signals routes
-│   ├── runs.py           /runs routes
-│   └── approvals.py      /runs/{id}/approve|revise|reject
-├── factory.py            build_engine(runtime) — dependency wiring
-└── logging.py            emit_event() — structured JSON logging
+│   ├── main.py            FastAPI app
+│   ├── signals.py         /signals routes
+│   ├── runs.py            /runs routes + Gate 1 logic
+│   ├── direction.py       /runs/{id}/direction — Gate 1 response
+│   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2
+│   ├── routing_review.py  /runs/{id}/routing-review — Gate 3
+│   ├── artifacts.py       /runs/{id}/artifacts — artifact query
+│   └── review.py          /runs/{id}/review — browser Gate 2 review page
+├── factory.py             build_engine(runtime) — dependency wiring
+└── logging.py             emit_event() — structured JSON logging
 
 eval/
 ├── scenarios.json        Golden dataset (R01–R07 historical runs)
@@ -94,10 +103,22 @@ Stage 1: Signal Ingestion
 
 ### State machine (WorkflowRun.status)
 ```
-pending → running → waiting_approval → [approve] → running → completed
-                                      → [revise]  → running (Stage 4 re-runs with PM feedback)
-                                      → [reject]  → killed
+pending → running
+  → [auto-triage]         → completed (mode=file)
+  → awaiting_direction    ← Gate 1: POST /runs/{id}/direction
+  → running (mode set)
+  → [non-decide]          → completed
+  → waiting_approval      ← Gate 2: approve / revise / reject
+      [approve]  → running → S5 → ...
+      [revise]   → running (S4 re-runs with PM feedback)
+      [reject]   → killed
+  → [S5 routes kill] → waiting_routing_review
+      [confirm]  → killed
+      [override] → running → S6 → S7 → completed
+  → [S5 routes prd/poc] → S6 → S7 → completed
 ```
+
+Terminal states: `completed` and `killed` receive `completed_at`; `failed` does not.
 
 ### LLM abstraction
 All LLM calls go through `LLMProvider`. No stage imports an SDK directly.
@@ -117,6 +138,7 @@ Set `LLM_PROVIDER=claude` or `LLM_PROVIDER=openai` in `.env`.
 5. **Eval must pass before a phase is considered complete.** Run `python eval/runner.py` before marking any phase done.
 6. **Storage writes happen inside stages, not in API routes.**
 7. **Run files exported to `DECISION_SYSTEM_ROOT` must match the existing manual format exactly.**
+8. **pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 
 ---
 
