@@ -58,9 +58,12 @@ async def routing_review(
     _require_waiting_routing_review(run_id, engine)
 
     if body.action == "confirm":
-        engine.store.update_run(run_id, status="killed")
-        from app.logging import emit_event
-        emit_event("run", "kill_confirmed", run_id, {"reason": body.reason})
+        from app.services.run_finalizer import finalize_run
+        finalize_run(
+            run_id, "killed", engine,
+            event_action="kill_confirmed",
+            event_detail={"reason": body.reason},
+        )
         return {"run_id": run_id, "action": "kill_confirmed"}
 
     # override: PM disagrees with blocking classification, proceed with chosen routing
@@ -73,6 +76,7 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
     from app.logging import emit_event
     from app.models.stages import RunContext, S6AInput, S6BInput, S7Input
     from app.stages import s6a_poc_plan, s6b_prd, s7_summary
+    from app.services.run_finalizer import finalize_run
     import json
 
     try:
@@ -113,9 +117,10 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
         engine.store.update_run(run_id, current_stage="s7")
         await s7_summary.run(s7_in, context, engine.llm, engine.store)
 
-        engine.store.update_run(run_id, status="completed", current_stage=None)
-        emit_event("run", "completed", run_id, {"routing_override": routing})
+        finalize_run(
+            run_id, "completed", engine,
+            event_detail={"routing_override": routing},
+        )
 
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

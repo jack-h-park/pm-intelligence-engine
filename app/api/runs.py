@@ -10,6 +10,11 @@ from app.factory import PMEngine
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
+class _DummyPersona:
+    """Sentinel used when a persona is unexpectedly absent from S4 output."""
+    score = 0
+
+
 class RunStartRequest(BaseModel):
     signal_id: str
     product_id: str
@@ -166,13 +171,18 @@ async def _execute_s1_s2(
         # Auto-triage: if relevance score is below threshold, skip Gate 1 entirely.
         # The signal is archived to the wiki kills folder and the run completes silently.
         from config import settings as _cfg
+        from app.services.run_finalizer import finalize_run
         if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
-            engine.store.update_run(run_id, mode="file", status="completed", current_stage=None)
-            emit_event("run", "auto_triaged", run_id, {
-                "relevance_score": s2_out.output.relevance_score,
-                "threshold": _cfg.AUTO_TRIAGE_THRESHOLD,
-                "reasoning": s2_out.output.suggestion_reasoning,
-            })
+            engine.store.update_run(run_id, mode="file")  # set mode before finalize
+            finalize_run(
+                run_id, "completed", engine,
+                event_action="auto_triaged",
+                event_detail={
+                    "relevance_score": s2_out.output.relevance_score,
+                    "threshold": _cfg.AUTO_TRIAGE_THRESHOLD,
+                    "reasoning": s2_out.output.suggestion_reasoning,
+                },
+            )
             _archive_auto_triaged(
                 run_id=run_id,
                 product_id=product_id,
@@ -193,6 +203,14 @@ async def _execute_s1_s2(
                 current_stage="s2",
             )
             emit_event("run", "awaiting_direction", run_id, recommendation)
+            await engine.notifier.send_gate1(
+                run_id=run_id,
+                product_id=product_id,
+                signal_title=signal["title"],
+                relevance_score=s2_out.output.relevance_score,
+                suggested_mode=s2_out.output.suggested_mode,
+                reasoning=s2_out.output.suggestion_reasoning,
+            )
             return
 
         # Continue immediately with the chosen mode
@@ -201,9 +219,8 @@ async def _execute_s1_s2(
         await _continue_after_direction(run_id, chosen_mode, context, engine)
 
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        from app.logging import emit_event
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        from app.services.run_finalizer import finalize_run
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
 async def _continue_after_direction(
@@ -214,8 +231,9 @@ async def _continue_after_direction(
 ) -> None:
     """Execute the stages appropriate for the chosen mode after S1+S2 are done."""
     from app.logging import emit_event
-    from app.models.stages import RunContext, S2OutputData, S3Input, S4Input, S7Input
+    from app.models.stages import S2OutputData, S3Input, S4Input, S7Input
     from app.stages import s3_opportunity, s4_evaluation, s7_summary
+    from app.services.run_finalizer import finalize_run
     import json as _json
 
     try:
@@ -223,18 +241,15 @@ async def _continue_after_direction(
         if s2_raw is None:
             raise ValueError("S2 output not found")
         s2_output_data = S2OutputData(**_json.loads(s2_raw["output_json"])["output"])
-        signal_id = _json.loads(s2_raw["output_json"]).get("run_id", "")
 
         if mode == "file":
-            engine.store.update_run(run_id, status="completed", current_stage=None)
-            emit_event("run", "completed", run_id, {"mode": "file"})
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "file"})
             return
 
         if mode == "brief":
             engine.store.update_run(run_id, current_stage="s7")
             await s7_summary.run(S7Input(mode="brief"), context, engine.llm, engine.store)
-            engine.store.update_run(run_id, status="completed", current_stage=None)
-            emit_event("run", "completed", run_id, {"mode": "brief"})
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "brief"})
             return
 
         # All remaining modes need Stage 3
@@ -252,14 +267,12 @@ async def _continue_after_direction(
         )
 
         if mode == "opportunity":
-            engine.store.update_run(run_id, status="completed", current_stage=None)
-            emit_event("run", "completed", run_id, {"mode": "opportunity"})
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "opportunity"})
             return
 
         # evaluate + decide both need Stage 4
-        from app.models.stages import S3OutputData
         engine.store.update_run(run_id, current_stage="s4")
-        await s4_evaluation.run(
+        s4_out = await s4_evaluation.run(
             S4Input(s3_output=s3_out.output),
             context,
             engine.llm,
@@ -267,14 +280,60 @@ async def _continue_after_direction(
         )
 
         if mode == "evaluate":
-            engine.store.update_run(run_id, status="completed", current_stage=None)
-            emit_event("run", "completed", run_id, {"mode": "evaluate"})
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "evaluate"})
             return
 
         # decide mode: pause for human approval at Stage 4
         engine.store.update_run(run_id, status="waiting_approval", current_stage="s4")
         emit_event("run", "waiting_approval", run_id)
 
+        # Notify PM via configured providers (Telegram / Slack)
+        from config import settings as _notify_cfg
+        signal_for_notify = engine.store.get_signal(
+            _json.loads(s2_raw["output_json"]).get("signal_id", "")
+        )
+        signal_title = signal_for_notify["title"] if signal_for_notify else run_id
+        personas = {p.persona: p for p in s4_out.output.personas}
+        skeptic_concern = (
+            personas["skeptic"].key_argument if "skeptic" in personas else ""
+        )
+        review_url = f"{_notify_cfg.BASE_URL}/runs/{run_id}/review"
+        await engine.notifier.send_gate2(
+            run_id=run_id,
+            product_id=context.product_id,
+            signal_title=signal_title,
+            explorer_score=personas.get("explorer", _DummyPersona).score,
+            strategist_score=personas.get("strategist", _DummyPersona).score,
+            builder_score=personas.get("builder", _DummyPersona).score,
+            skeptic_score=personas.get("skeptic", _DummyPersona).score,
+            key_concern=skeptic_concern,
+            review_url=review_url,
+        )
+
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+
+
+def _archive_auto_triaged(
+    run_id: str,
+    product_id: str,
+    signal_title: str,
+    s2_output,  # S2OutputData — avoid circular import at module level
+    wiki_root: str,
+) -> None:
+    """Delegate to wiki_sync.archive_auto_triaged; swallow OSError so run never fails."""
+    from app.logging import emit_event
+    from app.services.wiki_sync import archive_auto_triaged
+
+    try:
+        path = archive_auto_triaged(
+            run_id=run_id,
+            product_id=product_id,
+            signal_title=signal_title,
+            s2_output=s2_output,
+            wiki_root=wiki_root,
+        )
+        emit_event("wiki_sync", "auto_triaged_archived", run_id, {"path": str(path)})
+    except OSError:
+        # Wiki root not mounted — non-fatal; already logged inside wiki_sync.
+        pass

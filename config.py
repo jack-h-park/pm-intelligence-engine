@@ -20,5 +20,16 @@ class Settings(BaseSettings):
     # Range 1–5. Default 3 means scores 1–2 are auto-triaged; score 3+ goes to PM.
     AUTO_TRIAGE_THRESHOLD: int = 3
 
+    # Base URL used to generate review page links sent in notifications.
+    # Set to your server's public URL when deployed; default is local dev.
+    BASE_URL: str = "http://localhost:8000"
+
+    # Notifications — Gate 1 and Gate 2 alerts.
+    # Leave a field empty ("") to disable that provider.
+    # Both providers can be active simultaneously.
+    TELEGRAM_BOT_TOKEN: str = ""
+    TELEGRAM_CHAT_ID: str = ""
+    SLACK_WEBHOOK_URL: str = ""  # Incoming Webhook URL from Slack App settings
+
 
 settings = Settings()
