@@ -91,6 +91,7 @@ def sync_executive_summary(
     markdown: str,
     signal_title: str,
     wiki_root: str,
+    run_folder: str = "",
 ) -> Path:
     """Write a completed run's Executive Summary to the canonical wiki path.
 
@@ -122,7 +123,7 @@ def sync_executive_summary(
 
     target_path = target_dir / filename
     target_path.write_text(
-        _add_frontmatter(markdown, run_id, product_id, routing, date_str),
+        _add_frontmatter(markdown, run_id, product_id, routing, date_str, run_folder),
         encoding="utf-8",
     )
     return target_path
@@ -135,6 +136,7 @@ def sync_executive_summary_safe(
     markdown: str,
     signal_title: str,
     wiki_root: str,
+    run_folder: str = "",
 ) -> None:
     """Non-fatal wrapper around sync_executive_summary().
 
@@ -151,6 +153,7 @@ def sync_executive_summary_safe(
             markdown=markdown,
             signal_title=signal_title,
             wiki_root=wiki_root,
+            run_folder=run_folder,
         )
         emit_event("wiki_sync", "summary_synced", run_id, {
             "path": str(path),
@@ -221,13 +224,32 @@ def _add_frontmatter(
     product_id: str,
     routing: str,
     date_str: str,
+    run_folder: str = "",
 ) -> str:
+    """Prepend wiki frontmatter conforming to jackhpark-product-management-wiki/CLAUDE.md.
+
+    Required fields (from wiki CLAUDE.md schema):
+      source: jackhpark-pm-decision-system
+      run: <run-folder-name>   ← the exports directory name, e.g. 2026-05-25-android16-nfc
+      type: kill | prd | poc-upgrade
+      date: YYYY-MM-DD
+      review_needed: false
+
+    The `routing` value maps to `type` as: prd→prd, poc→poc-upgrade, kill→kill.
+    `run_folder` should be the <YYYY-MM-DD>-<slug> directory name written by run_exporter.
+    If not provided, falls back to run_id.
+    """
+    routing_to_type = {"prd": "prd", "poc": "poc-upgrade", "kill": "kill"}
+    wiki_type = routing_to_type.get(routing, routing)
+    run_name = run_folder if run_folder else run_id
+
     frontmatter = (
         f"---\n"
-        f"run_id: {run_id}\n"
-        f"product_id: {product_id}\n"
-        f"routing: {routing}\n"
+        f"source: jackhpark-pm-decision-system\n"
+        f"run: {run_name}\n"
+        f"type: {wiki_type}\n"
         f"date: {date_str}\n"
+        f"review_needed: false\n"
         f"---\n\n"
     )
     return frontmatter + markdown

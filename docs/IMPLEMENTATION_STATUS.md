@@ -70,7 +70,7 @@ The guided workflow surface is fully implemented, including all three human-cont
 | US-09 | Implemented, Verified | `app/stages/s3_opportunity.py`, `tests/unit/test_s3.py`, `eval/rubrics/s3_hypothesis.py` | Runtime integration not separately tested |
 | US-10 | Implemented, Verified | `app/stages/s4_evaluation.py`, persona agents in `app/agents/`, `tests/unit/test_s4.py` | No dedicated integration test for persona independence across a live run |
 | US-11 | Implemented, Verified | `app/api/approvals.py`; approval persistence via `record_approval()`; statuses in `workflow.py`; `tests/integration/test_approval_flow.py` | All three branches (approve/revise/reject) integration-tested |
-| US-12 | Implemented, Verified | `app/api/routing_review.py`; `waiting_routing_review` state; Stage 5 handoff; `tests/integration/test_approval_flow.py` | confirm and override paths integration-tested |
+| US-12 | Implemented, Verified | `app/api/routing_review.py`; `waiting_routing_review` state; Stage 5 handoff; `tests/integration/test_approval_flow.py`; Gate 3 Telegram/Slack alert via `notifier.send_gate3()` wired in `_execute_s5_to_s7()` | confirm and override paths integration-tested; Gate 3 notification added 2026-05-25 |
 
 ---
 
