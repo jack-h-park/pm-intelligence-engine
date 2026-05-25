@@ -183,12 +183,12 @@ async def _execute_s1_s2(
                     "reasoning": s2_out.output.suggestion_reasoning,
                 },
             )
-            _archive_auto_triaged(
+            _archive_auto_triaged_if_enabled(
                 run_id=run_id,
                 product_id=product_id,
                 signal_title=signal["title"],
                 s2_output=s2_out.output,
-                wiki_root=_cfg.WIKI_ROOT,
+                settings_obj=_cfg,
             )
             return
 
@@ -312,6 +312,26 @@ async def _continue_after_direction(
 
     except Exception as exc:  # noqa: BLE001
         finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+
+
+def _archive_auto_triaged_if_enabled(
+    run_id: str,
+    product_id: str,
+    signal_title: str,
+    s2_output,  # S2OutputData — avoid circular import at module level
+    settings_obj,
+) -> None:
+    """Archive auto-triaged signals locally only while the legacy cutover flag is on."""
+    if not settings_obj.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED:
+        return
+
+    _archive_auto_triaged(
+        run_id=run_id,
+        product_id=product_id,
+        signal_title=signal_title,
+        s2_output=s2_output,
+        wiki_root=settings_obj.WIKI_ROOT,
+    )
 
 
 def _archive_auto_triaged(

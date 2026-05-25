@@ -68,14 +68,19 @@ The existing `decision-context-companion-repo` has a well-designed 7-stage decis
 
 **Purpose:** Ensure relevant market signals are captured even when the PM isn't actively monitoring.
 
+> **Ownership update (2026-05):** Automated harvesting is no longer an in-process
+> pm-platform feature. Hermes owns scheduled harvesting and submits signals via
+> `POST /signals`. This section remains as a product capability requirement, not
+> an implementation requirement for this repository.
+
 **Behavior:**
-- APScheduler polls configured RSS feeds and URLs on a daily schedule
-- Watches `product-management-wiki-repo/raw/from-web/sensing/` for new files
-- References `products/<name>/signal-sources.md` for per-product source lists
-- Deduplicates by URL hash before storing
+- Hermes polls configured RSS feeds and URLs on a schedule
+- Hermes watches `product-management-wiki-repo/raw/from-web/sensing/` for new files
+- Hermes references `products/<name>/signal-sources.md` for per-product source lists
+- pm-platform deduplicates only through its explicit ingestion path and storage rules
 
 **Acceptance criteria:**
-- New signals added to DB automatically with `source_type = rss` or `file_watch`
+- New signals added to DB via the public API with `source_type = rss` or `file_watch`
 - Duplicate signals (same URL) are not re-inserted
 
 ---

@@ -54,7 +54,7 @@ jackhpark-pm-agentic-platform API        product-management-wiki-repo/
 | Persistence (runs, artifacts) | pm-platform | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-platform | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate notifications | pm-platform | FanoutNotifier (Telegram/Slack) for Gates 1 and 2 |
+| Gate notifications | pm-platform (current) / Hermes (optional) | Built-in notifier exists; Hermes may replace or absorb this operational concern later |
 | Operational scheduling | Hermes | Cron/harvest jobs |
 | Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 

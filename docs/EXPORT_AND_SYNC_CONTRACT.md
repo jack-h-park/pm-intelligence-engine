@@ -19,7 +19,7 @@ Companion documents:
 |----------|-------|---------|-------------|
 | decision-system run export | **pm-platform** | `completed` (decide mode only) | `DECISION_SYSTEM_ROOT/products/<name>/runs/<date>-<slug>/` |
 | wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-decision-system/{prds\|poc-upgrades\|kills}/` |
-| auto-triage archive | pm-platform (current utility) → **Hermes** (planned) | `auto_triaged` event | `WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/` |
+| auto-triage archive | pm-platform (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/` |
 
 ---
 
@@ -31,9 +31,6 @@ Companion documents:
 | `decide` (killed — reject) | — | ✅ Hermes | — | Hermes reads artifacts, syncs kill record |
 | `decide` (killed — routing kill confirmed) | — | ✅ Hermes | — | Same as reject |
 | `decide` (routing override → completed) | ✅ pm-platform | ✅ Hermes | — | override changes routing, export still triggered |
-| `poc` (completed) | ✅ pm-platform | ✅ Hermes | — | S6A + S7 artifacts |
-| `prd` (completed) | ✅ pm-platform | ✅ Hermes | — | S6B + S7 artifacts |
-| `kill` (via Gate 3 confirm) | — | ✅ Hermes | — | kill mode has no S6/S7 artifacts to export |
 | `file` (auto-triage) | — | — | ✅ (see below) | No LLM stages ran beyond S2 |
 | `brief` (completed) | — | — | — | Internal use; no external artifact sync |
 | `opportunity` (completed) | — | — | — | S3 output only; not synced externally |
@@ -56,9 +53,14 @@ DECISION_SYSTEM_ROOT/products/<product_id>/runs/<YYYY-MM-DD>-<slug>/
 ```
 
 ### What it writes
-- `run.json` — full run metadata and stage output references
-- `s7_executive_summary.md` — Stage 7 Markdown artifact (if available)
-- `s7_executive_summary.json` — Stage 7 JSON artifact (if available)
+- `s1-signal.md`
+- `s2-insight.md`
+- `s3-opportunity.md`
+- `s4-evaluation.md`
+- `s4-evaluation-rubric-score.md`
+- `s5-prioritization.md`
+- `s6-poc-plan.md` or `s6-prd.md`
+- `s7-report.md`
 
 ### Failure behavior
 Export failures are **non-fatal**: if `DECISION_SYSTEM_ROOT` is not writable (e.g. network
@@ -68,6 +70,13 @@ marked `completed`. pm-platform does not retry exports.
 ### Idempotency
 Re-exporting an already-exported run overwrites the directory. The export function is
 idempotent by design — safe to call twice on the same run.
+
+### Collision policy
+
+- Collision scope: identical `<YYYY-MM-DD>-<slug>/` export directory for the same run title/date
+- Behavior: pm-platform uses last-write-wins overwrite semantics for files it emits
+- Non-goal: pm-platform does not version or retain prior export revisions inside the run directory
+- Verification: overwrite behavior is contract-tested in `tests/unit/test_run_exporter.py`
 
 ---
 
@@ -114,13 +123,16 @@ path in `app/api/runs.py`. This is a non-fatal write to:
 WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/<YYYY-MM-DD>-<slug>.md
 ```
 
+This behavior is controlled by `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` in `.env`.
+Set it to `false` once Hermes has taken over the archive path.
+
 ### Planned behavior (Hermes-owned)
 In the target architecture, Hermes detects `auto_triaged` events by polling for completed
 runs with `mode=file`, then writes the archive record. The current pm-platform call to
 `archive_auto_triaged()` will be removed when Hermes takes over this path.
 
-**Transition plan:** pm-platform utility call remains until Hermes signals it has taken over;
-then the call site in `runs.py` is removed and `archive_auto_triaged()` is deprecated.
+**Transition plan:** switch `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false`, verify Hermes archive output,
+then remove the legacy call path and deprecate `archive_auto_triaged()`.
 
 ---
 

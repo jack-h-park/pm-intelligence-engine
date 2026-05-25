@@ -1,18 +1,18 @@
 # jackhpark-pm-agentic-platform
 
-A personal PM intelligence platform that automates the signal-to-decision workflow, so a PM can focus entirely on judgment — not on collecting, formatting, or filing information.
+A personal PM intelligence platform that executes a structured signal-to-decision workflow, so a PM can focus on judgment instead of manual orchestration.
 
 ## What It Does
 
-This platform connects three layers of PM work into a single automated pipeline:
+This platform executes the decision workflow and exposes the public surface that external operators use:
 
 ```
 SENSE ──▶ DECIDE ──▶ LEARN
 ```
 
-- **SENSE**: Collects external market and competitor signals (RSS feeds, manual input, wiki sensing files)
-- **DECIDE**: Runs signals through a structured 7-stage analysis workflow (S1–S7) with a multi-agent persona evaluation and a human approval gate
-- **LEARN**: Syncs completed decision records back to the PM wiki for long-term pattern accumulation
+- **SENSE**: Accepts signals through the API
+- **DECIDE**: Runs signals through a structured 7-stage analysis workflow (S1–S7) with a multi-agent persona evaluation and human gates
+- **LEARN**: Exports decision artifacts and exposes terminal run state for external sync
 
 ## Related Projects
 
@@ -20,6 +20,7 @@ SENSE ──▶ DECIDE ──▶ LEARN
 |---|---|
 | [`decision-context-companion-repo`](../../ai-assets/decision-context-companion-repo/) | Source of workflow design, prompt templates, product contexts, and run history |
 | [`product-management-wiki-repo`](../../ai-assets/product-management-wiki-repo/) | Source of external signals; destination for completed decision ingest |
+| `jackhpark-hermes-control-plane` | External operations plane: harvesting, notifications, wiki sync, scheduling |
 | [`ai-agent-test`](../../forks/ai-agent-test/) | Reference implementation for agentic patterns (not reused directly) |
 
 ## Architecture Overview
@@ -28,22 +29,17 @@ SENSE ──▶ DECIDE ──▶ LEARN
 ┌──────────────────────────────────────────────────────────────────────┐
 │                 jackhpark-pm-agentic-platform                        │
 │                                                                      │
-│   ┌────────────────┐     ┌──────────────────┐     ┌──────────────┐  │
-│   │  SENSE Layer   │────▶│  DECIDE Layer    │────▶│  LEARN Layer │  │
-│   │                │     │                  │     │              │  │
-│   │ Signal ingestion│    │  S1~S7 Workflow  │     │  Wiki sync   │  │
-│   │ RSS / manual   │     │  Multi-agent S4  │     │  Pattern     │  │
-│   │ File watch     │     │  Human gate (S4) │     │  accumulation│  │
-│   └────────────────┘     └────────┬─────────┘     └──────────────┘  │
-│                                   │                                  │
-│                    ┌──────────────▼───────────────┐                 │
-│                    │         ENGINE Layer          │                 │
-│                    │   FastAPI + SQLite            │                 │
-│                    │   APScheduler + Eval Harness  │                 │
-│                    └───────────────────────────────┘                │
+│   ┌──────────────────────┐     ┌─────────────────────────────────┐  │
+│   │ Public API Surface   │────▶│ Workflow Engine                 │  │
+│   │                      │     │                                 │  │
+│   │ POST /signals        │     │ S1~S7 execution                 │  │
+│   │ POST /runs/start     │     │ Gate state machine              │  │
+│   │ GET /runs            │     │ SQLite persistence              │  │
+│   │ Gate action routes   │     │ decision-system export          │  │
+│   └──────────────────────┘     └─────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
-         ↑ read context / write runs       ↑ read signals / write ingest
- decision-context-companion-repo/     product-management-wiki-repo/
+              ▲ read context / write runs         ▲ poll / notify / sync
+ decision-context-companion-repo/      Hermes operations plane + product wiki
 ```
 
 ## The 7-Stage Workflow
@@ -71,6 +67,12 @@ Each signal runs through a sequential pipeline:
 4. **Measure from day one** — eval harness built before feature code, using real historical runs as golden data
 5. **Stage functions, not conversational agents** — each stage has a typed input/output contract
 
+## Ownership Boundaries
+
+- `pm-platform` owns workflow execution, stage outputs, terminal state, and decision-system export.
+- Hermes owns harvesting, scheduling, notifications, wiki sync, and long-running operations.
+- Auto-triage archive is transitional: local archive writes remain available behind `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` until Hermes takes over fully.
+
 ## Project Structure
 
 ```
@@ -80,7 +82,7 @@ jackhpark-pm-agentic-platform/
 │   ├── models/                # SQLAlchemy DB models + Pydantic stage schemas
 │   ├── stages/                # S1–S7 stage execution functions
 │   ├── agents/                # S4 persona agent definitions
-│   ├── services/              # Context loader, template service, signal collector, wiki sync
+│   ├── services/              # Context loader, template service, export/finalization utilities
 │   ├── storage/               # PMWorkflowStore Protocol + SQLite implementation
 │   ├── api/                   # FastAPI routes (signals, runs, approvals)
 │   ├── factory.py             # build_engine(runtime) dependency wiring
@@ -112,6 +114,7 @@ pip install -e ".[dev]"
 # Set environment variables
 cp .env.example .env
 # Edit .env: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
 
 # Run the API
 uvicorn app.api.main:app --reload
@@ -127,5 +130,8 @@ python eval/runner.py
 - [Implementation Status](docs/IMPLEMENTATION_STATUS.md) — reverse PRD to code mapping and evidence
 - [Reverse Roadmap](docs/ROADMAP_REVERSE.md) — remaining gaps and sequencing after the current baseline
 - [Architecture](docs/ARCHITECTURE.md) — system design, data model, integration points
+- [API Contract](docs/API_CONTRACT.md) — canonical public interface consumed by Hermes
+- [Export and Sync Contract](docs/EXPORT_AND_SYNC_CONTRACT.md) — file write ownership and paths
+- [Integration Principles](docs/INTEGRATION_PRINCIPLES.md) — boundary rules between engine and operations plane
 - [Design Decisions](docs/DESIGN_DECISIONS.md) — why this is different from `ai-agent-test`
 - [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) — phase-by-phase build order

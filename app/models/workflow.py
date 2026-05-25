@@ -1,6 +1,6 @@
 import enum
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
@@ -71,6 +71,10 @@ def _new_uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
 class Signal(Base):
     __tablename__ = "signals"
 
@@ -82,7 +86,7 @@ class Signal(Base):
     category = Column(SAEnum(SignalCategory), nullable=False, default=SignalCategory.other)
     status = Column(SAEnum(SignalStatus), nullable=False, default=SignalStatus.pending)
     source_type = Column(SAEnum(SourceType), nullable=False, default=SourceType.manual)
-    ingested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    ingested_at = Column(DateTime, nullable=False, default=_utc_now)
 
     runs = relationship("WorkflowRun", back_populates="signal")
 
@@ -99,7 +103,7 @@ class WorkflowRun(Base):
     recommendation_json = Column(Text, nullable=True)  # S2 suggested_mode + reasoning
     routing = Column(SAEnum(Routing), nullable=True)
     composite_score = Column(Float, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
     completed_at = Column(DateTime, nullable=True)
 
     signal = relationship("Signal", back_populates="runs")
@@ -116,7 +120,7 @@ class StageOutput(Base):
     stage = Column(String, nullable=False)
     output_json = Column(Text, nullable=False)
     version = Column(Integer, nullable=False, default=1)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
 
     run = relationship("WorkflowRun", back_populates="stage_outputs")
 
@@ -129,7 +133,7 @@ class ApprovalEvent(Base):
     stage = Column(String, nullable=False)
     action = Column(SAEnum(ApprovalAction), nullable=False)
     feedback_text = Column(Text, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
 
     run = relationship("WorkflowRun", back_populates="approval_events")
 
@@ -142,6 +146,6 @@ class Artifact(Base):
     type = Column(SAEnum(ArtifactType), nullable=False)
     content_md = Column(Text, nullable=False)
     content_json = Column(Text, nullable=False)
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
 
     run = relationship("WorkflowRun", back_populates="artifacts")
