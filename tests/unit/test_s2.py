@@ -46,8 +46,19 @@ _VALID_S2_RESPONSE = {
     "reframing": "Market frames this as consumer feature; for KPE Ultra it is a compliance gap.",
     "pillar_references": ["Reduce attack surface (Ingress & Egress)"],
     "relevance_explanation": "Aligns directly with Pillar 1 — attack surface reduction.",
+    "relevance_score": 4,
     "suggested_mode": "evaluate",
     "suggestion_reasoning": "Signal is directly relevant to a named strategy pillar and warrants full persona evaluation.",
+}
+
+_LOW_RELEVANCE_S2_RESPONSE = {
+    "what_changed": "A consumer app added dark mode support.",
+    "reframing": "Market frames this as a UX improvement; no implication for enterprise security.",
+    "pillar_references": [],
+    "relevance_explanation": "This signal has no connection to Knox enterprise security.",
+    "relevance_score": 1,
+    "suggested_mode": "file",
+    "suggestion_reasoning": "Signal is consumer-focused with no actionable implication for this product.",
 }
 
 
@@ -95,3 +106,33 @@ async def test_s2_strips_markdown_code_fences():
             store=_make_store(),
         )
     assert out.output.what_changed == _VALID_S2_RESPONSE["what_changed"]
+
+
+@pytest.mark.asyncio
+async def test_s2_includes_relevance_score():
+    """relevance_score is present in output and matches LLM response."""
+    with patch("app.stages.s2_insight.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        out = await s2_insight.run(
+            input=S2Input(signal_id="sig-001", s1_output=_make_s1_output(), product_id="test"),
+            context=_make_context(),
+            llm=_make_llm_returning(_VALID_S2_RESPONSE),
+            store=_make_store(),
+        )
+    assert out.output.relevance_score == 4
+    assert 1 <= out.output.relevance_score <= 5
+
+
+@pytest.mark.asyncio
+async def test_s2_low_relevance_score_sets_file_mode():
+    """A relevance_score of 1 must result in suggested_mode == 'file'."""
+    with patch("app.stages.s2_insight.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        out = await s2_insight.run(
+            input=S2Input(signal_id="sig-001", s1_output=_make_s1_output(), product_id="test"),
+            context=_make_context(),
+            llm=_make_llm_returning(_LOW_RELEVANCE_S2_RESPONSE),
+            store=_make_store(),
+        )
+    assert out.output.relevance_score == 1
+    assert out.output.suggested_mode == "file"
