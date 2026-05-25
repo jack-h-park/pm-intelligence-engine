@@ -131,13 +131,35 @@ cp .env.example .env
 # Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
 
 # Ensure external repos are cloned at the paths set in DECISION_SYSTEM_ROOT / WIKI_ROOT
-
-# Run the API
-uvicorn app.api.main:app --reload
-
-# Run eval harness
-python eval/runner.py
 ```
+
+## Operations
+
+All server commands are available via `make`:
+
+| Command | Description |
+|---------|-------------|
+| `make start` | Start server in background; logs → `logs/server.log` |
+| `make stop` | Stop background server |
+| `make restart` | Stop then start |
+| `make status` | Show whether server is running and its PID |
+| `make logs` | `tail -f logs/server.log` |
+| `make dev` | Start in foreground with `--reload` (development) |
+| `make test` | Run unit + integration test suite |
+| `make eval` | Run eval harness |
+| `make lint` | Run ruff linter |
+
+**iMac auto-start (one-time setup):**
+
+```bash
+# Before installing, verify the uvicorn path in deploy/com.jackpark.pm-platform.plist
+# matches `which uvicorn` on the iMac.
+
+make install-service     # registers launchd agent; starts on login, auto-restarts on crash
+make uninstall-service   # removes the launchd agent
+```
+
+See `docs/ARCHITECTURE.md` Section 11 for the full hosting, Tailscale, and notification setup.
 
 ## Documentation
 

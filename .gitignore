@@ -10,3 +10,7 @@ __pycache__/
 .ruff_cache/
 dist/
 *.egg-info/
+
+# Server process management
+.pid
+logs/server.log
