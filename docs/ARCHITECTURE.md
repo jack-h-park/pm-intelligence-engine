@@ -5,68 +5,89 @@
 
 ## 1. System Overview
 
-This platform is structured as four conceptual layers. Three of them already exist as separate repositories; this project implements the fourth (ENGINE) and wires them together.
+This platform is the **workflow execution engine** for a personal PM intelligence system.
+It is intentionally narrow: it runs stages, persists state, manages human gates, and exports
+artifacts to the decision-system. Signal harvesting, wiki sync, notifications, and operational
+scheduling are owned by a separate **Hermes operations plane**.
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                 jackhpark-pm-agentic-platform                        │
-│                                                                      │
-│   ┌────────────────┐     ┌──────────────────┐     ┌──────────────┐  │
-│   │  SENSE Layer   │────▶│  DECIDE Layer    │────▶│  LEARN Layer │  │
-│   │                │     │                  │     │              │  │
-│   │ Signal ingestion│    │  S1–S7 Workflow  │     │  Wiki sync   │  │
-│   │ RSS / manual   │     │  Multi-agent S4  │     │  Pattern     │  │
-│   │ File watch     │     │  Human gate      │     │  accumulation│  │
-│   └────────────────┘     └────────┬─────────┘     └──────────────┘  │
-│                                   │                                  │
-│                    ┌──────────────▼───────────────┐                 │
-│                    │         ENGINE Layer          │                 │
-│                    │   FastAPI + SQLite            │                 │
-│                    │   APScheduler + Eval Harness  │                 │
-│                    └───────────────────────────────┘                │
-└──────────────────────────────────────────────────────────────────────┘
-         ↑ read context / write runs       ↑ read signals / write ingest
- decision-context-companion-repo/     product-management-wiki-repo/
+┌─────────────────────────────────────────────────────────────────────────┐
+│              jackhpark-pm-agentic-platform (ENGINE)                     │
+│                                                                         │
+│   POST /signals ──▶  Signal DB  ──▶  S1–S7 Workflow  ──▶  Artifacts    │
+│                                       (FastAPI + SQLite)                │
+│                                             │                           │
+│                                     Human gates (3)                    │
+│                                      Gate 1: direction                  │
+│                                      Gate 2: evaluation                 │
+│                                      Gate 3: routing review             │
+│                                             │                           │
+│                                   run_finalizer.py                      │
+│                                      ├─ completed_at stamp              │
+│                                      └─ decision-system export          │
+└─────────────────────────────────────────────────────────────────────────┘
+        ↑ read context / write runs              ↑ (export on completion)
+decision-context-companion-repo/          decision-context-companion-repo/runs/
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│              External Operations Plane (Hermes — separate repo)         │
+│                                                                         │
+│   Signal harvesting (RSS, file watch)   Wiki sync (WIKI_ROOT writes)   │
+│   Gate notifications (Telegram, Slack)  Run monitoring / dashboards     │
+│   Operational scheduling (cron/harvest) Pattern accumulation            │
+└─────────────────────────────────────────────────────────────────────────┘
+        ↓ POST /signals                          ↓ wiki write (on run event)
+jackhpark-pm-agentic-platform API        product-management-wiki-repo/
+
 ```
 
 ---
 
-## 2. Layer Definitions
+## 2. Responsibility Boundaries
 
-### SENSE Layer
-Responsible for bringing external signals into the system.
+| Concern | Owner | Notes |
+|---------|-------|-------|
+| Signal intake (manual) | pm-platform | `POST /signals` API |
+| Signal harvesting (RSS, file watch) | Hermes | Submits via `POST /signals` |
+| Stage execution (S1–S7) | pm-platform | Background tasks, async |
+| Human gate state machine | pm-platform | 3 gates, 10 API endpoints |
+| Persistence (runs, artifacts) | pm-platform | SQLite → PostgreSQL in v2 |
+| decision-system export | pm-platform | `run_finalizer` triggers on decide-mode completion |
+| Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
+| Gate notifications | pm-platform | FanoutNotifier (Telegram/Slack) for Gates 1 and 2 |
+| Operational scheduling | Hermes | Cron/harvest jobs |
+| Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 
-**Sources:**
-- Manual input via `POST /signals`
-- RSS/URL polling (APScheduler, daily)
-- File watch on `wiki/raw/from-web/sensing/`
+---
 
-**Output:** `Signal` records in the database
+## 3. Layer Definitions
+
+### ENGINE Layer (this repository)
+The workflow execution runtime. Owns the database, API, and eval harness.
+
+**Components:**
+- FastAPI HTTP server
+- SQLite database (v1 → PostgreSQL in v2)
+- `run_finalizer` — single exit point for terminal transitions
+- Eval harness for quality measurement
+
+**Does NOT own:** signal scheduling, wiki writes, long-running cron jobs
 
 ### DECIDE Layer
 The core workflow. A signal enters as raw text; a routing decision and artifact exit.
-
-**Design:** The workflow design already exists in `decision-context-companion-repo`. The ENGINE does not redesign it — it automates it.
 
 **Stages:** S1 → S2 → S3 → S4 (parallel multi-agent) → [PM Gate] → S5 → S6A or S6B → S7
 
 **Output:** `StageOutput` records, `ApprovalEvent` records, `Artifact` records
 
-### LEARN Layer
-Feeds completed decisions back into the PM knowledge base for long-term pattern accumulation.
+### External Operations Plane (Hermes)
+Handles everything that requires always-on or scheduled operation.
 
-**Behavior:** On S7 completion, the ENGINE copies the report to the wiki with YAML frontmatter.
+**Responsibilities:** RSS/file-watch signal harvesting, wiki sync, monitoring dashboards,
+notification bridging for mobile approval flows, operational scheduling.
 
-**Output:** Files written to `wiki/raw/from-decision-system/`
-
-### ENGINE Layer
-The automation runtime. Owns the database, API, scheduler, and eval harness.
-
-**Components:**
-- FastAPI HTTP server
-- SQLite database (v1)
-- APScheduler for signal collection
-- Eval harness for quality measurement
+**Integration:** Hermes interacts with pm-platform exclusively via the HTTP API.
+Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
 
 ---
 
@@ -123,18 +144,23 @@ app/
 ├── services/
 │   ├── context_loader.py  Loads 3-layer context from DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates from /prompts/
-│   ├── signal_collector.py RSS polling + sensing file watcher
-│   └── wiki_sync.py       Writes S7 output to WIKI_ROOT with frontmatter
+│   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
+│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
+│   └── wiki_sync.py       Utility adapter (canonical paths); not called from completion paths
+│                          (wiki writes are Hermes-owned — see EXPORT_AND_SYNC_CONTRACT.md)
 │
 ├── storage/
 │   ├── protocol.py        PMWorkflowStore Protocol (typed interface)
-│   └── sqlite_store.py    SQLite implementation of the protocol
+│   └── sqlite_store.py    SQLite implementation; auto-stamps completed_at on completed/killed
 │
 ├── api/
 │   ├── main.py            FastAPI app initialization
-│   ├── signals.py         /signals routes (F1, F3)
-│   ├── runs.py            /runs routes (F4, F11)
-│   └── approvals.py       /runs/{id}/approve|revise|reject (F6)
+│   ├── signals.py         /signals routes
+│   ├── runs.py            /runs routes + Gate 1 logic
+│   ├── direction.py       /runs/{id}/direction — Gate 1 response
+│   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2
+│   ├── routing_review.py  /runs/{id}/routing-review — Gate 3
+│   └── review.py          /runs/{id}/review — browser-based Gate 2 review page
 │
 ├── llm/
 │   ├── protocol.py        LLMProvider Protocol: async complete(messages) -> str
@@ -212,38 +238,60 @@ created_at      datetime
 ## 6. State Machine (WorkflowRun.status)
 
 ```
-                  POST /runs/start
-                        │
-                        ▼
-                    pending
-                        │
-                   S1 starts
-                        ▼
-                    running ──── error ──▶ failed
-                        │
-               S4 completes
-                        ▼
-              waiting_approval ◀────── revise (loops back)
-                        │
-              PM: approve / reject
-                ┌───────┴────────┐
-                ▼                ▼
-            running           killed
-                │
-           S5 routes
-          ┌────┼─────┐
-          ▼    ▼     ▼
-        Kill  PoC   PRD
-          │    │     │
-          ▼    ▼     ▼
-        killed running running
-                │     │
-                ▼     ▼
-            S7 complete
-                │
-                ▼
-            completed
+  POST /runs/start
+        │
+        ▼
+    pending ──▶ running ──── exception ──▶ failed
+                  │
+          [S2 relevance < threshold]
+                  │
+                  ▼
+            completed (auto-triage, mode=file)
+                  │
+          [relevance OK, no mode set]
+                  │
+                  ▼
+        awaiting_direction   ←── Gate 1: POST /runs/{id}/direction
+                  │
+          [direction given]
+                  ▼
+              running
+               mode?
+          ┌────────────────────────┐
+          ▼                        ▼
+       file/brief/               decide
+       opp/eval              S4 completes
+          │                        ▼
+          ▼              waiting_approval  ←── Gate 2: approve/revise/reject
+       completed               │
+                    ┌──────────┼──────────┐
+                    ▼          ▼          ▼
+                 killed    running     running
+                (reject)  (revise,   (approve →
+                          S4 retry)   S5 runs)
+                                        │
+                                   S5 routes
+                                  ┌─────┴──────┐
+                                  ▼            ▼
+                                kill         prd/poc
+                                  │            │
+                                  ▼            ▼
+                      waiting_routing_review   S6+S7
+                      ←── Gate 3: confirm/     │
+                           override            ▼
+                          ┌──────┐         completed
+                          ▼      ▼
+                        killed  running
+                        (conf)  (override → S6+S7 → completed)
 ```
+
+**Terminal states and `completed_at` policy:**
+
+| Status | `completed_at` | Export to decision-system |
+|--------|---------------|--------------------------|
+| `completed` | ✅ auto-stamped | decide mode only (via `run_finalizer`) |
+| `killed` | ✅ auto-stamped | never |
+| `failed` | ❌ intentionally unset | never |
 
 ---
 
@@ -328,8 +376,12 @@ eval/
 
 | Version | Changes |
 |---|---|
-| v1 (current) | SQLite, manual trigger, basic eval harness |
-| v2 | PostgreSQL, RSS auto-collection, run history UI |
+| v1 (current) | SQLite, manual trigger, Hermes integration contract, eval harness |
+| v2 | PostgreSQL, run history UI, Hermes harvesting live |
 | v3 | LangGraph for complex branching, if needed |
-| v4 | Slack notifications, wiki semantic search (RAG) |
+| v4 | Wiki semantic search (RAG) for context injection |
 | v5 | Multi-user, Prefect/Temporal for durable execution |
+
+**Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned
+as in-process features (APScheduler). These have been moved to the Hermes operations plane.
+The pm-platform API (`POST /signals`) remains the stable integration point.

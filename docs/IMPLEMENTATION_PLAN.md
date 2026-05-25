@@ -368,17 +368,17 @@ After a run completes, the platform can export all stage outputs as Markdown fil
 ---
 
 ## Phase 3 — Operational Automation
-*Goal: Signals arrive automatically; history is queryable; wiki stays in sync*
+*Goal: History is queryable; completion side-effects are uniform; external integrations are contracted*
+
+> **Ownership update (2026-05):** Signal harvesting (RSS, file watch, APScheduler) and
+> wiki sync have been moved to the **Hermes operations plane** (separate repository).
+> pm-platform is the execution engine; Hermes is the operational host.
+> See `docs/INTEGRATION_PRINCIPLES.md` and `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 ### 3.1 Automated signal collection
-- `app/services/signal_collector.py`
-  - `collect_from_rss(sources)` — fetches RSS feeds, deduplicates by URL hash, inserts new signals
-  - `collect_from_file_watch(path)` — scans the sensing directory for newly added files
-- APScheduler job in `factory.py` — daily RSS collection, hourly file watch scan
-
-**Acceptance criteria:**
-- Duplicate URLs are silently rejected (not re-inserted)
-- New sensing files are ingested with `source_type = file_watch`
+**→ Moved to Hermes control plane.**
+Hermes harvests signals (RSS/file-watch) and submits them via `POST /signals`.
+pm-platform's role: accept the API call, deduplicate by URL hash if needed.
 
 ### 3.2 Signal and run history queries
 - `GET /signals?product_id=&status=&limit=` — full filter support
@@ -388,21 +388,20 @@ After a run completes, the platform can export all stage outputs as Markdown fil
 - Correct filtering by all supported query parameters
 - Results are sorted by `ingested_at` / `created_at` descending
 
-### 3.3 Wiki auto-sync
-After Stage 7 completes, the Executive Summary is automatically written to `WIKI_ROOT` in the correct subdirectory.
+### 3.3 Completion side-effect unification ✅
+All terminal run transitions now go through `app/services/run_finalizer.py`:
+- `completed_at` auto-stamped for `completed` / `killed` (not `failed`)
+- decision-system export triggered for `decide`-mode completions
+- uniform event emission for Hermes polling
 
-- `app/services/wiki_sync.py`
-  - Reads the completed Stage 7 artifact from the database
-  - Determines target directory from routing: `kills/`, `prds/`, or `poc-upgrades/`
-  - Writes the Markdown file with YAML frontmatter
-
-**Acceptance criteria:**
-- YAML frontmatter is valid and contains all required fields
-- File is created in the correct wiki subdirectory based on routing
-- Source artifacts in the database are not modified
+### 3.4 Wiki sync contract
+**→ Hermes-owned.** `app/services/wiki_sync.py` is a utility adapter that documents
+canonical paths (`raw/from-decision-system/{prds|poc-upgrades|kills}/`).
+pm-platform completion paths do NOT write to WIKI_ROOT.
 
 ### Phase 3 completion gate
-> Daily RSS signal collection → signal list queryable via API → run history queryable → Stage 7 completion triggers wiki sync automatically
+> Run history queryable via API → completion side-effects uniform via run_finalizer →
+> Hermes integration contract documented → decision-system export wired
 
 ---
 
