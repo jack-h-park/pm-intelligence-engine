@@ -145,6 +145,16 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
                 "composite": s5_out.output.composite_score,
                 "blocking_count": s5_out.output.blocking_count,
             })
+            # Notify PM via configured providers (Telegram / Slack)
+            signal_for_g3 = engine.store.get_signal(run["signal_id"])
+            signal_title_g3 = signal_for_g3["title"] if signal_for_g3 else run_id
+            await engine.notifier.send_gate3(
+                run_id=run_id,
+                product_id=context.product_id,
+                signal_title=signal_title_g3,
+                composite_score=s5_out.output.composite_score,
+                blocking_count=s5_out.output.blocking_count,
+            )
             return
 
         if routing == "poc":
