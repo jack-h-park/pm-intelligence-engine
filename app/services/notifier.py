@@ -87,6 +87,29 @@ class TelegramNotifier:
         )
         await self._send(text, run_id)
 
+    async def send_gate3(
+        self,
+        run_id: str,
+        product_id: str,
+        signal_title: str,
+        composite_score: float,
+        blocking_count: int,
+    ) -> None:
+        text = (
+            f"⚠️ <b>[Gate 3] Kill Routing Review</b>\n\n"
+            f"Product: <code>{product_id}</code>\n"
+            f"Signal: {signal_title}\n"
+            f"Run: <code>{run_id}</code>\n\n"
+            f"Composite: <b>{composite_score:.1f}</b> · "
+            f"Blocking assumptions: <b>{blocking_count}</b>\n\n"
+            f"S5 recommends <b>KILL</b>. Confirm or override:\n"
+            f"<code>POST /runs/{run_id}/routing-review</code>\n"
+            f'<code>{{"action": "confirm"}}</code>  → kill\n'
+            f'<code>{{"action": "override", "routing": "poc"}}</code>  → POC\n'
+            f'<code>{{"action": "override", "routing": "prd"}}</code>  → PRD'
+        )
+        await self._send(text, run_id)
+
     async def _send(self, text: str, run_id: str) -> None:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -196,6 +219,53 @@ class SlackNotifier:
             })
         await self._send({"blocks": blocks}, run_id)
 
+    async def send_gate3(
+        self,
+        run_id: str,
+        product_id: str,
+        signal_title: str,
+        composite_score: float,
+        blocking_count: int,
+    ) -> None:
+        blocks = [
+            {
+                "type": "header",
+                "text": {"type": "plain_text", "text": "⚠️ Gate 3 — Kill Routing Review"},
+            },
+            {
+                "type": "section",
+                "fields": [
+                    {"type": "mrkdwn", "text": f"*Product:*\n`{product_id}`"},
+                    {"type": "mrkdwn", "text": f"*Run:*\n`{run_id}`"},
+                ],
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"*{signal_title}*\n"
+                        f"Composite: {composite_score:.1f}  ·  "
+                        f"Blocking assumptions: {blocking_count}\n\n"
+                        f"S5 recommends *KILL*. Confirm or override:"
+                    ),
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": (
+                        f"```POST /runs/{run_id}/routing-review\n"
+                        f'{{ "action": "confirm" }}         → kill\n'
+                        f'{{ "action": "override", "routing": "poc" }}  → POC\n'
+                        f'{{ "action": "override", "routing": "prd" }}  → PRD```'
+                    ),
+                },
+            },
+        ]
+        await self._send({"blocks": blocks}, run_id)
+
     async def _send(self, payload: dict, run_id: str) -> None:
         async with httpx.AsyncClient() as client:
             resp = await client.post(self._webhook, json=payload, timeout=10.0)
@@ -267,6 +337,29 @@ class FanoutNotifier:
                     skeptic_score=skeptic_score,
                     key_concern=key_concern,
                     review_url=review_url,
+                )
+            except Exception as exc:  # noqa: BLE001
+                emit_event("notifier", "send_failed", run_id, {
+                    "provider": type(provider).__name__,
+                    "error": str(exc),
+                })
+
+    async def send_gate3(
+        self,
+        run_id: str,
+        product_id: str,
+        signal_title: str,
+        composite_score: float,
+        blocking_count: int,
+    ) -> None:
+        for provider in self._providers:
+            try:
+                await provider.send_gate3(
+                    run_id=run_id,
+                    product_id=product_id,
+                    signal_title=signal_title,
+                    composite_score=composite_score,
+                    blocking_count=blocking_count,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {
