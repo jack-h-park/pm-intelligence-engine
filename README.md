@@ -18,7 +18,7 @@ SENSE ──▶ DECIDE ──▶ LEARN
 
 | Project | Role |
 |---|---|
-| [`jackhpark-pm-decision-system`](../../ai-assets/jackhpark-pm-decision-system/) | Source of workflow design, prompt templates, product contexts, and run history |
+| [`jackhpark-pm-decision-context`](../../ai-assets/jackhpark-pm-decision-system/) | Source of workflow design, prompt templates, product contexts, and run history |
 | [`jackhpark-product-management-wiki`](../../ai-assets/jackhpark-product-management-wiki/) | Source of external signals; destination for completed decision ingest |
 | [`jackhpark-hermes-control-plane`](../../ai-assets/jackhpark-hermes-control-plane/) | External operations plane: harvesting, notifications, wiki sync, scheduling |
 | [`jackhpark-notion-cms-backup`](../../data/jackhpark-notion-cms-backup/) | Notion → wiki raw 레이어 자동 동기화 (pm-platform과 직접 연결 없음, wiki를 통해 간접 영향) |
@@ -82,16 +82,23 @@ Each signal runs through a sequential pipeline:
 pm-platform runs on an always-on **iMac**. Running on a MacBook is not recommended — lid-close
 suspends the process, breaking Hermes polling and making Gate 2 review links unreachable.
 
-**Tailscale** connects the iMac, iPhone, and MacBook in a private network. `BASE_URL` in `.env`
-should be set to the iMac's Tailscale IP so that Gate 2 review page links work from iPhone even
-when away from home. See `docs/ARCHITECTURE.md` Section 11 for the full notification flow and
-iMac setup checklist.
+**Tailscale** connects the iMac, iPhone, and MacBook in a private network.
+
+`BASE_URL` in `.env` is the **public review-link base** — it appears in Gate 2 notification links
+so the iPhone can open the review page when away from home. Set it to the iMac's Tailscale IP
+(or a MagicDNS name / HTTPS URL when available).
+
+**Same-host callers** (Hermes running on the same iMac, local scripts, health checks) must use
+`http://localhost:8000` directly — not the Tailscale raw IP. Using a raw IP HTTP URL for
+same-host calls triggers security warnings and is unnecessary when localhost is reachable.
+
+See `docs/ARCHITECTURE.md` Section 11 for the full notification flow and iMac setup checklist.
 
 ## Project Structure
 
 ```
 jackhpark-pm-agentic-platform/
-├── config.py                  # Paths to external repos (DECISION_SYSTEM_ROOT, WIKI_ROOT)
+├── config.py                  # Paths to external repos (DECISION_CONTEXT_ROOT/DECISION_SYSTEM_ROOT, WIKI_ROOT)
 ├── app/
 │   ├── models/                # SQLAlchemy DB models + Pydantic stage schemas
 │   ├── stages/                # S1–S7 stage execution functions
@@ -129,11 +136,12 @@ pip install -e ".[dev]"
 cp .env.example .env
 # Required: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
 # Required for notifications: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000
+# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000  ← off-device review links only
+# Same-host Hermes/automation uses http://localhost:8000 directly — do not set BASE_URL for that
 # Optional: SLACK_WEBHOOK_URL
 # Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
 
-# Ensure external repos are cloned at the paths set in DECISION_SYSTEM_ROOT / WIKI_ROOT
+# Ensure external repos are cloned at the paths set in DECISION_CONTEXT_ROOT / WIKI_ROOT
 ```
 
 ## Operations

@@ -2,8 +2,19 @@
 ## jackhpark-pm-agentic-platform — Public Interface for Hermes
 
 **Version:** 1.0  
-**Last updated:** 2026-05-24  
-**Base URL:** configured via `BASE_URL` in `.env` (default `http://localhost:8000`)
+**Last updated:** 2026-05-29
+
+**URL policy:**
+
+| Consumer | URL to use |
+|----------|-----------|
+| Hermes / same-host automation / local scripts | `http://localhost:8000` |
+| Off-device review links (iPhone, MacBook) | `BASE_URL` from `.env` (Tailscale IP or HTTPS) |
+
+`BASE_URL` in `.env` is the **public review-link base** only — it appears in Gate 2 notification
+links for off-device access. Same-host callers (Hermes on the same iMac, local scripts, health
+checks) should use `http://localhost:8000` directly and must not use the Tailscale raw IP HTTP
+for same-host calls. Prefer MagicDNS or HTTPS for off-device links when available.
 
 This document defines the canonical public API surface that Hermes (and any
 other external consumer) interacts with. The shape of these endpoints is stable.
