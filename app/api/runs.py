@@ -48,6 +48,7 @@ async def start_run(
 
     if body.mode is not None:
         _validate_mode(body.mode)
+        validate_mode_for_product(body.mode, body.product_id)
 
     run_id = engine.store.create_run(
         product_id=body.product_id,
@@ -105,6 +106,20 @@ def _validate_mode(mode: str) -> None:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid))}",
+        )
+
+
+def validate_mode_for_product(mode: str, product_id: str) -> None:
+    """Raise 422 if the mode is not allowed for the given product scope."""
+    _GENERAL_ALLOWED = {"file", "brief"}
+    if product_id == "general" and mode not in _GENERAL_ALLOWED:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Mode '{mode}' is not allowed for product_id 'general'. "
+                "general signals support only file/brief. "
+                "Reassign this signal to a specific product for opportunity/evaluate/decide."
+            ),
         )
 
 

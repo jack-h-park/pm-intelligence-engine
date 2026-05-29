@@ -11,6 +11,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.api.deps import get_engine
+from app.api.runs import validate_mode_for_product
 from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["direction"])
@@ -38,6 +39,9 @@ async def set_direction(
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    validate_mode_for_product(body.mode, run["product_id"])
+
     if run["status"] != "awaiting_direction":
         raise HTTPException(
             status_code=409,

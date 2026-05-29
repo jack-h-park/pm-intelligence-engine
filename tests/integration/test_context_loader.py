@@ -42,3 +42,17 @@ def test_load_full_context(loader: ContextLoader):
     assert ctx.company_context
     assert ctx.product_context
     assert ctx.product_id == "samsung-knox-lockdown-mode"
+
+
+def test_load_product_context_general(loader: ContextLoader):
+    text = loader.load_product_context("general")
+    assert text
+    assert len(text) > 50
+
+
+def test_load_full_context_general(loader: ContextLoader):
+    ctx = loader.load_full_context("general")
+    assert ctx.pm_identity
+    assert ctx.company_context
+    assert ctx.product_context
+    assert ctx.product_id == "general"
