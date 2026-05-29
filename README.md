@@ -20,8 +20,11 @@ SENSE ──▶ DECIDE ──▶ LEARN
 |---|---|
 | [`jackhpark-pm-decision-system`](../../ai-assets/jackhpark-pm-decision-system/) | Source of workflow design, prompt templates, product contexts, and run history |
 | [`jackhpark-product-management-wiki`](../../ai-assets/jackhpark-product-management-wiki/) | Source of external signals; destination for completed decision ingest |
-| `jackhpark-hermes-control-plane` | External operations plane: harvesting, notifications, wiki sync, scheduling |
+| [`jackhpark-hermes-control-plane`](../../ai-assets/jackhpark-hermes-control-plane/) | External operations plane: harvesting, notifications, wiki sync, scheduling |
+| [`jackhpark-notion-cms-backup`](../../data/jackhpark-notion-cms-backup/) | Notion → wiki raw 레이어 자동 동기화 (pm-platform과 직접 연결 없음, wiki를 통해 간접 영향) |
 | [`ai-agent-test`](../../forks/ai-agent-test/) | Reference implementation for agentic patterns (not reused directly) |
+
+> 전체 스택 아키텍처: [hermes-control-plane/docs/system-overview.md](../../ai-assets/jackhpark-hermes-control-plane/docs/system-overview.md)
 
 ## Architecture Overview
 
