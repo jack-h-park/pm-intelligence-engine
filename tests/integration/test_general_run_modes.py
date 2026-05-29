@@ -4,18 +4,18 @@ Verifies that the API enforces file/brief-only for general signals at both
 the /runs/start and /runs/{id}/direction endpoints.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
 
-from app.api.main import app
 from app.api.deps import get_engine
+from app.api.main import app
 from app.factory import PMEngine
-from app.storage.sqlite_store import SQLiteStore
 from app.services.context_loader import ContextLoader
-from app.services.template_service import TemplateService
 from app.services.notifier import FanoutNotifier
-
+from app.services.template_service import TemplateService
+from app.storage.sqlite_store import SQLiteStore
 
 _BLOCKED_MODES = ["opportunity", "evaluate", "decide"]
 _ALLOWED_MODES = ["file", "brief"]
@@ -149,3 +149,66 @@ def test_error_message_consistent_across_endpoints(client, engine):
         detail = resp.json()["detail"]
         assert "general" in detail
         assert "file" in detail or "brief" in detail
+
+
+def test_start_run_rejects_mismatched_signal_product(client, engine):
+    """Run start must reject caller-supplied product_id that disagrees with the signal."""
+    signal_id = engine.store.save_signal(
+        product_id="general",
+        title="NIST AI RMF update",
+        raw_content="Full signal text.",
+    )
+
+    resp = client.post("/runs/start", json={
+        "signal_id": signal_id,
+        "product_id": "example-security-product",
+        "mode": "brief",
+    })
+
+    assert resp.status_code == 422
+    assert "does not match" in resp.json()["detail"]
+
+
+def test_start_run_marks_signal_in_run(client, engine):
+    """A successfully started run must move the source signal into in_run."""
+    signal_id = _seed_signal(engine)
+
+    with pytest.MonkeyPatch.context() as mp:
+        async def _noop(*args, **kwargs):
+            return None
+
+        mp.setattr("app.api.runs._execute_s1_s2", _noop)
+        resp = client.post("/runs/start", json={
+            "signal_id": signal_id,
+            "product_id": "general",
+            "mode": "brief",
+        })
+
+    assert resp.status_code == 202, resp.text
+    signal = engine.store.get_signal(signal_id)
+    assert signal is not None
+    assert signal["status"] == "in_run"
+
+
+def test_direction_failure_marks_run_failed_and_signal_pending(client, engine):
+    """Direction-path exceptions must use terminal failure semantics."""
+    run_id = _seed_awaiting_direction_run(engine)
+    signal_id = engine.store.get_run(run_id)["signal_id"]
+    engine.store.update_signal_status(signal_id, "in_run")
+
+    with pytest.MonkeyPatch.context() as mp:
+        async def _boom(*args, **kwargs):
+            raise RuntimeError("direction exploded")
+
+        mp.setattr("app.api.runs._continue_after_direction", _boom)
+        resp = client.post(f"/runs/{run_id}/direction", json={"mode": "brief"})
+
+    assert resp.status_code == 202, resp.text
+
+    run = engine.store.get_run(run_id)
+    signal = engine.store.get_signal(signal_id)
+    assert run is not None
+    assert signal is not None
+    assert run["status"] == "failed"
+    assert run["completed_at"] is None
+    assert signal["status"] == "pending"

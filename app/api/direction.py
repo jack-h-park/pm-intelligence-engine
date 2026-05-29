@@ -62,6 +62,7 @@ async def set_direction(
 async def _execute_from_direction(run_id: str, mode: str, engine: PMEngine) -> None:
     from app.logging import emit_event
     from app.models.stages import RunContext
+    from app.services.run_finalizer import finalize_run
 
     try:
         run = engine.store.get_run(run_id)
@@ -83,5 +84,4 @@ async def _execute_from_direction(run_id: str, mode: str, engine: PMEngine) -> N
         await _continue_after_direction(run_id, mode, context, engine)
 
     except Exception as exc:  # noqa: BLE001
-        engine.store.update_run(run_id, status="failed")
-        emit_event("run", "failed", run_id, {"error": str(exc)})
+        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

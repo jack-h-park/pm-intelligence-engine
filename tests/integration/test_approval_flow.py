@@ -14,18 +14,18 @@ State machine paths covered:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 from fastapi.testclient import TestClient
 
-from app.api.main import app
 from app.api.deps import get_engine
+from app.api.main import app
 from app.factory import PMEngine
-from app.storage.sqlite_store import SQLiteStore
 from app.services.context_loader import ContextLoader
-from app.services.template_service import TemplateService
 from app.services.notifier import FanoutNotifier
-
+from app.services.template_service import TemplateService
+from app.storage.sqlite_store import SQLiteStore
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -252,8 +252,11 @@ def test_reject_kills_run(client, engine):
     assert resp.json()["action"] == "rejected"
 
     run = engine.store.get_run(run_id)
+    signal = engine.store.get_signal(run["signal_id"])
     assert run["status"] == "killed"
     assert run["current_stage"] is None
+    assert signal is not None
+    assert signal["status"] == "done"
 
 
 def test_reject_clears_routing(client, engine):
@@ -309,8 +312,11 @@ def test_routing_review_confirm_kills_run(client, engine):
     assert resp.json()["action"] == "kill_confirmed"
 
     run = engine.store.get_run(run_id)
+    signal = engine.store.get_signal(run["signal_id"])
     assert run["status"] == "killed"
     assert run["current_stage"] is None
+    assert signal is not None
+    assert signal["status"] == "done"
 
 
 def test_routing_review_confirm_stamps_completed_at(client, engine):
@@ -424,7 +430,10 @@ def test_failed_run_does_not_stamp_completed_at(engine):
         finalize_run(run_id, "failed", engine, event_detail={"error": "timeout"})
 
     run = engine.store.get_run(run_id)
+    signal = engine.store.get_signal(signal_id)
     assert run["status"] == "failed"
     assert run.get("completed_at") is None, (
         "failed runs must NOT have completed_at stamped — they did not reach a meaningful endpoint"
     )
+    assert signal is not None
+    assert signal["status"] == "pending"

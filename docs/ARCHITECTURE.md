@@ -232,6 +232,12 @@ source_type     enum: manual | rss | file_watch
 ingested_at     datetime
 ```
 
+Signal lifecycle is runtime-maintained by pm-platform:
+- `pending` immediately after intake
+- `in_run` once a run starts successfully
+- `done` when the run ends in `completed` or `killed`
+- `pending` again when the run ends in `failed`, so the signal returns to the retryable pool
+
 ### StageOutput
 ```
 output_id       uuid, primary key

@@ -9,14 +9,14 @@ Contracts verified:
   - archive_auto_triaged() writes to raw/from-decision-system/kills/auto-triaged/
   - brief/opportunity/evaluate are not valid routing values (ValueError)
   - filename convention: YYYY-MM-DD-<slug>.md
-  - file content includes YAML frontmatter with run_id, product_id, routing, date
+  - file content includes canonical wiki YAML frontmatter
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 from app.models.stages import S2OutputData
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -137,7 +137,7 @@ def test_sync_executive_summary_filename_convention(tmp_path):
 
 
 def test_sync_executive_summary_frontmatter_content(tmp_path):
-    """Written file must contain YAML frontmatter with run_id, product_id, routing, date."""
+    """Written file must contain the canonical wiki YAML frontmatter fields."""
     from app.services.wiki_sync import sync_executive_summary
 
     with patch("app.services.wiki_sync.datetime") as mock_dt:
@@ -153,10 +153,31 @@ def test_sync_executive_summary_frontmatter_content(tmp_path):
         )
 
     content = path.read_text(encoding="utf-8")
-    assert "run_id: run-frontmatter-test" in content
-    assert "product_id: example-security-product" in content
-    assert "routing: prd" in content
+    assert "source: decision-context-companion-repo" in content
+    assert "run: run-frontmatter-test" in content
+    assert "type: prd" in content
     assert f"date: {FIXED_DATE}" in content
+    assert "review_needed: false" in content
+
+
+def test_sync_executive_summary_frontmatter_maps_poc_to_poc_upgrade(tmp_path):
+    """PoC routing must be written using the wiki type name poc-upgrade."""
+    from app.services.wiki_sync import sync_executive_summary
+
+    with patch("app.services.wiki_sync.datetime") as mock_dt:
+        mock_dt.now.return_value.strftime.return_value = FIXED_DATE
+
+        path = sync_executive_summary(
+            run_id="run-poc-test",
+            product_id="example-security-product",
+            routing="poc",
+            markdown="# Report",
+            signal_title="Test signal",
+            wiki_root=str(tmp_path),
+        )
+
+    content = path.read_text(encoding="utf-8")
+    assert "type: poc-upgrade" in content
 
 
 def test_sync_executive_summary_body_appended_after_frontmatter(tmp_path):
@@ -354,6 +375,7 @@ def test_wiki_sync_not_called_from_run_exporter():
     """run_exporter.export_run must not import or call wiki_sync functions."""
     import ast
     import inspect
+
     from app.services import run_exporter
 
     source = inspect.getsource(run_exporter)
