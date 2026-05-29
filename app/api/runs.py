@@ -1,5 +1,4 @@
 import json
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
@@ -18,7 +17,7 @@ class _DummyPersona:
 class RunStartRequest(BaseModel):
     signal_id: str
     product_id: str
-    mode: Optional[str] = None  # If provided, skip awaiting_direction and run immediately
+    mode: str | None = None  # If provided, skip awaiting_direction and run immediately
 
 
 class RunResponse(BaseModel):
@@ -26,14 +25,14 @@ class RunResponse(BaseModel):
     product_id: str
     signal_id: str
     status: str
-    current_stage: Optional[str]
-    mode: Optional[str]
-    recommendation_json: Optional[str]
-    routing: Optional[str]
-    composite_score: Optional[float]
+    current_stage: str | None
+    mode: str | None
+    recommendation_json: str | None
+    routing: str | None
+    composite_score: float | None
     created_at: str
-    completed_at: Optional[str]
-    stage_outputs: Optional[list[dict]] = None
+    completed_at: str | None
+    stage_outputs: list[dict] | None = None
 
 
 @router.post("/start", response_model=RunResponse, status_code=202)
@@ -45,22 +44,33 @@ async def start_run(
     signal = engine.store.get_signal(body.signal_id)
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
+    if body.product_id != signal["product_id"]:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"product_id '{body.product_id}' does not match signal.product_id "
+                f"'{signal['product_id']}'"
+            ),
+        )
+
+    canonical_product_id = signal["product_id"]
 
     if body.mode is not None:
         _validate_mode(body.mode)
-        validate_mode_for_product(body.mode, body.product_id)
+        validate_mode_for_product(body.mode, canonical_product_id)
 
     run_id = engine.store.create_run(
-        product_id=body.product_id,
+        product_id=canonical_product_id,
         signal_id=body.signal_id,
     )
     engine.store.update_run(run_id, status="running", current_stage="s1")
+    engine.store.update_signal_status(body.signal_id, "in_run")
 
     background_tasks.add_task(
         _execute_s1_s2,
         run_id,
         body.signal_id,
-        body.product_id,
+        canonical_product_id,
         body.mode,
         engine,
     )
@@ -88,9 +98,9 @@ async def get_run(
 
 @router.get("", response_model=list[RunResponse])
 async def list_runs(
-    product_id: Optional[str] = None,
-    status: Optional[str] = None,
-    routing: Optional[str] = None,
+    product_id: str | None = None,
+    status: str | None = None,
+    routing: str | None = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[RunResponse]:
@@ -127,7 +137,7 @@ async def _execute_s1_s2(
     run_id: str,
     signal_id: str,
     product_id: str,
-    requested_mode: Optional[str],
+    requested_mode: str | None,
     engine: PMEngine,
 ) -> None:
     """Run Stage 1 + Stage 2, then either pause for direction or continue immediately."""
@@ -185,8 +195,8 @@ async def _execute_s1_s2(
 
         # Auto-triage: if relevance score is below threshold, skip Gate 1 entirely.
         # The signal is archived to the wiki kills folder and the run completes silently.
-        from config import settings as _cfg
         from app.services.run_finalizer import finalize_run
+        from config import settings as _cfg
         if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
             engine.store.update_run(run_id, mode="file")  # set mode before finalize
             finalize_run(
@@ -245,11 +255,12 @@ async def _continue_after_direction(
     engine: PMEngine,
 ) -> None:
     """Execute the stages appropriate for the chosen mode after S1+S2 are done."""
+    import json as _json
+
     from app.logging import emit_event
     from app.models.stages import S2OutputData, S3Input, S4Input, S7Input
-    from app.stages import s3_opportunity, s4_evaluation, s7_summary
     from app.services.run_finalizer import finalize_run
-    import json as _json
+    from app.stages import s3_opportunity, s4_evaluation, s7_summary
 
     try:
         s2_raw = engine.store.get_stage_output(run_id, "s2")

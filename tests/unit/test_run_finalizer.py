@@ -10,9 +10,9 @@ Covers:
   - custom event_action is passed through
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,6 +25,7 @@ def _make_engine(mode: str = "decide", status: str = "running") -> MagicMock:
     engine.store.get_run.return_value = {
         "run_id": "run-abc",
         "product_id": "samsung-knox-lockdown-mode",
+        "signal_id": "signal-abc",
         "mode": mode,
         "status": status,
         "routing": "prd",
@@ -76,6 +77,42 @@ def test_finalize_run_failed_calls_store_update():
     engine.store.update_run.assert_called_once_with(
         "run-abc", status="failed", current_stage=None
     )
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_signal_status"),
+    [
+        ("completed", "done"),
+        ("killed", "done"),
+        ("failed", "pending"),
+    ],
+)
+def test_finalize_run_updates_signal_status(status: str, expected_signal_status: str):
+    """finalize_run must keep Signal.status aligned with terminal run outcomes."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine()
+    with patch("app.logging.emit_event"):
+        with patch("app.services.run_finalizer._maybe_export"):
+            finalize_run("run-abc", status, engine)
+
+    engine.store.update_signal_status.assert_called_once_with(
+        "signal-abc",
+        expected_signal_status,
+    )
+
+
+def test_finalize_run_skips_signal_status_update_when_run_not_found():
+    """Signal status update is skipped when the run cannot be reloaded."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine()
+    engine.store.get_run.return_value = None
+
+    with patch("app.logging.emit_event"):
+        finalize_run("run-abc", "failed", engine)
+
+    engine.store.update_signal_status.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

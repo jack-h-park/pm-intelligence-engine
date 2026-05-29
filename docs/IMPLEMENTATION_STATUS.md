@@ -1,8 +1,8 @@
 # Implementation Status
 ## Reverse PRD Evidence Map
 
-**Version:** 0.2  
-**Last updated:** 2026-05-24
+**Version:** 0.3  
+**Last updated:** 2026-05-29
 
 This document maps the reverse PRD to concrete repository evidence. It is intentionally evidence-first and changes more often than the PRD.
 
@@ -24,9 +24,14 @@ Status meanings:
 
 ### Verified in this review
 
-- `pytest tests/unit -q` → 95 passed
-- `pytest tests/integration -q` → 26 passed
-- `pytest tests/ -q` → 121 passed
+- `pytest tests/unit -q` → 104 passed
+- `pytest tests/integration -q` → 46 passed
+- `pytest tests/ -q` → 150 passed
+- `POST /runs/start` now rejects signal/product mismatches with `422` and uses the stored signal `product_id` as canonical.
+- Terminal run transitions now keep `Signal.status` aligned with workflow outcomes:
+  - `completed` / `killed` → `done`
+  - `failed` → `pending`
+- Direction-path exceptions now flow through `run_finalizer`, preserving the single terminal exit contract.
 
 ### Known limits of this review
 
@@ -46,8 +51,8 @@ The manual intake path and Stage 1-2 triage flow are implemented and verified. A
 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
-| US-01 | Implemented, Verified | `app/api/signals.py`, `app/storage/sqlite_store.py` | No API integration test; covered by store behavior |
-| US-02 | Implemented | `GET /signals`, `GET /signals/{id}` in `app/api/signals.py`; filtering in `SQLiteStore.list_signals()` | Query behavior exists; no dedicated endpoint integration test |
+| US-01 | Implemented, Verified | `app/api/signals.py`, `app/storage/sqlite_store.py`, `tests/integration/test_general_run_modes.py` | Signal intake is verified together with lifecycle updates during run execution |
+| US-02 | Implemented, Verified | `GET /signals`, `GET /signals/{id}` in `app/api/signals.py`; filtering in `SQLiteStore.list_signals()` | Query behavior exists; lifecycle status values are now runtime-maintained (`pending` / `in_run` / `done`) |
 | US-03 | Implemented, Verified | `app/stages/s1_signal.py`, `app/models/stages.py`, `tests/unit/test_s1.py` | Event date enrichment remains minimal |
 | US-04 | Implemented, Verified | `app/stages/s2_insight.py`, `app/api/runs.py`, `tests/unit/test_s2.py` | Recommendation is persisted as JSON on `WorkflowRun` |
 | US-05 | Implemented, Verified | auto-triage path in `app/api/runs.py`; `archive_auto_triaged()` in `app/services/wiki_sync.py`; threshold in `config.py`; `run_finalizer` completes with `mode=file` | Status semantics documented; auto-triage archive ownership transitioning to Hermes |
@@ -65,7 +70,7 @@ The guided workflow surface is fully implemented, including all three human-cont
 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
-| US-07 | Implemented | `POST /runs/start` in `app/api/runs.py`; run creation in `SQLiteStore.create_run()` | Run starts asynchronously via background task |
+| US-07 | Implemented, Verified | `POST /runs/start` in `app/api/runs.py`; run creation in `SQLiteStore.create_run()`; `tests/integration/test_general_run_modes.py` | Run starts asynchronously via background task; signal/product mismatch now rejected with `422` |
 | US-08 | Implemented | `awaiting_direction` status in `app/models/workflow.py`; `app/api/direction.py`; `_execute_s1_s2()` in `app/api/runs.py` | Behavior exists for both confirm and override |
 | US-09 | Implemented, Verified | `app/stages/s3_opportunity.py`, `tests/unit/test_s3.py`, `eval/rubrics/s3_hypothesis.py` | Runtime integration not separately tested |
 | US-10 | Implemented, Verified | `app/stages/s4_evaluation.py`, persona agents in `app/agents/`, `tests/unit/test_s4.py` | No dedicated integration test for persona independence across a live run |
@@ -88,7 +93,7 @@ The decision artifact pipeline is implemented and unit-tested from S5 routing th
 | US-14 | Implemented, Verified | `app/stages/s6a_poc_plan.py`; stage handoff in `app/api/approvals.py` and `app/api/routing_review.py`; `tests/unit/test_s6a.py` | JSON parsing, completeness, and store persistence covered |
 | US-15 | Implemented, Verified | `app/stages/s6b_prd.py`; completeness check computed deterministically; `tests/unit/test_s6b.py` | Completeness scoring edge cases covered |
 | US-16 | Implemented, Verified | `app/stages/s7_summary.py`; partial/full summary schemas by mode; `tests/unit/test_s7.py` | Both decide (full) and brief/opportunity (partial) modes tested |
-| US-17 | Implemented, Verified | Stage persistence in all stage files; artifact saved via `store.save_artifact()` in S7; `tests/unit/test_s7.py` covers artifact call | Artifact querying is indirect; no public artifact endpoint |
+| US-17 | Implemented, Verified | Stage persistence in all stage files; artifact saved via `store.save_artifact()` in S7; `tests/unit/test_s7.py`; `tests/integration/test_artifacts_api.py` | Public artifact access is available via `GET /runs/{id}/artifacts` |
 
 ---
 
@@ -129,11 +134,11 @@ and contract tests verify ownership boundaries. Eval harness exists structurally
 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
-| US-21 | Implemented, Verified | `tests/unit/test_s1.py` through `test_s7.py` — full S1–S7 coverage | 95 unit tests passing |
-| US-22 | Implemented, Verified | `tests/integration/test_approval_flow.py` (21 tests) + `test_context_loader.py` (5 tests) | approve/revise/reject/routing-review paths all covered; `failed` `completed_at` contract verified |
+| US-21 | Implemented, Verified | `tests/unit/test_s1.py` through `test_s7.py` — full S1–S7 coverage | 104 unit tests passing |
+| US-22 | Implemented, Verified | `tests/integration/test_approval_flow.py`, `test_context_loader.py`, `test_general_run_modes.py`, `test_artifacts_api.py` | 46 integration tests passing; approve/revise/reject/routing-review paths and signal lifecycle contracts verified |
 | US-23 | Implemented, Verified | `eval/runner.py`, `eval/scenarios.json`, `eval/rubrics/`; live run 2026-05-24 | Harness runs end-to-end; S1–S5 pipeline, Pydantic validation, and rubric checks all pass. Routing: R05 ✓, R06 ✓, R04 ✗, R07 ✗ — failures are model calibration (gpt-4o vs historical Claude runs, skeptic 2/5 systematically). Code behavior is correct. See eval notes below. |
 | US-24 | Moved to Hermes | Scheduling/harvesting is Hermes-owned; `signal_collector.py` is not in-process | pm-platform exposes `POST /signals`; Hermes submits signals on schedule |
-| US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; export triggered only for decide mode; `tests/unit/test_run_finalizer.py` (18 tests) | wiki sync removed from pm-platform completion path; `failed` intentionally does NOT receive `completed_at` |
+| US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; signal lifecycle synchronized on terminal states; export triggered only for decide mode; `tests/unit/test_run_finalizer.py` | wiki sync removed from pm-platform completion path; `failed` intentionally does NOT receive `completed_at` and returns the signal to `pending` |
 
 ### Eval harness findings (2026-05-24 run with gpt-4o)
 

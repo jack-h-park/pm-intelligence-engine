@@ -83,6 +83,12 @@ Submit a new signal for processing.
 { "signal_id": "uuid", "product_id": "...", "title": "...", "status": "pending" }
 ```
 
+**Signal lifecycle:**
+- new signals are created with `status="pending"`
+- a successful `POST /runs/start` moves the signal to `status="in_run"`
+- terminal `completed` and `killed` runs move the signal to `status="done"`
+- terminal `failed` runs move the signal back to `status="pending"` so they remain retryable
+
 ---
 
 ### `GET /runs`
@@ -147,6 +153,29 @@ List persisted artifacts for a run in reverse chronological order.
 
 Hermes should prefer this endpoint when it only needs persisted Markdown/JSON artifacts
 and does not need every stage output blob.
+
+---
+
+### `POST /runs/start`
+Start a pipeline run for an existing signal.
+
+**Request body:**
+```json
+{
+  "signal_id": "uuid",
+  "product_id": "samsung-knox-lockdown-mode",
+  "mode": "decide"
+}
+```
+
+`mode` is optional. If omitted, the run pauses after Stage 2 in `awaiting_direction`.
+
+**Validation rules:**
+- the referenced signal must exist, otherwise `404`
+- `product_id` must exactly match the signal's stored `product_id`, otherwise `422`
+- when valid, the signal's stored `product_id` is treated as canonical for run creation and downstream context loading
+
+**Response (202):** Run object with status `running`.
 
 ---
 

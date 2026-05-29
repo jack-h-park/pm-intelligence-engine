@@ -18,21 +18,26 @@ and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
 # Only decide-mode runs export to the decision-system.
 _EXPORTABLE_MODES = {"decide"}
+_TERMINAL_SIGNAL_STATUSES = {
+    "completed": "done",
+    "killed": "done",
+    "failed": "pending",
+}
 
 
 def finalize_run(
     run_id: str,
     status: str,
-    engine: "PMEngine",
-    event_action: Optional[str] = None,
-    event_detail: Optional[dict] = None,
+    engine: PMEngine,
+    event_action: str | None = None,
+    event_detail: dict | None = None,
 ) -> None:
     """Apply a terminal status to a run and trigger associated side effects.
 
@@ -58,6 +63,7 @@ def finalize_run(
 
     # Apply terminal state (store layer handles completed_at stamping).
     engine.store.update_run(run_id, status=status, current_stage=None)
+    _sync_signal_status(run_id, status, engine)
 
     action = event_action if event_action is not None else status
     emit_event("run", action, run_id, event_detail or {})
@@ -72,11 +78,11 @@ def finalize_run(
 # ---------------------------------------------------------------------------
 
 
-def _maybe_export(run_id: str, engine: "PMEngine") -> None:
+def _maybe_export(run_id: str, engine: PMEngine) -> None:
     """Export run artifacts to DECISION_SYSTEM_ROOT when policy allows."""
     from app.logging import emit_event
-    from config import settings
     from app.services.run_exporter import export_run
+    from config import settings
 
     run = engine.store.get_run(run_id)
     if run is None or run.get("mode") not in _EXPORTABLE_MODES:
@@ -95,3 +101,20 @@ def _maybe_export(run_id: str, engine: "PMEngine") -> None:
             "reason": "decision_system_root not writable",
             "decision_system_root": settings.DECISION_SYSTEM_ROOT,
         })
+
+
+def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
+    """Keep the source signal lifecycle aligned with terminal run outcomes."""
+    target_status = _TERMINAL_SIGNAL_STATUSES.get(status)
+    if target_status is None:
+        return
+
+    run = engine.store.get_run(run_id)
+    if run is None:
+        return
+
+    signal_id = run.get("signal_id")
+    if signal_id is None:
+        return
+
+    engine.store.update_signal_status(signal_id, target_status)
