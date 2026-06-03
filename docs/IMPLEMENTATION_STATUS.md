@@ -110,7 +110,7 @@ The `wiki_sync.py` module is retained as a utility adapter with canonical paths 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
 | US-18 | Implemented, Verified | `app/services/run_exporter.py` + `app/services/run_finalizer.py`; `tests/unit/test_run_finalizer.py` | `finalize_run()` triggers `_maybe_export()` for decide-mode completions only |
-| US-19 | Implemented | `archive_auto_triaged()` in `app/services/wiki_sync.py`; call site in `app/api/runs.py` | Path is `raw/from-decision-system/kills/auto-triaged/`; transitioning to Hermes |
+| US-19 | Implemented | `archive_auto_triaged()` in `app/services/wiki_sync.py`; call site in `app/api/runs.py` | Path is `raw/from-pm-decision-context/kills/auto-triaged/`; transitioning to Hermes |
 | US-20 | Deferred to Hermes | `sync_executive_summary()` in `app/services/wiki_sync.py` (utility, not called from completion) | Wiki sync is Hermes-owned; canonical paths documented in `EXPORT_AND_SYNC_CONTRACT.md` |
 
 ### Ownership clarification (per [EXPORT_AND_SYNC_CONTRACT.md](EXPORT_AND_SYNC_CONTRACT.md))

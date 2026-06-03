@@ -18,8 +18,8 @@ Companion documents:
 | Artifact | Owner | Trigger | Destination |
 |----------|-------|---------|-------------|
 | decision-system run export | **pm-platform** | `completed` (decide mode only) | `DECISION_SYSTEM_ROOT/products/<name>/runs/<date>-<slug>/` |
-| wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-decision-system/{prds\|poc-upgrades\|kills}/` |
-| auto-triage archive | pm-platform (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/` |
+| wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
+| auto-triage archive | pm-platform (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
 
 ---
 
@@ -91,9 +91,9 @@ and writes to `WIKI_ROOT`.
 
 | Routing | Wiki target path |
 |---------|-----------------|
-| `prd` | `WIKI_ROOT/raw/from-decision-system/prds/<filename>.md` |
-| `poc` | `WIKI_ROOT/raw/from-decision-system/poc-upgrades/<filename>.md` |
-| `kill` | `WIKI_ROOT/raw/from-decision-system/kills/<filename>.md` |
+| `prd` | `WIKI_ROOT/raw/from-pm-decision-context/prds/<filename>.md` |
+| `poc` | `WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/<filename>.md` |
+| `kill` | `WIKI_ROOT/raw/from-pm-decision-context/kills/<filename>.md` |
 
 ### Filename convention
 `<YYYY-MM-DD>-<product_id>-<slug>.md`  
@@ -120,7 +120,7 @@ is `auto_triaged`.
 path in `app/api/runs.py`. This is a non-fatal write to:
 
 ```
-WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/<YYYY-MM-DD>-<slug>.md
+WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/<YYYY-MM-DD>-<slug>.md
 ```
 
 This behavior is controlled by `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` in `.env`.
@@ -150,9 +150,9 @@ then remove the legacy call path and deprecate `archive_auto_triaged()`.
 
 | Action | Reason |
 |--------|--------|
-| Write to `WIKI_ROOT/raw/from-decision-system/prds/` | Wiki sync is Hermes-owned |
-| Write to `WIKI_ROOT/raw/from-decision-system/poc-upgrades/` | Wiki sync is Hermes-owned |
-| Write to `WIKI_ROOT/raw/from-decision-system/kills/` (non-auto-triage) | Wiki sync is Hermes-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/prds/` | Wiki sync is Hermes-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/` | Wiki sync is Hermes-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/kills/` (non-auto-triage) | Wiki sync is Hermes-owned |
 | Call `sync_executive_summary()` from any completion path | Ownership conflict |
 | Retry failed wiki writes | Not pm-platform's concern |
 | Block run completion on wiki write success | Completion is independent of wiki state |

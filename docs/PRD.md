@@ -255,9 +255,9 @@ Composite = (Impact × 0.35) + (Strategic Fit × 0.30) + (Feasibility × 0.20) +
 
 **Behavior:**
 - On S7 completion, copies the report to:
-  - `raw/from-decision-system/kills/` for Kill decisions
-  - `raw/from-decision-system/prds/` for PRD decisions
-  - `raw/from-decision-system/poc-upgrades/` for PoC decisions
+  - `raw/from-pm-decision-context/kills/` for Kill decisions
+  - `raw/from-pm-decision-context/prds/` for PRD decisions
+  - `raw/from-pm-decision-context/poc-upgrades/` for PoC decisions
 - Generates YAML frontmatter: `source`, `type`, `date`, `run`, `review_needed: false`
 
 **Acceptance criteria:**

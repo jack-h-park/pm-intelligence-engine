@@ -4,9 +4,9 @@ These tests do NOT write to the real WIKI_ROOT. They use tmp_path fixtures
 and assert on the paths returned by the functions, not on external repo state.
 
 Contracts verified:
-  - sync_executive_summary() writes to WIKI_ROOT/raw/from-decision-system/{subdir}/
+  - sync_executive_summary() writes to WIKI_ROOT/raw/from-pm-decision-context/{subdir}/
   - subdir mapping: prd→prds, poc→poc-upgrades, kill→kills
-  - archive_auto_triaged() writes to raw/from-decision-system/kills/auto-triaged/
+  - archive_auto_triaged() writes to raw/from-pm-decision-context/kills/auto-triaged/
   - brief/opportunity/evaluate are not valid routing values (ValueError)
   - filename convention: YYYY-MM-DD-<slug>.md
   - file content includes canonical wiki YAML frontmatter
@@ -95,7 +95,7 @@ def test_archive_auto_triaged_if_enabled_calls_legacy_helper_when_flag_enabled()
     ("kill", "kills"),
 ])
 def test_sync_executive_summary_path_mapping(routing, expected_subdir, tmp_path):
-    """sync_executive_summary writes to the correct subdir under raw/from-decision-system/."""
+    """sync_executive_summary writes to the correct subdir under raw/from-pm-decision-context/."""
     from app.services.wiki_sync import sync_executive_summary
 
     with patch("app.services.wiki_sync.datetime") as mock_dt:
@@ -110,7 +110,7 @@ def test_sync_executive_summary_path_mapping(routing, expected_subdir, tmp_path)
             wiki_root=str(tmp_path),
         )
 
-    expected_dir = tmp_path / "raw" / "from-decision-system" / expected_subdir
+    expected_dir = tmp_path / "raw" / "from-pm-decision-context" / expected_subdir
     assert path.parent == expected_dir
     assert expected_dir.exists()
 
@@ -237,7 +237,7 @@ def test_sync_executive_summary_rejects_non_wiki_routings(invalid_routing, tmp_p
 
 
 def test_archive_auto_triaged_path(tmp_path):
-    """archive_auto_triaged writes to raw/from-decision-system/kills/auto-triaged/."""
+    """archive_auto_triaged writes to raw/from-pm-decision-context/kills/auto-triaged/."""
     from app.services.wiki_sync import archive_auto_triaged
 
     s2 = _make_s2_output()
@@ -253,7 +253,7 @@ def test_archive_auto_triaged_path(tmp_path):
             wiki_root=str(tmp_path),
         )
 
-    expected_dir = tmp_path / "raw" / "from-decision-system" / "kills" / "auto-triaged"
+    expected_dir = tmp_path / "raw" / "from-pm-decision-context" / "kills" / "auto-triaged"
     assert path.parent == expected_dir
     assert expected_dir.exists()
     assert path.suffix == ".md"

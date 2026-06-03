@@ -25,7 +25,7 @@ pm-platform has no remaining wiki write responsibility.
 **Acceptance criteria**
 
 - Hermes archives `status=completed` + `mode=file` runs into
-  `raw/from-decision-system/kills/auto-triaged/`
+  `raw/from-pm-decision-context/kills/auto-triaged/`
 - `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false` is supported and documented
 - pm-platform completion remains successful with local archive disabled
 - legacy local archive call path can be removed after Hermes validation

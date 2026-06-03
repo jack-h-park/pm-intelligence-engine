@@ -9,12 +9,12 @@ sync_executive_summary() directly. Hermes consumes completed run events and call
 these helpers (or its own equivalent) when writing to the wiki.
 
 Canonical wiki target paths:
-  prd   → WIKI_ROOT/raw/from-decision-system/prds/<date>-<slug>.md
-  poc   → WIKI_ROOT/raw/from-decision-system/poc-upgrades/<date>-<slug>.md
-  kill  → WIKI_ROOT/raw/from-decision-system/kills/<date>-<slug>.md
+  prd   → WIKI_ROOT/raw/from-pm-decision-context/prds/<date>-<slug>.md
+  poc   → WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/<date>-<slug>.md
+  kill  → WIKI_ROOT/raw/from-pm-decision-context/kills/<date>-<slug>.md
 
 Auto-triage archive (wiki only, no decision-system export):
-  WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/<date>-<slug>.md
+  WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/<date>-<slug>.md
 
 Modes that are NOT wiki sync targets: brief, opportunity, evaluate.
 """
@@ -39,7 +39,7 @@ def archive_auto_triaged(
     wiki_root: str,
 ) -> Path:
     """Write an auto-triaged signal to
-    WIKI_ROOT/raw/from-decision-system/kills/auto-triaged/.
+    WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/.
 
     The file is written silently. If the wiki root does not exist (e.g. running
     in a CI environment without the external repo mounted), the error is swallowed
@@ -53,7 +53,7 @@ def archive_auto_triaged(
         filename = f"{date_str}-{slug}.md"
 
         target_dir = (
-            Path(wiki_root) / "raw" / "from-decision-system" / "kills" / "auto-triaged"
+            Path(wiki_root) / "raw" / "from-pm-decision-context" / "kills" / "auto-triaged"
         )
         target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -95,9 +95,9 @@ def sync_executive_summary(
 ) -> Path:
     """Write a completed run's Executive Summary to the canonical wiki path.
 
-    routing == 'prd'  → raw/from-decision-system/prds/<date>-<slug>.md
-    routing == 'poc'  → raw/from-decision-system/poc-upgrades/<date>-<slug>.md
-    routing == 'kill' → raw/from-decision-system/kills/<date>-<slug>.md
+    routing == 'prd'  → raw/from-pm-decision-context/prds/<date>-<slug>.md
+    routing == 'poc'  → raw/from-pm-decision-context/poc-upgrades/<date>-<slug>.md
+    routing == 'kill' → raw/from-pm-decision-context/kills/<date>-<slug>.md
 
     NOTE: pm-platform completion paths do not call this directly.
     This is provided for Hermes (or manual use) as a utility helper.
@@ -118,7 +118,7 @@ def sync_executive_summary(
     slug = _slugify(signal_title)
     filename = f"{date_str}-{slug}.md"
 
-    target_dir = Path(wiki_root) / "raw" / "from-decision-system" / subdir
+    target_dir = Path(wiki_root) / "raw" / "from-pm-decision-context" / subdir
     target_dir.mkdir(parents=True, exist_ok=True)
 
     target_path = target_dir / filename
