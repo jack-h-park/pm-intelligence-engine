@@ -1,4 +1,4 @@
-# AGENTS.md — jackhpark-pm-agentic-platform
+# AGENTS.md — jackhpark-pm-agentic-platform *(→ pm-intelligence-engine)*
 
 This file provides context for AI-assisted development on this project.
 

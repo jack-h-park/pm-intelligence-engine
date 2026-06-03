@@ -1,5 +1,7 @@
 # jackhpark-pm-agentic-platform
 
+> **Planned rename:** This repository will be renamed to `pm-intelligence-engine`.
+
 A personal PM intelligence platform that executes a structured signal-to-decision workflow, so a PM can focus on judgment instead of manual orchestration.
 
 ## What It Does
@@ -140,6 +142,7 @@ cp .env.example .env
 # Same-host Hermes/automation uses http://localhost:8000 directly — do not set BASE_URL for that
 # Optional: SLACK_WEBHOOK_URL
 # Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
+# Eval runs are model-agnostic; they use the current LLM_PROVIDER and model settings
 
 # Ensure external repos are cloned at the paths set in DECISION_CONTEXT_ROOT / WIKI_ROOT
 ```
@@ -157,7 +160,7 @@ All server commands are available via `make`:
 | `make logs` | `tail -f logs/server.log` |
 | `make dev` | Start in foreground with `--reload` (development) |
 | `make test` | Run unit + integration test suite |
-| `make eval` | Run eval harness |
+| `make eval` | Run eval harness with the current `LLM_PROVIDER` |
 | `make lint` | Run ruff linter |
 
 **iMac auto-start (one-time setup):**

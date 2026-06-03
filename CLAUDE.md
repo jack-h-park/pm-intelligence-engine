@@ -1,4 +1,4 @@
-# CLAUDE.md — jackhpark-pm-agentic-platform
+# CLAUDE.md — jackhpark-pm-agentic-platform *(→ pm-intelligence-engine)*
 
 This file provides context for AI-assisted development on this project.
 
