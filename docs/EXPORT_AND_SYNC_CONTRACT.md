@@ -1,5 +1,5 @@
 # Export and Sync Contract
-## jackhpark-pm-agentic-platform — File Write Ownership
+## pm-intelligence-engine — File Write Ownership
 
 **Version:** 1.0  
 **Last updated:** 2026-05-24
@@ -17,9 +17,9 @@ Companion documents:
 
 | Artifact | Owner | Trigger | Destination |
 |----------|-------|---------|-------------|
-| decision-system run export | **pm-platform** | `completed` (decide mode only) | `DECISION_SYSTEM_ROOT/products/<name>/runs/<date>-<slug>/` |
+| decision-system run export | **pm-engine** | `completed` (decide mode only) | `DECISION_SYSTEM_ROOT/products/<name>/runs/<date>-<slug>/` |
 | wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
-| auto-triage archive | pm-platform (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
+| auto-triage archive | pm-engine (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
 
 ---
 
@@ -27,10 +27,10 @@ Companion documents:
 
 | Mode | decision-system export | wiki sync | auto-triage archive | Notes |
 |------|------------------------|-----------|---------------------|-------|
-| `decide` (completed) | ✅ pm-platform | ✅ Hermes | — | Full artifact set: S6 + S7 output |
+| `decide` (completed) | ✅ pm-engine | ✅ Hermes | — | Full artifact set: S6 + S7 output |
 | `decide` (killed — reject) | — | ✅ Hermes | — | Hermes reads artifacts, syncs kill record |
 | `decide` (killed — routing kill confirmed) | — | ✅ Hermes | — | Same as reject |
-| `decide` (routing override → completed) | ✅ pm-platform | ✅ Hermes | — | override changes routing, export still triggered |
+| `decide` (routing override → completed) | ✅ pm-engine | ✅ Hermes | — | override changes routing, export still triggered |
 | `file` (auto-triage) | — | — | ✅ (see below) | No LLM stages ran beyond S2 |
 | `brief` (completed) | — | — | — | Internal use; no external artifact sync |
 | `opportunity` (completed) | — | — | — | S3 output only; not synced externally |
@@ -41,7 +41,7 @@ Companion documents:
 
 ---
 
-## Decision-System Export (pm-platform owned)
+## Decision-System Export (pm-engine owned)
 
 ### What triggers it
 `run_finalizer.finalize_run()` is called with `status="completed"`. If the run's `mode`
@@ -65,7 +65,7 @@ DECISION_SYSTEM_ROOT/products/<product_id>/runs/<YYYY-MM-DD>-<slug>/
 ### Failure behavior
 Export failures are **non-fatal**: if `DECISION_SYSTEM_ROOT` is not writable (e.g. network
 drive unavailable), the event `run_exporter.export_skipped` is emitted and the run is still
-marked `completed`. pm-platform does not retry exports.
+marked `completed`. pm-engine does not retry exports.
 
 ### Idempotency
 Re-exporting an already-exported run overwrites the directory. The export function is
@@ -74,8 +74,8 @@ idempotent by design — safe to call twice on the same run.
 ### Collision policy
 
 - Collision scope: identical `<YYYY-MM-DD>-<slug>/` export directory for the same run title/date
-- Behavior: pm-platform uses last-write-wins overwrite semantics for files it emits
-- Non-goal: pm-platform does not version or retain prior export revisions inside the run directory
+- Behavior: pm-engine uses last-write-wins overwrite semantics for files it emits
+- Non-goal: pm-engine does not version or retain prior export revisions inside the run directory
 - Verification: overwrite behavior is contract-tested in `tests/unit/test_run_exporter.py`
 
 ---
@@ -100,7 +100,7 @@ and writes to `WIKI_ROOT`.
 Example: `2026-05-24-example-security-product-android-16-nfc-allowlist.md`
 
 ### Failure behavior
-Hermes-owned; pm-platform has no visibility into wiki write failures.
+Hermes-owned; pm-engine has no visibility into wiki write failures.
 
 ### Idempotency
 Hermes must ensure idempotency. The recommended pattern is to check for an existing file
@@ -115,7 +115,7 @@ A run is auto-triaged when `relevance_score < AUTO_TRIAGE_THRESHOLD` at Stage 2.
 completes immediately with `mode=file` and `status=completed`. The `event_action` emitted
 is `auto_triaged`.
 
-### Current behavior (v1 — pm-platform utility)
+### Current behavior (v1 — pm-engine utility)
 `archive_auto_triaged()` in `app/services/wiki_sync.py` is called from the auto-triage
 path in `app/api/runs.py`. This is a non-fatal write to:
 
@@ -128,7 +128,7 @@ Set it to `false` once Hermes has taken over the archive path.
 
 ### Planned behavior (Hermes-owned)
 In the target architecture, Hermes detects `auto_triaged` events by polling for completed
-runs with `mode=file`, then writes the archive record. The current pm-platform call to
+runs with `mode=file`, then writes the archive record. The current pm-engine call to
 `archive_auto_triaged()` will be removed when Hermes takes over this path.
 
 **Transition plan:** switch `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false`, verify Hermes archive output,
@@ -136,17 +136,17 @@ then remove the legacy call path and deprecate `archive_auto_triaged()`.
 
 ---
 
-## pm-platform wiki_sync.py Status
+## pm-engine wiki_sync.py Status
 
 `app/services/wiki_sync.py` is retained as a **utility adapter** only:
 - It documents the canonical wiki paths
 - It exposes `sync_executive_summary()` and `archive_auto_triaged()` as callable helpers
-- It is **NOT called from any pm-platform completion path** (except the auto-triage legacy call)
+- It is **NOT called from any pm-engine completion path** (except the auto-triage legacy call)
 - Hermes may call the equivalent logic directly in its own codebase
 
 ---
 
-## What pm-platform Will Never Do
+## What pm-engine Will Never Do
 
 | Action | Reason |
 |--------|--------|
@@ -154,5 +154,5 @@ then remove the legacy call path and deprecate `archive_auto_triaged()`.
 | Write to `WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/` | Wiki sync is Hermes-owned |
 | Write to `WIKI_ROOT/raw/from-pm-decision-context/kills/` (non-auto-triage) | Wiki sync is Hermes-owned |
 | Call `sync_executive_summary()` from any completion path | Ownership conflict |
-| Retry failed wiki writes | Not pm-platform's concern |
+| Retry failed wiki writes | Not pm-engine's concern |
 | Block run completion on wiki write success | Completion is independent of wiki state |

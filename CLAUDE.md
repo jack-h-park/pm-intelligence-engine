@@ -1,4 +1,4 @@
-# CLAUDE.md — jackhpark-pm-agentic-platform *(→ pm-intelligence-engine)*
+# CLAUDE.md — pm-intelligence-engine *(→ pm-intelligence-engine)*
 
 This file provides context for AI-assisted development on this project.
 
@@ -29,11 +29,11 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 - `prompts/s1/` through `prompts/s7/` — stage prompt templates
 - `products/<name>/runs/` — where completed run files are written
 
-**product-management-wiki-repo** — used by Hermes (not pm-platform directly):
+**product-management-wiki-repo** — used by Hermes (not pm-engine directly):
 - `raw/from-web/sensing/` — Hermes watches for new signal files
-- `raw/from-pm-decision-context/` — Hermes writes wiki sync output after pm-platform completion
+- `raw/from-pm-decision-context/` — Hermes writes wiki sync output after pm-engine completion
 
-**pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
+**pm-engine does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
 
 ---
@@ -138,7 +138,7 @@ Set `LLM_PROVIDER=claude` or `LLM_PROVIDER=openai` in `.env`.
 5. **Eval must pass before a phase is considered complete.** Run `python eval/runner.py` before marking any phase done.
 6. **Storage writes happen inside stages, not in API routes.**
 7. **Run files exported to `DECISION_SYSTEM_ROOT` must match the existing manual format exactly.**
-8. **pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
+8. **pm-engine does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 
 ---
 

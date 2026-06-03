@@ -3,13 +3,13 @@
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 
 <!--
-  launchd service definition for jackhpark-pm-agentic-platform.
+  launchd service definition for pm-intelligence-engine.
 
   SETUP (one-time on iMac):
     make install-service
 
   This registers the service in ~/Library/LaunchAgents/ so that:
-    - pm-platform starts automatically on login
+    - pm-engine starts automatically on login
     - launchd restarts the process if it crashes (KeepAlive = true)
 
   BEFORE INSTALLING — verify these paths match your iMac:
@@ -19,9 +19,9 @@
                            Default below assumes anaconda at /opt/anaconda3.
 
   MANUAL CONTROL (after install-service):
-    launchctl stop  com.jackpark.pm-platform   # graceful stop (launchd will restart — use uninstall-service to remove)
-    launchctl start com.jackpark.pm-platform   # start manually
-    launchctl list | grep pm-platform          # check status
+    launchctl stop  com.jackpark.pm-engine   # graceful stop (launchd will restart — use uninstall-service to remove)
+    launchctl start com.jackpark.pm-engine   # start manually
+    launchctl list | grep pm-engine          # check status
 
   LOGS:
     logs/server.log  (relative to WorkingDirectory)
@@ -31,7 +31,7 @@
 <dict>
 
   <key>Label</key>
-  <string>com.jackpark.pm-platform</string>
+  <string>com.jackpark.pm-engine</string>
 
   <!-- Run uvicorn directly; adjust path to match `which uvicorn` on iMac -->
   <key>ProgramArguments</key>
@@ -46,7 +46,7 @@
 
   <!-- Must match the absolute path of this repository on the iMac -->
   <key>WorkingDirectory</key>
-  <string>/Users/jackpark/workspace/code/core/jackhpark-pm-agentic-platform</string>
+  <string>/Users/jackpark/workspace/code/core/pm-intelligence-engine</string>
 
   <!-- Ensure conda and system binaries are on PATH for the subprocess -->
   <key>EnvironmentVariables</key>
@@ -65,10 +65,10 @@
 
   <!-- Both stdout and stderr go to the same log file -->
   <key>StandardOutPath</key>
-  <string>/Users/jackpark/workspace/code/core/jackhpark-pm-agentic-platform/logs/server.log</string>
+  <string>/Users/jackpark/workspace/code/core/pm-intelligence-engine/logs/server.log</string>
 
   <key>StandardErrorPath</key>
-  <string>/Users/jackpark/workspace/code/core/jackhpark-pm-agentic-platform/logs/server.log</string>
+  <string>/Users/jackpark/workspace/code/core/pm-intelligence-engine/logs/server.log</string>
 
 </dict>
 </plist>

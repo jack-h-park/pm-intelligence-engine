@@ -1,4 +1,4 @@
-# jackhpark-pm-agentic-platform — Operations Makefile
+# pm-intelligence-engine — Operations Makefile
 #
 # Daily ops:
 #   make start    — start server in background (logs → logs/server.log)
@@ -25,8 +25,8 @@
 
 PID_FILE  := .pid
 LOG_FILE  := logs/server.log
-PLIST_SRC := deploy/com.jackpark.pm-platform.plist
-PLIST_DST := $(HOME)/Library/LaunchAgents/com.jackpark.pm-platform.plist
+PLIST_SRC := deploy/com.jackpark.pm-engine.plist
+PLIST_DST := $(HOME)/Library/LaunchAgents/com.jackpark.pm-engine.plist
 
 
 # ---------------------------------------------------------------------------
@@ -82,8 +82,8 @@ install-service:
 	@mkdir -p $(HOME)/Library/LaunchAgents
 	cp $(PLIST_SRC) $(PLIST_DST)
 	launchctl load $(PLIST_DST)
-	@echo "Service installed. pm-platform will start automatically on login."
-	@echo "To check: launchctl list | grep pm-platform"
+	@echo "Service installed. pm-engine will start automatically on login."
+	@echo "To check: launchctl list | grep pm-engine"
 
 uninstall-service:
 	@launchctl unload $(PLIST_DST) 2>/dev/null || true

@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     # automatically completed as 'file' mode without pausing at Gate 1.
     # Range 1–5. Default 3 means scores 1–2 are auto-triaged; score 3+ goes to PM.
     AUTO_TRIAGE_THRESHOLD: int = 3
-    # Transitional cutover switch. While True, pm-platform still writes the
+    # Transitional cutover switch. While True, pm-engine still writes the
     # legacy local wiki archive for auto-triaged signals. Set to False once
     # Hermes has taken over auto-triage archive ownership.
     AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED: bool = True

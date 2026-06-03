@@ -1,5 +1,5 @@
 # Reverse PRD
-## jackhpark-pm-agentic-platform
+## pm-intelligence-engine
 
 **Version:** 0.1  
 **Status:** Working Reverse Spec  
@@ -25,7 +25,7 @@ This reverse PRD is intentionally paired with two companion documents:
 
 ## 2. Product Summary
 
-`jackhpark-pm-agentic-platform` is a personal PM intelligence platform that automates the signal-to-decision workflow across three layers:
+`pm-intelligence-engine` is a personal PM intelligence platform that automates the signal-to-decision workflow across three layers:
 
 ```text
 SENSE -> DECIDE -> LEARN

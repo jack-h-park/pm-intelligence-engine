@@ -20,14 +20,14 @@ Implemented workflow, contracts, and tests are tracked in:
 **Status:** In transition
 
 As a maintainer, I want Hermes to own the auto-triage wiki archive fully so
-pm-platform has no remaining wiki write responsibility.
+pm-engine has no remaining wiki write responsibility.
 
 **Acceptance criteria**
 
 - Hermes archives `status=completed` + `mode=file` runs into
   `raw/from-pm-decision-context/kills/auto-triaged/`
 - `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false` is supported and documented
-- pm-platform completion remains successful with local archive disabled
+- pm-engine completion remains successful with local archive disabled
 - legacy local archive call path can be removed after Hermes validation
 
 ### E5 — Quality Calibration
@@ -75,7 +75,7 @@ decision-system compatibility remains trustworthy.
 
 - keep overwrite behavior for repeated exports of the same run contract-tested
 - make skip/failure behavior visible through emitted events
-- decide whether retry/backoff belongs in pm-platform or Hermes monitoring
+- decide whether retry/backoff belongs in pm-engine or Hermes monitoring
 
 ### E5 — API Consumer Ergonomics
 

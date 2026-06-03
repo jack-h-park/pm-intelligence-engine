@@ -1,10 +1,10 @@
 """Wiki sync service — utility adapter for WIKI_ROOT file operations.
 
 Ownership (per EXPORT_AND_SYNC_CONTRACT.md):
-  - decision-system export: pm-platform (via run_exporter.py)
-  - wiki sync: Hermes operations plane (NOT pm-platform completion paths)
+  - decision-system export: pm-engine (via run_exporter.py)
+  - wiki sync: Hermes operations plane (NOT pm-engine completion paths)
 
-This module is a utility/legacy adapter. pm-platform completion paths do NOT call
+This module is a utility/legacy adapter. pm-engine completion paths do NOT call
 sync_executive_summary() directly. Hermes consumes completed run events and calls
 these helpers (or its own equivalent) when writing to the wiki.
 
@@ -99,7 +99,7 @@ def sync_executive_summary(
     routing == 'poc'  → raw/from-pm-decision-context/poc-upgrades/<date>-<slug>.md
     routing == 'kill' → raw/from-pm-decision-context/kills/<date>-<slug>.md
 
-    NOTE: pm-platform completion paths do not call this directly.
+    NOTE: pm-engine completion paths do not call this directly.
     This is provided for Hermes (or manual use) as a utility helper.
     """
     routing_to_dir = {
