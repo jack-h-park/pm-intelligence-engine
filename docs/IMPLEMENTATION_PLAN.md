@@ -396,7 +396,7 @@ All terminal run transitions now go through `app/services/run_finalizer.py`:
 
 ### 3.4 Wiki sync contract
 **→ Hermes-owned.** `app/services/wiki_sync.py` is a utility adapter that documents
-canonical paths (`raw/from-decision-system/{prds|poc-upgrades|kills}/`).
+canonical paths (`raw/from-pm-decision-context/{prds|poc-upgrades|kills}/`).
 pm-platform completion paths do NOT write to WIKI_ROOT.
 
 ### Phase 3 completion gate

@@ -113,7 +113,7 @@ API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`
 
 ## 3. External Repository Integration
 
-### jackhpark-pm-decision-system
+### jackhpark-pm-decision-context
 
 | Path | Usage | Direction |
 |---|---|---|
@@ -129,10 +129,10 @@ API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`
 | Path | Usage | Direction | Owner |
 |---|---|---|---|
 | `raw/from-web/sensing/` | Source of new signal files (Hermes watches) | Read (by Hermes) | Hermes |
-| `raw/from-decision-system/kills/` | Kill decision S7 reports | Write | Hermes |
-| `raw/from-decision-system/prds/` | PRD decision S7 reports | Write | Hermes |
-| `raw/from-decision-system/poc-upgrades/` | PoC decision S7 reports | Write | Hermes |
-| `raw/from-decision-system/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-platform → Hermes |
+| `raw/from-pm-decision-context/kills/` | Kill decision S7 reports | Write | Hermes |
+| `raw/from-pm-decision-context/prds/` | PRD decision S7 reports | Write | Hermes |
+| `raw/from-pm-decision-context/poc-upgrades/` | PoC decision S7 reports | Write | Hermes |
+| `raw/from-pm-decision-context/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-platform → Hermes |
 
 **pm-platform does not write to `WIKI_ROOT` as part of run completion.** Wiki writes are
 Hermes-owned. The auto-triage archive path is the only exception and is transitional — see

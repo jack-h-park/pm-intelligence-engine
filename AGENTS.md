@@ -8,7 +8,7 @@ This file provides context for AI-assisted development on this project.
 
 A personal PM intelligence platform that automates the signal-to-decision workflow. It reads from two existing repositories and writes results back to them.
 
-**This project does NOT contain the workflow design.** The workflow (prompts, product contexts, PM identity, scoring rules) lives in `jackhpark-pm-decision-system`. This project automates that workflow.
+**This project does NOT contain the workflow design.** The workflow (prompts, product contexts, PM identity, scoring rules) lives in `jackhpark-pm-decision-context`. This project automates that workflow.
 
 ---
 
@@ -17,11 +17,11 @@ A personal PM intelligence platform that automates the signal-to-decision workfl
 Configured in `config.py`:
 
 ```python
-DECISION_SYSTEM_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-system"
+DECISION_CONTEXT_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-context"
 WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wiki"
 ```
 
-**jackhpark-pm-decision-system** — source of:
+**jackhpark-pm-decision-context** — source of:
 - `core/00-pm-identity.md` — PM philosophy and operating principles (loaded into every LLM call)
 - `company-context.md` — company strategy context
 - `products/<name>/context.md` — product-specific context
@@ -31,7 +31,7 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wi
 
 **jackhpark-product-management-wiki** — used by Hermes (not pm-platform directly):
 - `raw/from-web/sensing/` — Hermes watches for new signal files
-- `raw/from-decision-system/` — Hermes writes wiki sync output after pm-platform completion
+- `raw/from-pm-decision-context/` — Hermes writes wiki sync output after pm-platform completion
 
 ---
 
@@ -61,11 +61,11 @@ app/
 ├── agents/                Stage 4 persona agents: explorer, strategist, builder, skeptic
 │
 ├── services/
-│   ├── context_loader.py  Reads 3-layer context from DECISION_SYSTEM_ROOT
+│   ├── context_loader.py  Reads 3-layer context from DECISION_CONTEXT_ROOT / DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates
 │   ├── run_finalizer.py   Single exit point for all terminal transitions;
 │   │                      auto-stamps completed_at; triggers export for decide mode
-│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT/products/.../runs/
+│   ├── run_exporter.py    Writes completed runs to DECISION_CONTEXT_ROOT/DECISION_SYSTEM_ROOT products/.../runs/
 │   ├── notifier.py        FanoutNotifier: fires Gate 1 + Gate 2 alerts via Telegram/Slack;
 │   │                      Gate 2 alert includes link to /runs/{id}/review
 │   └── wiki_sync.py       Utility adapter only — documents canonical wiki paths;

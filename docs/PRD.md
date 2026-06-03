@@ -13,7 +13,7 @@
 
 A PM's time should be spent on judgment — deciding what matters, what to build, and why. In practice, the majority of time goes to *adjacent work*: gathering signals, normalizing information, formatting documents, filing records.
 
-The existing `jackhpark-pm-decision-system` has a well-designed 7-stage decision workflow, but every stage requires manually writing markdown files. This friction interrupts focus and slows the cadence of decision-making.
+The existing `jackhpark-pm-decision-context` has a well-designed 7-stage decision workflow, but every stage requires manually writing markdown files. This friction interrupts focus and slows the cadence of decision-making.
 
 ### Specific Pain Points
 
@@ -110,7 +110,7 @@ The existing `jackhpark-pm-decision-system` has a well-designed 7-stage decision
 **Acceptance criteria:**
 - Each stage output is stored as structured JSON in `StageOutput`
 - Run status transitions: `pending` → `running` → `waiting_approval`
-- Context loading reads from `jackhpark-pm-decision-system/core/` and `products/<name>/context.md`
+- Context loading reads from `jackhpark-pm-decision-context/core/` and `products/<name>/context.md`
 
 ---
 
@@ -222,7 +222,7 @@ Composite = (Impact × 0.35) + (Strategic Fit × 0.30) + (Feasibility × 0.20) +
 
 ### F10 — Run File Export
 
-**Purpose:** Write completed run artifacts to the existing `jackhpark-pm-decision-system` folder structure so the new system and manual workflow remain compatible.
+**Purpose:** Write completed run artifacts to the existing `jackhpark-pm-decision-context` folder structure so the new system and manual workflow remain compatible.
 
 **Behavior:**
 - Creates `products/<name>/runs/<YYYY-MM-DD>-<slug>/`
@@ -255,9 +255,9 @@ Composite = (Impact × 0.35) + (Strategic Fit × 0.30) + (Feasibility × 0.20) +
 
 **Behavior:**
 - On S7 completion, copies the report to:
-  - `raw/from-decision-system/kills/` for Kill decisions
-  - `raw/from-decision-system/prds/` for PRD decisions
-  - `raw/from-decision-system/poc-upgrades/` for PoC decisions
+  - `raw/from-pm-decision-context/kills/` for Kill decisions
+  - `raw/from-pm-decision-context/prds/` for PRD decisions
+  - `raw/from-pm-decision-context/poc-upgrades/` for PoC decisions
 - Generates YAML frontmatter: `source`, `type`, `date`, `run`, `review_needed: false`
 
 **Acceptance criteria:**

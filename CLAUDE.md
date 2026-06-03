@@ -8,7 +8,7 @@ This file provides context for AI-assisted development on this project.
 
 A personal PM intelligence platform that automates the signal-to-decision workflow. It reads from two existing repositories and writes results back to them.
 
-**This project does NOT contain the workflow design.** The workflow (prompts, product contexts, PM identity, scoring rules) lives in `jackhpark-pm-decision-system`. This project automates that workflow.
+**This project does NOT contain the workflow design.** The workflow (prompts, product contexts, PM identity, scoring rules) lives in `jackhpark-pm-decision-context`. This project automates that workflow.
 
 ---
 
@@ -17,11 +17,11 @@ A personal PM intelligence platform that automates the signal-to-decision workfl
 Configured in `config.py`:
 
 ```python
-DECISION_SYSTEM_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-system"
+DECISION_CONTEXT_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-context"
 WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wiki"
 ```
 
-**jackhpark-pm-decision-system** — source of:
+**jackhpark-pm-decision-context** — source of:
 - `core/00-pm-identity.md` — PM philosophy and operating principles (loaded into every LLM call)
 - `company-context.md` — company strategy context
 - `products/<name>/context.md` — product-specific context
@@ -31,7 +31,7 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wi
 
 **jackhpark-product-management-wiki** — used by Hermes (not pm-platform directly):
 - `raw/from-web/sensing/` — Hermes watches for new signal files
-- `raw/from-decision-system/` — Hermes writes wiki sync output after pm-platform completion
+- `raw/from-pm-decision-context/` — Hermes writes wiki sync output after pm-platform completion
 
 **pm-platform does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
@@ -48,10 +48,10 @@ app/
 ├── stages/               One async function per stage: s1_signal.py → s7_summary.py
 ├── agents/               Stage 4 persona agents: explorer, strategist, builder, skeptic
 ├── services/
-│   ├── context_loader.py  Reads 3-layer context from DECISION_SYSTEM_ROOT
+│   ├── context_loader.py  Reads 3-layer context from DECISION_CONTEXT_ROOT / DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
-│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
+│   ├── run_exporter.py    Writes completed runs to DECISION_CONTEXT_ROOT / DECISION_SYSTEM_ROOT format
 │   ├── notifier.py        FanoutNotifier: Gate 1 + Gate 2 Telegram/Slack alerts
 │   └── wiki_sync.py       Utility adapter only — NOT called from completion paths
 ├── storage/
