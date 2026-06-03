@@ -1,10 +1,14 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DEFAULT_DECISION_CONTEXT_ROOT = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-context"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    DECISION_SYSTEM_ROOT: str = "/Users/jackpark/workspace/ai-assets/jackhpark-pm-decision-system"
+    DECISION_CONTEXT_ROOT: str = DEFAULT_DECISION_CONTEXT_ROOT
+    DECISION_SYSTEM_ROOT: str | None = None
     WIKI_ROOT: str = "/Users/jackpark/workspace/ai-assets/jackhpark-product-management-wiki"
 
     LLM_PROVIDER: str = "claude"
@@ -34,6 +38,16 @@ class Settings(BaseSettings):
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     SLACK_WEBHOOK_URL: str = ""  # Incoming Webhook URL from Slack App settings
+
+    @model_validator(mode="after")
+    def _resolve_decision_root_aliases(self) -> "Settings":
+        if self.DECISION_CONTEXT_ROOT != DEFAULT_DECISION_CONTEXT_ROOT:
+            self.DECISION_SYSTEM_ROOT = self.DECISION_CONTEXT_ROOT
+            return self
+        if self.DECISION_SYSTEM_ROOT:
+            self.DECISION_CONTEXT_ROOT = self.DECISION_SYSTEM_ROOT
+        self.DECISION_SYSTEM_ROOT = self.DECISION_CONTEXT_ROOT
+        return self
 
 
 settings = Settings()
