@@ -1,7 +1,7 @@
-"""Export a completed run to DECISION_SYSTEM_ROOT file format.
+"""Export a completed run to the canonical pm-engine archive.
 
-Output directory structure:
-  products/<product_id>/runs/<YYYY-MM-DD>-<slug>/
+Canonical output directory structure:
+  archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/
   ├── s1-signal.md
   ├── s2-insight.md
   ├── s3-opportunity.md
@@ -39,9 +39,9 @@ def export_run(
     store: PMWorkflowStore,
     decision_system_root: str,
 ) -> Path:
-    """Export all stage outputs for a run to the DECISION_SYSTEM_ROOT format.
+    """Export all stage outputs for a run to the canonical archive path.
 
-    Returns the directory path that was written.
+    Returns the canonical pm-engine archive directory path that was written.
     """
     run = store.get_run(run_id)
     if run is None:
@@ -61,28 +61,23 @@ def export_run(
     s7 = _load_stage(store, run_id, "s7", S7OutputData)
 
     slug = _slugify(s1.title if s1 else run_id)
-    run_dir = Path(decision_system_root) / "products" / product_id / "runs" / f"{date_str}-{slug}"
-    run_dir.mkdir(parents=True, exist_ok=True)
+    run_folder_name = f"{date_str}-{slug}"
+    canonical_run_dir = _canonical_archive_root() / product_id / run_folder_name
 
-    if s1:
-        (run_dir / "s1-signal.md").write_text(_render_s1(s1, date_str))
-    if s2 and s1:
-        (run_dir / "s2-insight.md").write_text(_render_s2(s2, s1, date_str))
-    if s3:
-        (run_dir / "s3-opportunity.md").write_text(_render_s3(s3, date_str))
-    if s4:
-        (run_dir / "s4-evaluation.md").write_text(_render_s4(s4, date_str))
-        (run_dir / "s4-evaluation-rubric-score.md").write_text(_render_s4_rubric(s4, date_str))
-    if s5:
-        (run_dir / "s5-prioritization.md").write_text(_render_s5(s5, date_str))
-    if s6a:
-        (run_dir / "s6-poc-plan.md").write_text(_render_s6a(s6a, date_str))
-    if s6b:
-        (run_dir / "s6-prd.md").write_text(_render_s6b(s6b, date_str))
-    if s7:
-        (run_dir / "s7-report.md").write_text(s7.markdown)
+    _write_run_artifacts(
+        canonical_run_dir,
+        date_str=date_str,
+        s1=s1,
+        s2=s2,
+        s3=s3,
+        s4=s4,
+        s5=s5,
+        s6a=s6a,
+        s6b=s6b,
+        s7=s7,
+    )
 
-    return run_dir
+    return canonical_run_dir
 
 
 # ---------------------------------------------------------------------------
@@ -399,6 +394,45 @@ def _load_stage(
         return None
     data = json.loads(raw["output_json"])
     return model_class(**data["output"])
+
+
+def _canonical_archive_root() -> Path:
+    repo_root = Path(__file__).resolve().parents[2]
+    return repo_root / "archive" / "runs"
+
+
+def _write_run_artifacts(
+    run_dir: Path,
+    *,
+    date_str: str,
+    s1: S1OutputData | None,
+    s2: S2OutputData | None,
+    s3: S3OutputData | None,
+    s4: S4OutputData | None,
+    s5: S5OutputData | None,
+    s6a: S6AOutputData | None,
+    s6b: S6BOutputData | None,
+    s7: S7OutputData | None,
+) -> None:
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    if s1:
+        (run_dir / "s1-signal.md").write_text(_render_s1(s1, date_str), encoding="utf-8")
+    if s2 and s1:
+        (run_dir / "s2-insight.md").write_text(_render_s2(s2, s1, date_str), encoding="utf-8")
+    if s3:
+        (run_dir / "s3-opportunity.md").write_text(_render_s3(s3, date_str), encoding="utf-8")
+    if s4:
+        (run_dir / "s4-evaluation.md").write_text(_render_s4(s4, date_str), encoding="utf-8")
+        (run_dir / "s4-evaluation-rubric-score.md").write_text(_render_s4_rubric(s4, date_str), encoding="utf-8")
+    if s5:
+        (run_dir / "s5-prioritization.md").write_text(_render_s5(s5, date_str), encoding="utf-8")
+    if s6a:
+        (run_dir / "s6-poc-plan.md").write_text(_render_s6a(s6a, date_str), encoding="utf-8")
+    if s6b:
+        (run_dir / "s6-prd.md").write_text(_render_s6b(s6b, date_str), encoding="utf-8")
+    if s7:
+        (run_dir / "s7-report.md").write_text(s7.markdown, encoding="utf-8")
 
 
 def _slugify(text: str) -> str:

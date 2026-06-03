@@ -27,11 +27,13 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 - `products/<name>/context.md` — product-specific context
 - `products/<name>/signal-sources.md` — RSS/URL sources for signal collection
 - `prompts/s1/` through `prompts/s7/` — stage prompt templates
-- `products/<name>/runs/` — where completed run files are written
 
 **product-management-wiki-repo** — used by Hermes (not pm-engine directly):
 - `raw/from-web/sensing/` — Hermes watches for new signal files
 - `raw/from-pm-decision-context/` — Hermes writes wiki sync output after pm-engine completion
+
+**pm-engine repository output**:
+- `archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/` — canonical run archive written by pm-engine
 
 **pm-engine does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
@@ -51,7 +53,7 @@ app/
 │   ├── context_loader.py  Reads 3-layer context from DECISION_CONTEXT_ROOT / DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
-│   ├── run_exporter.py    Writes completed runs to DECISION_CONTEXT_ROOT / DECISION_SYSTEM_ROOT format
+│   ├── run_exporter.py    Writes completed runs to the canonical pm-engine archive
 │   ├── notifier.py        FanoutNotifier: Gate 1 + Gate 2 Telegram/Slack alerts
 │   └── wiki_sync.py       Utility adapter only — NOT called from completion paths
 ├── storage/

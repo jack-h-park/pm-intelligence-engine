@@ -17,7 +17,7 @@ Companion documents:
 
 | Artifact | Owner | Trigger | Destination |
 |----------|-------|---------|-------------|
-| decision-system run export | **pm-engine** | `completed` (decide mode only) | `DECISION_SYSTEM_ROOT/products/<name>/runs/<date>-<slug>/` |
+| decision-system run export | **pm-engine** | `completed` (decide mode only) | `archive/runs/<product_id>/<date>-<slug>/` |
 | wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
 | auto-triage archive | pm-engine (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
 
@@ -49,7 +49,7 @@ is in `{"decide"}`, `_maybe_export()` is invoked.
 
 ### Where it writes
 ```
-DECISION_SYSTEM_ROOT/products/<product_id>/runs/<YYYY-MM-DD>-<slug>/
+archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/
 ```
 
 ### What it writes
@@ -63,9 +63,9 @@ DECISION_SYSTEM_ROOT/products/<product_id>/runs/<YYYY-MM-DD>-<slug>/
 - `s7-report.md`
 
 ### Failure behavior
-Export failures are **non-fatal**: if `DECISION_SYSTEM_ROOT` is not writable (e.g. network
-drive unavailable), the event `run_exporter.export_skipped` is emitted and the run is still
-marked `completed`. pm-engine does not retry exports.
+Export failures are **non-fatal**: if the archive destination is not writable, the event
+`run_exporter.export_skipped` is emitted and the run is still marked `completed`.
+pm-engine does not retry exports.
 
 ### Idempotency
 Re-exporting an already-exported run overwrites the directory. The export function is

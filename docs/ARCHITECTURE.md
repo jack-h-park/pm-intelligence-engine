@@ -122,7 +122,7 @@ API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`
 | `products/<name>/context.md` | Product-specific context layer | Read |
 | `products/<name>/signal-sources.md` | RSS/URL sources for signal collection | Read |
 | `prompts/s1/` through `prompts/s7/` | Stage prompt templates | Read |
-| `products/<name>/runs/<date>-<slug>/` | Exported run artifacts | Write |
+| `archive/runs/<product_id>/<date>-<slug>/` | Canonical exported run artifacts | Write |
 
 ### product-management-wiki-repo
 

@@ -175,3 +175,73 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
             "s7-report.md",
         ]
     )
+
+
+def test_export_run_writes_to_pm_engine_archive_root_and_returns_canonical_path(tmp_path):
+    """Export writes to archive/runs/<product>/<date-slug>/ and returns that canonical path."""
+    from app.services.run_exporter import export_run
+
+    store = _make_store()
+    s1 = SimpleNamespace(
+        signal_id="sig-123",
+        title="Android 16 NFC Allowlist",
+        summary="Signal summary.",
+        category="platform",
+        source="https://example.com",
+        event_date="2026-05-24",
+    )
+    s7 = SimpleNamespace(markdown="# Final report")
+
+    with patch("app.services.run_exporter.datetime") as mock_dt:
+        mock_dt.now.return_value.strftime.return_value = FIXED_DATE
+        with patch(
+            "app.services.run_exporter._load_stage",
+            side_effect=[s1, None, None, None, None, None, None, s7],
+        ):
+            with patch("app.services.run_exporter._canonical_archive_root", return_value=tmp_path / "archive" / "runs"):
+                path = export_run(
+                    run_id="run-export-test",
+                    store=store,
+                    decision_system_root=str(tmp_path / "legacy"),
+                )
+
+    assert path == tmp_path / "archive" / "runs" / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
+    assert (path / "s1-signal.md").exists()
+    assert (path / "s7-report.md").exists()
+
+
+def test_export_run_does_not_write_legacy_path(tmp_path):
+    """Export writes only to the canonical pm-engine archive path."""
+    from app.services.run_exporter import export_run
+
+    store = _make_store()
+    s1 = SimpleNamespace(
+        signal_id="sig-123",
+        title="Android 16 NFC Allowlist",
+        summary="Signal summary.",
+        category="platform",
+        source="https://example.com",
+        event_date="2026-05-24",
+    )
+    s7 = SimpleNamespace(markdown="# Final report")
+
+    legacy_root = tmp_path / "legacy"
+    canonical_root = tmp_path / "archive" / "runs"
+
+    with patch("app.services.run_exporter.datetime") as mock_dt:
+        mock_dt.now.return_value.strftime.return_value = FIXED_DATE
+        with patch(
+            "app.services.run_exporter._load_stage",
+            side_effect=[s1, None, None, None, None, None, None, s7],
+        ):
+            with patch("app.services.run_exporter._canonical_archive_root", return_value=canonical_root):
+                canonical_path = export_run(
+                    run_id="run-export-test",
+                    store=store,
+                    decision_system_root=str(legacy_root),
+                )
+
+    legacy_path = legacy_root / "products" / "example-security-product" / "runs" / "2026-05-24-android-16-nfc-allowlist"
+    assert canonical_path == canonical_root / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
+    assert (canonical_path / "s7-report.md").read_text(encoding="utf-8") == "# Final report"
+    assert not legacy_path.exists()

@@ -19,7 +19,6 @@ and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
@@ -94,7 +93,10 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
             store=engine.store,
             decision_system_root=settings.DECISION_SYSTEM_ROOT,
         )
-        emit_event("run_exporter", "exported", run_id, {"path": str(path)})
+        emit_event("run_exporter", "exported", run_id, {
+            "path": str(path),
+            "canonical_path": str(path),
+        })
     except OSError:
         # decision_system_root not mounted — non-fatal.
         emit_event("run_exporter", "export_skipped", run_id, {
