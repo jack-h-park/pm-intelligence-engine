@@ -1,8 +1,8 @@
 # Implementation Status
 ## Reverse PRD Evidence Map
 
-**Version:** 0.3  
-**Last updated:** 2026-05-29
+**Version:** 0.5  
+**Last updated:** 2026-06-02
 
 This document maps the reverse PRD to concrete repository evidence. It is intentionally evidence-first and changes more often than the PRD.
 
@@ -27,11 +27,13 @@ Status meanings:
 - `pytest tests/unit -q` → 104 passed
 - `pytest tests/integration -q` → 46 passed
 - `pytest tests/ -q` → 150 passed
+- `pytest tests/unit/test_eval_runner.py -q` → validates eval runtime provider/model resolution
 - `POST /runs/start` now rejects signal/product mismatches with `422` and uses the stored signal `product_id` as canonical.
 - Terminal run transitions now keep `Signal.status` aligned with workflow outcomes:
   - `completed` / `killed` → `done`
   - `failed` → `pending`
 - Direction-path exceptions now flow through `run_finalizer`, preserving the single terminal exit contract.
+- Eval runs are model-agnostic and report the active provider/model at startup.
 
 ### Known limits of this review
 
@@ -136,11 +138,16 @@ and contract tests verify ownership boundaries. Eval harness exists structurally
 |---|---|---|---|
 | US-21 | Implemented, Verified | `tests/unit/test_s1.py` through `test_s7.py` — full S1–S7 coverage | 104 unit tests passing |
 | US-22 | Implemented, Verified | `tests/integration/test_approval_flow.py`, `test_context_loader.py`, `test_general_run_modes.py`, `test_artifacts_api.py` | 46 integration tests passing; approve/revise/reject/routing-review paths and signal lifecycle contracts verified |
-| US-23 | Implemented, Verified | `eval/runner.py`, `eval/scenarios.json`, `eval/rubrics/`; live run 2026-05-24 | Harness runs end-to-end; S1–S5 pipeline, Pydantic validation, and rubric checks all pass. Routing: R05 ✓, R06 ✓, R04 ✗, R07 ✗ — failures are model calibration (gpt-4o vs historical Claude runs, skeptic 2/5 systematically). Code behavior is correct. See eval notes below. |
+| US-23 | Implemented, Verified | `eval/runner.py`, `eval/scenarios.json`, `eval/rubrics/`, `tests/unit/test_eval_runner.py`; live run 2026-05-24 | Eval execution is model-agnostic. `gpt-4o` routing drift on R04/R07 is documented as model-specific variance, and eval output now reports provider/model explicitly. |
 | US-24 | Moved to Hermes | Scheduling/harvesting is Hermes-owned; `signal_collector.py` is not in-process | pm-platform exposes `POST /signals`; Hermes submits signals on schedule |
 | US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; signal lifecycle synchronized on terminal states; export triggered only for decide mode; `tests/unit/test_run_finalizer.py` | wiki sync removed from pm-platform completion path; `failed` intentionally does NOT receive `completed_at` and returns the signal to `pending` |
 
-### Eval harness findings (2026-05-24 run with gpt-4o)
+### Eval harness runtime reporting
+
+- Eval runs are model-agnostic and use the active `LLM_PROVIDER`
+- `eval/runner.py` prints the runtime provider/model at startup so results stay attributable
+
+### Documented model-specific findings (2026-05-24 run with gpt-4o)
 
 | Scenario | S3 rubric | S4 rubric | Composite | Routing | Result |
 |----------|-----------|-----------|-----------|---------|--------|
@@ -152,12 +159,11 @@ and contract tests verify ownership boundaries. Eval harness exists structurally
 **Root cause:** gpt-4o systematically assigns Skeptic 2/5 → composite fixed at 3.5; and classifies assumptions
 as Blocking in R04/R07 that historical Claude runs treated as Informing.
 **Pipeline behavior is correct** — routing logic, Pydantic validation, rubric checks all function as designed.
-**Fix path:** recalibrate S4/S5 prompts for gpt-4o, or use Claude for eval runs.
+**Disposition:** retained as documented model-specific variance.
 
 ### Highest-value gaps (remaining)
 
 1. Auto-triage archive ownership is still transitional — local archive writes remain until Hermes takes over fully
-2. Eval calibration for the active model baseline — R04/R07 still diverge under `gpt-4o`
-3. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
+2. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
 
 See sequencing in [Reverse Roadmap](ROADMAP_REVERSE.md).

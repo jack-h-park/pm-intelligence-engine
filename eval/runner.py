@@ -26,10 +26,26 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from app.factory import build_engine
 from app.models.stages import RunContext, S1Input, S2Input, S3Input, S4Input, S5Input
 from app.stages import s1_signal, s2_insight, s3_opportunity, s4_evaluation, s5_prioritization
+from config import settings
 from eval.rubrics import s3_hypothesis as s3_rubric
 from eval.rubrics import s5_routing as s5_rubric
 
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.json"
+
+
+def resolve_eval_model_name(settings_obj: Any) -> str:
+    provider = settings_obj.LLM_PROVIDER.lower()
+    if provider == "claude":
+        return settings_obj.ANTHROPIC_MODEL
+    if provider == "openai":
+        return settings_obj.OPENAI_MODEL
+    raise ValueError(f"Unsupported LLM_PROVIDER '{settings_obj.LLM_PROVIDER}' for eval")
+
+
+def resolve_eval_runtime(settings_obj: Any) -> tuple[str, str]:
+    provider = settings_obj.LLM_PROVIDER.lower()
+    model = resolve_eval_model_name(settings_obj)
+    return provider, model
 
 
 def load_scenarios() -> list[dict]:
@@ -202,9 +218,11 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
 async def main() -> int:
     scenarios = load_scenarios()
     engine = build_engine("local")
+    provider, actual_model = resolve_eval_runtime(settings)
 
     print(f"\n{'=' * 60}")
-    print(f"  PM Agentic Platform — Eval Harness (Phase 2)")
+    print("  PM Agentic Platform — Eval Harness (Phase 2)")
+    print(f"  Runtime:  {provider} / {actual_model}")
     print(f"  Scenarios: {len(scenarios)}")
     print(f"{'=' * 60}\n")
 
@@ -250,10 +268,11 @@ async def main() -> int:
                 print(f"     ⚠  {issue}")
 
         for issue in result["issues"]:
+            rubric_issues = (result.get("rubric_check") or {}).get("issues", [])
             already_shown = (
                 issue in (result.get("hypothesis_check") or {}).get("issues", [])
                 or issue in (result.get("routing_check") or {}).get("issues", [])
-                or any(issue == f"S4 rubric: {i}" for i in (result.get("rubric_check") or {}).get("issues", []))
+                or any(issue == f"S4 rubric: {rubric_issue}" for rubric_issue in rubric_issues)
             )
             if not already_shown:
                 print(f"   ✗  {issue}")

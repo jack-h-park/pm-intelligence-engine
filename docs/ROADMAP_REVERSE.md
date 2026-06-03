@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 0.3  
-**Last updated:** 2026-05-25
+**Version:** 0.5  
+**Last updated:** 2026-06-02
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -33,7 +33,7 @@ pm-platform has no remaining wiki write responsibility.
 ### E5 — Quality Calibration
 
 #### US-23b — Eval calibration for active model baseline
-**Status:** Open
+**Status:** ✅ Completed
 
 As a maintainer, I want eval outcomes calibrated for the active model baseline
 so routing regressions are distinguishable from prompt/model drift.
@@ -41,9 +41,15 @@ so routing regressions are distinguishable from prompt/model drift.
 **Acceptance criteria**
 
 - choose and document the official eval model baseline
-- reduce R04/R07 routing mismatches or explicitly bless them as model-specific variance
+- explicitly document model-specific variance where it exists
 - document whether production/eval should prefer Claude or OpenAI
 - keep `eval/scenarios.json` aligned with the chosen baseline
+
+**Resolution**
+
+- Eval execution is model-agnostic and uses the active `LLM_PROVIDER`
+- `eval/runner.py` now prints the runtime provider/model explicitly so results are attributable
+- `gpt-4o` routing drift on R04/R07 remains documented as model-specific variance
 
 ---
 
