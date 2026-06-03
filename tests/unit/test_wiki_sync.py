@@ -332,8 +332,8 @@ def test_archive_auto_triaged_frontmatter(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_decision_system_export_path_includes_product_and_date(tmp_path):
-    """Export path must match DECISION_SYSTEM_ROOT/products/<product_id>/runs/<date>-<slug>/."""
+def test_decision_system_export_path_uses_canonical_archive_only(tmp_path):
+    """Export returns the canonical pm-engine archive path only."""
     from app.services.run_exporter import export_run
 
     store = MagicMock()
@@ -356,19 +356,23 @@ def test_decision_system_export_path_includes_product_and_date(tmp_path):
     store.get_all_stage_outputs.return_value = []
     store.get_stage_output.return_value = None
 
+    legacy_root = tmp_path / "legacy"
+    canonical_root = tmp_path / "archive" / "runs"
+
     with patch("app.services.run_exporter.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = FIXED_DATE
-        path = export_run(
-            run_id="run-export-test",
-            store=store,
-            decision_system_root=str(tmp_path),
-        )
+        with patch("app.services.run_exporter._canonical_archive_root", return_value=canonical_root):
+            path = export_run(
+                run_id="run-export-test",
+                store=store,
+                decision_system_root=str(legacy_root),
+            )
 
-    assert "samsung-knox-lockdown-mode" in str(path)
-    assert "runs" in str(path)
-    assert FIXED_DATE in str(path) or "android" in str(path).lower()
-    # Export dir must be created under the decision system root
-    assert str(tmp_path) in str(path)
+    legacy_path = legacy_root / "products" / "samsung-knox-lockdown-mode" / "runs" / "2026-05-24-run-export-test"
+
+    assert path == canonical_root / "samsung-knox-lockdown-mode" / "2026-05-24-run-export-test"
+    assert path.exists()
+    assert not legacy_path.exists()
 
 
 def test_wiki_sync_not_called_from_run_exporter():

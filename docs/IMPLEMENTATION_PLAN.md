@@ -350,10 +350,10 @@ Stage 7 synthesizes all prior stage outputs into a narrative that a stakeholder 
 
 ### 2.6 Run file export
 
-After a run completes, the platform can export all stage outputs as Markdown files in the same format as the manually-created files in `DECISION_SYSTEM_ROOT`. This makes automated runs indistinguishable from hand-written ones.
+After a run completes, the platform can export all stage outputs as Markdown files into the canonical pm-engine archive. Historical manual files may still exist in decision-context, but they are not the active export target.
 
 - `app/services/run_exporter.py`
-  - Creates directory: `products/<product_id>/runs/<YYYY-MM-DD>-<slug>/`
+  - Creates directory: `archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/`
   - Writes one file per stage: `s1-signal.md` through `s7-report.md`
   - Format matches the existing manual run files exactly
 
@@ -362,7 +362,7 @@ After a run completes, the platform can export all stage outputs as Markdown fil
 - Existing run files in `DECISION_SYSTEM_ROOT` are never modified
 
 ### Phase 2 completion gate
-> Signal submitted → Stage 1 + 2 run → run pauses at direction gate with a mode recommendation → PM confirms `decide` mode → Stage 3 + 4 run → run pauses at evaluation gate → PM approves → Stage 5 routing is correct → PRD or PoC Plan generated → Executive Summary written → files exported to `DECISION_SYSTEM_ROOT`.
+> Signal submitted → Stage 1 + 2 run → run pauses at direction gate with a mode recommendation → PM confirms `decide` mode → Stage 3 + 4 run → run pauses at evaluation gate → PM approves → Stage 5 routing is correct → PRD or PoC Plan generated → Executive Summary written → files exported to `archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/`.
 > Eval harness: R04/R05/R07 route to PRD, R06 routes to Kill.
 
 ---

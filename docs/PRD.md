@@ -222,16 +222,16 @@ Composite = (Impact × 0.35) + (Strategic Fit × 0.30) + (Feasibility × 0.20) +
 
 ### F10 — Run File Export
 
-**Purpose:** Write completed run artifacts to the existing `jackhpark-pm-decision-context` folder structure so the new system and manual workflow remain compatible.
+**Purpose:** Write completed run artifacts to the canonical pm-engine archive while preserving the manual file format.
 
 **Behavior:**
-- Creates `products/<name>/runs/<YYYY-MM-DD>-<slug>/`
+- Creates `archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/`
 - Writes `s1-signal.md` through `s7-report.md` in the same format as manual runs
-- Does not overwrite existing files
+- Overwrites the target export directory for the same run if re-exported
 
 **Acceptance criteria:**
 - Exported files are structurally identical to manually-created run files
-- Existing run files are not modified
+- Re-export is idempotent at the canonical archive path
 
 ---
 

@@ -193,11 +193,11 @@ def test_maybe_export_skips_when_run_not_found():
 
 
 def test_maybe_export_calls_export_run_for_decide_mode(tmp_path):
-    """_maybe_export calls export_run and emits 'exported' event for decide mode."""
+    """_maybe_export calls export_run and emits the canonical export path."""
     from app.services.run_finalizer import _maybe_export
 
     engine = _make_engine(mode="decide")
-    fake_path = tmp_path / "run.json"
+    fake_path = tmp_path / "archive" / "runs" / "samsung-knox-lockdown-mode" / "2026-05-24-run-abc"
 
     # Both export_run and settings are lazily imported inside _maybe_export;
     # patch at their original locations.
@@ -215,6 +215,10 @@ def test_maybe_export_calls_export_run_for_decide_mode(tmp_path):
     # Confirm 'exported' event was emitted
     exported_calls = [c for c in mock_emit.call_args_list if c.args[1] == "exported"]
     assert len(exported_calls) == 1
+    detail = exported_calls[0].args[3]
+    assert detail["path"] == str(fake_path)
+    assert detail["canonical_path"] == str(fake_path)
+    assert "legacy_path" not in detail
 
 
 def test_maybe_export_emits_skipped_on_os_error():
