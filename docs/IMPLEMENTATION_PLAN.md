@@ -1,5 +1,5 @@
 # Implementation Plan
-## jackhpark-pm-agentic-platform
+## jackhpark-pm-intelligence-engine
 
 **Principle:** Build a measurable foundation first, then stack features on it. The eval harness is created before any feature code so that every addition can be validated against real historical data.
 
@@ -112,7 +112,7 @@ pending
 
 | # | Task | Output |
 |---|------|--------|
-| 1 | Create project directory | `code/core/jackhpark-pm-agentic-platform/` |
+| 1 | Create project directory | `code/core/jackhpark-pm-intelligence-engine/` |
 | 2 | README.md | Overview, architecture diagram, setup |
 | 3 | docs/PRD.md | Feature catalog (F1–F13), acceptance criteria |
 | 4 | docs/ARCHITECTURE.md | Layer design, data model, component map |
@@ -372,13 +372,13 @@ After a run completes, the platform can export all stage outputs as Markdown fil
 
 > **Ownership update (2026-05):** Signal harvesting (RSS, file watch, APScheduler) and
 > wiki sync have been moved to the **Hermes operations plane** (separate repository).
-> pm-platform is the execution engine; Hermes is the operational host.
+> pm-engine is the execution engine; Hermes is the operational host.
 > See `docs/INTEGRATION_PRINCIPLES.md` and `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 ### 3.1 Automated signal collection
 **→ Moved to Hermes control plane.**
 Hermes harvests signals (RSS/file-watch) and submits them via `POST /signals`.
-pm-platform's role: accept the API call, deduplicate by URL hash if needed.
+pm-engine's role: accept the API call, deduplicate by URL hash if needed.
 
 ### 3.2 Signal and run history queries
 - `GET /signals?product_id=&status=&limit=` — full filter support
@@ -397,7 +397,7 @@ All terminal run transitions now go through `app/services/run_finalizer.py`:
 ### 3.4 Wiki sync contract
 **→ Hermes-owned.** `app/services/wiki_sync.py` is a utility adapter that documents
 canonical paths (`raw/from-pm-decision-context/{prds|poc-upgrades|kills}/`).
-pm-platform completion paths do NOT write to WIKI_ROOT.
+pm-engine completion paths do NOT write to WIKI_ROOT.
 
 ### Phase 3 completion gate
 > Run history queryable via API → completion side-effects uniform via run_finalizer →
@@ -429,7 +429,7 @@ pm-platform completion paths do NOT write to WIKI_ROOT.
 
 ```toml
 [project]
-name = "jackhpark-pm-agentic-platform"
+name = "jackhpark-pm-intelligence-engine"
 version = "0.1.0"
 requires-python = ">=3.12"
 

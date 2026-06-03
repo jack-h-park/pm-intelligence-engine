@@ -1,5 +1,5 @@
 # Design Decisions
-## jackhpark-pm-agentic-platform
+## jackhpark-pm-intelligence-engine
 
 This document explains the key design choices made in this project and how they relate to the reference implementation in `ai-agent-test/personal-poc/jack`.
 
@@ -15,7 +15,7 @@ This project borrows its *design patterns* but not its code. The domain, executi
 
 ## 2. Pattern Comparison
 
-| Aspect | ai-agent-test | jackhpark-pm-agentic-platform | Reason for difference |
+| Aspect | ai-agent-test | jackhpark-pm-intelligence-engine | Reason for difference |
 |---|---|---|---|
 | **Orchestration model** | Keyword-based intent routing → agent dispatch | Sequential stage functions with state machine + approval gate | PM work requires traceable, step-by-step decision records, not conversational routing |
 | **State model** | Session-centric (`OrchestratorState` with message history) | Run-centric (`WorkflowRun` with stage outputs and approval events) | The unit of work is a decision run, not a chat session |

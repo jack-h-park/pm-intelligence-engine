@@ -1,5 +1,5 @@
 # Product Requirements Document
-## jackhpark-pm-agentic-platform
+## jackhpark-pm-intelligence-engine
 
 **Version:** 1.0  
 **Status:** Draft  
@@ -69,7 +69,7 @@ The existing `jackhpark-pm-decision-context` has a well-designed 7-stage decisio
 **Purpose:** Ensure relevant market signals are captured even when the PM isn't actively monitoring.
 
 > **Ownership update (2026-05):** Automated harvesting is no longer an in-process
-> pm-platform feature. Hermes owns scheduled harvesting and submits signals via
+> pm-engine feature. Hermes owns scheduled harvesting and submits signals via
 > `POST /signals`. This section remains as a product capability requirement, not
 > an implementation requirement for this repository.
 
@@ -77,7 +77,7 @@ The existing `jackhpark-pm-decision-context` has a well-designed 7-stage decisio
 - Hermes polls configured RSS feeds and URLs on a schedule
 - Hermes watches `jackhpark-product-management-wiki/raw/from-web/sensing/` for new files
 - Hermes references `products/<name>/signal-sources.md` for per-product source lists
-- pm-platform deduplicates only through its explicit ingestion path and storage rules
+- pm-engine deduplicates only through its explicit ingestion path and storage rules
 
 **Acceptance criteria:**
 - New signals added to DB via the public API with `source_type = rss` or `file_watch`

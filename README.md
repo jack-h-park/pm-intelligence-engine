@@ -1,4 +1,4 @@
-# jackhpark-pm-agentic-platform
+# jackhpark-pm-intelligence-engine
 
 > **Planned rename:** This repository will be renamed to `jackhpark-pm-intelligence-engine`.
 
@@ -23,7 +23,7 @@ SENSE ──▶ DECIDE ──▶ LEARN
 | [`jackhpark-pm-decision-context`](../../ai-assets/jackhpark-pm-decision-context/) | Source of workflow design, prompt templates, product contexts, and run history |
 | [`jackhpark-product-management-wiki`](../../ai-assets/jackhpark-product-management-wiki/) | Source of external signals; destination for completed decision ingest |
 | [`jackhpark-hermes-control-plane`](../../ai-assets/jackhpark-hermes-control-plane/) | External operations plane: harvesting, notifications, wiki sync, scheduling |
-| [`jackhpark-notion-cms-backup`](../../data/jackhpark-notion-cms-backup/) | Notion → wiki raw layer auto-sync (no direct connection to pm-platform; indirect influence via wiki) |
+| [`jackhpark-notion-cms-backup`](../../data/jackhpark-notion-cms-backup/) | Notion → wiki raw layer auto-sync (no direct connection to pm-engine; indirect influence via wiki) |
 | [`ai-agent-test`](../../forks/ai-agent-test/) | Reference implementation for agentic patterns (not reused directly) |
 
 > Full stack architecture: [hermes-control-plane/docs/system-overview.md](../../ai-assets/jackhpark-hermes-control-plane/docs/system-overview.md)
@@ -32,7 +32,7 @@ SENSE ──▶ DECIDE ──▶ LEARN
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                 jackhpark-pm-agentic-platform                        │
+│                 jackhpark-pm-intelligence-engine                        │
 │                                                                      │
 │   ┌──────────────────────┐     ┌─────────────────────────────────┐  │
 │   │ Public API Surface   │────▶│ Workflow Engine                 │  │
@@ -40,7 +40,7 @@ SENSE ──▶ DECIDE ──▶ LEARN
 │   │ POST /signals        │     │ S1~S7 execution                 │  │
 │   │ POST /runs/start     │     │ Gate state machine              │  │
 │   │ GET /runs            │     │ SQLite persistence              │  │
-│   │ Gate action routes   │     │ decision-system export          │  │
+│   │ Gate action routes   │     │ decision-context export         │  │
 │   └──────────────────────┘     └─────────────────────────────────┘  │
 └──────────────────────────────────────────────────────────────────────┘
               ▲ read context / write runs         ▲ poll / notify / sync
@@ -74,14 +74,14 @@ Each signal runs through a sequential pipeline:
 
 ## Ownership Boundaries
 
-- `pm-platform` owns workflow execution, stage outputs, terminal state, decision-system export, and Gate 1/2 notifications.
+- `pm-engine` owns workflow execution, stage outputs, terminal state, decision-context export, and Gate 1/2 notifications.
 - Hermes owns signal harvesting, scheduling, wiki sync, and long-running operations.
-- Gate notifications (Telegram/Slack) are fired by pm-platform's built-in `FanoutNotifier`. Hermes may absorb this in a later version.
+- Gate notifications (Telegram/Slack) are fired by pm-engine's built-in `FanoutNotifier`. Hermes may absorb this in a later version.
 - Auto-triage archive is transitional: local archive writes remain available behind `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` until Hermes takes over fully.
 
 ## Hosting
 
-pm-platform runs on an always-on **iMac**. Running on a MacBook is not recommended — lid-close
+pm-engine runs on an always-on **iMac**. Running on a MacBook is not recommended — lid-close
 suspends the process, breaking Hermes polling and making Gate 2 review links unreachable.
 
 **Tailscale** connects the iMac, iPhone, and MacBook in a private network.
@@ -99,7 +99,7 @@ See `docs/ARCHITECTURE.md` Section 11 for the full notification flow and iMac se
 ## Project Structure
 
 ```
-jackhpark-pm-agentic-platform/
+jackhpark-pm-intelligence-engine/
 ├── config.py                  # Paths to external repos (DECISION_CONTEXT_ROOT/DECISION_SYSTEM_ROOT, WIKI_ROOT)
 ├── app/
 │   ├── models/                # SQLAlchemy DB models + Pydantic stage schemas
@@ -129,7 +129,7 @@ jackhpark-pm-agentic-platform/
 
 ```bash
 # Clone on the iMac and navigate
-cd /Users/jackpark/workspace/code/core/jackhpark-pm-agentic-platform
+cd /Users/jackpark/workspace/code/core/jackhpark-pm-intelligence-engine
 
 # Install dependencies
 pip install -e ".[dev]"
@@ -166,7 +166,7 @@ All server commands are available via `make`:
 **iMac auto-start (one-time setup):**
 
 ```bash
-# Before installing, verify the uvicorn path in deploy/com.jackpark.pm-platform.plist
+# Before installing, verify the uvicorn path in deploy/com.jackpark.pm-engine.plist
 # matches `which uvicorn` on the iMac.
 
 make install-service     # registers launchd agent; starts on login, auto-restarts on crash

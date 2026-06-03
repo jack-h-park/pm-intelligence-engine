@@ -1,10 +1,10 @@
 # Integration Principles
-## jackhpark-pm-agentic-platform × Hermes Operations Plane
+## jackhpark-pm-intelligence-engine × Hermes Operations Plane
 
 **Version:** 1.0  
 **Last updated:** 2026-05-24
 
-This document defines the non-negotiable boundaries between pm-platform
+This document defines the non-negotiable boundaries between pm-engine
 (the workflow execution engine) and any external consumer, in particular
 the Hermes operations plane.
 
@@ -12,11 +12,11 @@ the Hermes operations plane.
 
 ## Core Principle
 
-> **pm-platform is workflow law. Hermes is workflow operator.**
+> **pm-engine is workflow law. Hermes is workflow operator.**
 
-pm-platform owns the state machine, data model, stage execution, and gate
-semantics. External systems interact with pm-platform exclusively through
-its HTTP API. pm-platform does not negotiate its internal state on behalf
+pm-engine owns the state machine, data model, stage execution, and gate
+semantics. External systems interact with pm-engine exclusively through
+its HTTP API. pm-engine does not negotiate its internal state on behalf
 of an external caller.
 
 ---
@@ -47,13 +47,13 @@ approval records through any path other than the official endpoints.
 `status='approved'` directly (this status does not exist in the state machine).
 
 **Why:** Gate semantics are contracts. If Hermes changes what they mean,
-runs produced by pm-platform become unreliable for audit and re-processing.
+runs produced by pm-engine become unreliable for audit and re-processing.
 
 ---
 
-## Principle 3 — No Wiki Write Ownership in pm-platform
+## Principle 3 — No Wiki Write Ownership in pm-engine
 
-pm-platform does not write to `WIKI_ROOT` as part of run completion.
+pm-engine does not write to `WIKI_ROOT` as part of run completion.
 `wiki_sync.py` exists as a utility adapter and documents canonical paths;
 it is not called from any completion path.
 
@@ -61,18 +61,18 @@ it is not called from any completion path.
 read artifact via `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true`,
 write to wiki.
 
-**Forbidden (pm-platform completion paths):** Direct calls to
+**Forbidden (pm-engine completion paths):** Direct calls to
 `sync_executive_summary()` or any WIKI_ROOT write inside `run_finalizer`,
 `approvals.py`, `routing_review.py`, or `runs.py` completion branches.
 
-**Why:** If pm-platform and Hermes both write to the wiki, conflicts arise
+**Why:** If pm-engine and Hermes both write to the wiki, conflicts arise
 and idempotency guarantees are unclear. One owner writes; the other reads.
 
 ---
 
 ## Principle 4 — External Repos Through Explicit Contracts Only
 
-pm-platform reads from `DECISION_SYSTEM_ROOT` (prompts, context) and writes
+pm-engine reads from `DECISION_SYSTEM_ROOT` (prompts, context) and writes
 to it (run exports). No other external filesystem interaction is permitted
 from completion paths.
 
@@ -107,7 +107,7 @@ execution functions and `run_finalizer`. External callers must not pass
 | Bridge PM routing decision | `POST /runs/{id}/routing-review` |
 | Read completed run artifacts | `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true` |
 | Write to wiki after completion | Direct WIKI_ROOT write (Hermes-owned) |
-| Send notifications | Hermes-owned, or rely on pm-platform's built-in Gate 1/2 notifier during transition |
+| Send notifications | Hermes-owned, or rely on pm-engine's built-in Gate 1/2 notifier during transition |
 | Schedule harvesting | Hermes-owned cron/jobs |
 
 ---
@@ -118,7 +118,7 @@ execution functions and `run_finalizer`. External callers must not pass
 |-----------------|-----|
 | Direct SQLite/DB write | Bypasses state machine |
 | Invent approval states | Gate semantics are a contract |
-| Write to WIKI_ROOT from pm-platform code | Ownership conflict |
+| Write to WIKI_ROOT from pm-engine code | Ownership conflict |
 | Call internal stage functions directly | Violates stage contract |
 | Modify `current_stage` externally | Internal progress marker only |
 | Create file-based approvals | Bypasses audit trail |

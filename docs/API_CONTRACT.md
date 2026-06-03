@@ -1,5 +1,5 @@
 # API Contract
-## jackhpark-pm-agentic-platform — Public Interface for Hermes
+## jackhpark-pm-intelligence-engine — Public Interface for Hermes
 
 **Version:** 1.0  
 **Last updated:** 2026-05-29

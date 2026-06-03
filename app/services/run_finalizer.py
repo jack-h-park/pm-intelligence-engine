@@ -12,7 +12,7 @@ Only 'decide' mode runs are exported to DECISION_SYSTEM_ROOT.
 Modes file/brief/opportunity/evaluate produce no export artifact.
 Auto-triaged runs (completed as mode='file') are also excluded.
 
-Wiki sync is NOT owned by pm-platform. Hermes consumes terminal run events
+Wiki sync is NOT owned by pm-engine. Hermes consumes terminal run events
 and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 """
 

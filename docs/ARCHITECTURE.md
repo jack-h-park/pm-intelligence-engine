@@ -1,5 +1,5 @@
 # Architecture
-## jackhpark-pm-agentic-platform
+## jackhpark-pm-intelligence-engine
 
 ---
 
@@ -11,12 +11,12 @@ artifacts to the decision-system. Signal harvesting, wiki sync, and operational 
 owned by the separate **Hermes operations plane**.
 
 The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
-MacBook) without port-forwarding. Gate notifications are fired directly by pm-platform;
+MacBook) without port-forwarding. Gate notifications are fired directly by pm-engine;
 Hermes may absorb this concern later.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│         jackhpark-pm-agentic-platform (ENGINE — hosted on iMac)         │
+│         jackhpark-pm-intelligence-engine (ENGINE — hosted on iMac)         │
 │                                                                         │
 │   POST /signals ──▶  Signal DB  ──▶  S1–S7 Workflow  ──▶  Artifacts    │
 │                                       (FastAPI + SQLite)                │
@@ -53,7 +53,7 @@ jackhpark-pm-decision-system/          jackhpark-pm-decision-system/runs/
 │   Operational scheduling (cron/harvest)                                 │
 └─────────────────────────────────────────────────────────────────────────┘
         ↓ POST /signals                          ↓ wiki write (on run event)
-jackhpark-pm-agentic-platform API        jackhpark-product-management-wiki/
+jackhpark-pm-intelligence-engine API        jackhpark-product-management-wiki/
 
 ```
 
@@ -63,14 +63,14 @@ jackhpark-pm-agentic-platform API        jackhpark-product-management-wiki/
 
 | Concern | Owner | Notes |
 |---------|-------|-------|
-| Signal intake (manual) | pm-platform | `POST /signals` API |
+| Signal intake (manual) | pm-engine | `POST /signals` API |
 | Signal harvesting (RSS, file watch) | Hermes | Submits via `POST /signals` |
-| Stage execution (S1–S7) | pm-platform | Background tasks, async |
-| Human gate state machine | pm-platform | 3 gates, 10 API endpoints |
-| Persistence (runs, artifacts) | pm-platform | SQLite → PostgreSQL in v2 |
-| decision-system export | pm-platform | `run_finalizer` triggers on decide-mode completion |
+| Stage execution (S1–S7) | pm-engine | Background tasks, async |
+| Human gate state machine | pm-engine | 3 gates, 10 API endpoints |
+| Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
+| decision-system export | pm-engine | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate notifications | pm-platform | `notifier.py` fires Gate 1 alert (after S2), Gate 2 alert (after S4, includes link to `GET /runs/{id}/review`), and Gate 3 alert (after S5 routing=kill); Hermes bridges PM responses back via API |
+| Gate notifications | pm-engine | `notifier.py` fires Gate 1 alert (after S2), Gate 2 alert (after S4, includes link to `GET /runs/{id}/review`), and Gate 3 alert (after S5 routing=kill); Hermes bridges PM responses back via API |
 | Operational scheduling | Hermes | Cron/harvest jobs |
 | Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 
@@ -102,11 +102,11 @@ Handles everything that requires always-on or scheduled operation.
 **Responsibilities:** RSS/file-watch signal harvesting, wiki sync, monitoring dashboards,
 operational scheduling, pattern accumulation.
 
-**Integration:** Hermes interacts with pm-platform exclusively via the HTTP API.
+**Integration:** Hermes interacts with pm-engine exclusively via the HTTP API.
 Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
 
-**Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are fired by pm-platform's
-built-in `FanoutNotifier`. Hermes-ops bridges PM responses back to pm-platform via the gate
+**Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are fired by pm-engine's
+built-in `FanoutNotifier`. Hermes-ops bridges PM responses back to pm-engine via the gate
 API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`).
 
 ---
@@ -132,9 +132,9 @@ API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`
 | `raw/from-pm-decision-context/kills/` | Kill decision S7 reports | Write | Hermes |
 | `raw/from-pm-decision-context/prds/` | PRD decision S7 reports | Write | Hermes |
 | `raw/from-pm-decision-context/poc-upgrades/` | PoC decision S7 reports | Write | Hermes |
-| `raw/from-pm-decision-context/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-platform → Hermes |
+| `raw/from-pm-decision-context/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-engine → Hermes |
 
-**pm-platform does not write to `WIKI_ROOT` as part of run completion.** Wiki writes are
+**pm-engine does not write to `WIKI_ROOT` as part of run completion.** Wiki writes are
 Hermes-owned. The auto-triage archive path is the only exception and is transitional — see
 `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
@@ -232,7 +232,7 @@ source_type     enum: manual | rss | file_watch
 ingested_at     datetime
 ```
 
-Signal lifecycle is runtime-maintained by pm-platform:
+Signal lifecycle is runtime-maintained by pm-engine:
 - `pending` immediately after intake
 - `in_run` once a run starts successfully
 - `done` when the run ends in `completed` or `killed`
@@ -419,7 +419,7 @@ eval/
 
 **Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned
 as in-process features (APScheduler). These have been moved to the Hermes operations plane.
-The pm-platform API (`POST /signals`) remains the stable integration point.
+The pm-engine API (`POST /signals`) remains the stable integration point.
 
 ---
 
@@ -427,13 +427,13 @@ The pm-platform API (`POST /signals`) remains the stable integration point.
 
 ### Overview
 
-pm-platform fires Gate notifications directly via `app/services/notifier.py`. Hermes does not
+pm-engine fires Gate notifications directly via `app/services/notifier.py`. Hermes does not
 participate in the notification loop. The Gate 2 notification includes a link to a browser-based
 review page, accessible from any device connected to the same Tailscale network.
 
 ### Hosting and Tailscale
 
-pm-platform runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
+pm-engine runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
 the lid suspends the process, breaking Hermes polling and making review links unreachable.
 
 **Tailscale** is installed on the iMac and the PM's iPhone (and optionally MacBook). Tailscale
@@ -452,7 +452,7 @@ valid whether the PM is at home, in transit, or on a different network.
 ### Gate 1 Notification (after S2)
 
 Fired by `FanoutNotifier.send_gate1()` when a signal passes the auto-triage threshold and
-pm-platform is waiting for the PM to choose a run mode.
+pm-engine is waiting for the PM to choose a run mode.
 
 **Content:**
 - Product name and signal title
