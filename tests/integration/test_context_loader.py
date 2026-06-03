@@ -3,7 +3,7 @@
 import pytest
 
 from app.services.context_loader import ContextLoader
-from config import settings
+from config import Settings, settings
 
 pytestmark = pytest.mark.integration
 
@@ -56,3 +56,13 @@ def test_load_full_context_general(loader: ContextLoader):
     assert ctx.company_context
     assert ctx.product_context
     assert ctx.product_id == "general"
+
+
+def test_settings_accept_decision_context_root_alias(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    decision_context_root = tmp_path / "decision-context-companion-repo"
+    monkeypatch.setenv("DECISION_CONTEXT_ROOT", str(decision_context_root))
+    monkeypatch.delenv("DECISION_SYSTEM_ROOT", raising=False)
+
+    local_settings = Settings()
+
+    assert local_settings.DECISION_SYSTEM_ROOT == str(decision_context_root)
