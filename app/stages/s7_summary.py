@@ -163,6 +163,7 @@ Rules:
         artifact_type="executive_summary",
         content_md=output_data.markdown,
         content_json=output.model_dump_json(),
+        source_stage="s7",
     )
 
     emit_event("s7", "completed", context.run_id)

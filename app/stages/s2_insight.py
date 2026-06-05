@@ -131,6 +131,7 @@ Rules:
         artifact_type="insight_memo",
         content_md=_build_insight_memo(input.s1_output.title, input.s1_output.category, output_data),
         content_json=output.model_dump_json(),
+        source_stage="s2",
     )
 
     emit_event("s2", "completed", context.run_id, {"signal_id": input.signal_id})

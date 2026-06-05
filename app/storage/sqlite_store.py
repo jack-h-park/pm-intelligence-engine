@@ -202,6 +202,7 @@ class SQLiteStore:
         artifact_type: str,
         content_md: str,
         content_json: str,
+        source_stage: Optional[str] = None,
     ) -> str:
         with self._Session() as session:
             artifact = Artifact(
@@ -209,6 +210,7 @@ class SQLiteStore:
                 type=ArtifactType(artifact_type),
                 content_md=content_md,
                 content_json=content_json,
+                source_stage=source_stage,
             )
             session.add(artifact)
             session.commit()
@@ -278,5 +280,6 @@ class SQLiteStore:
             "type": a.type.value,
             "content_md": a.content_md,
             "content_json": a.content_json,
+            "source_stage": a.source_stage,
             "created_at": a.created_at.isoformat(),
         }

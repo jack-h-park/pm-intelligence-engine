@@ -162,6 +162,7 @@ Rules:
         artifact_type="decision_memo",
         content_md=_build_decision_memo(output_data),
         content_json=output.model_dump_json(),
+        source_stage="s5",
     )
 
     emit_event(

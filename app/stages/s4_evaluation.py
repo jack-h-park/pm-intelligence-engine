@@ -75,6 +75,7 @@ async def run(
         artifact_type="evaluation_brief",
         content_md=_build_evaluation_brief(personas, rubric),
         content_json=output.model_dump_json(),
+        source_stage="s4",
     )
 
     emit_event(
