@@ -38,7 +38,7 @@ start: logs/
 		echo "Already running (pid $$(cat $(PID_FILE))). Use 'make restart' to restart."; \
 		exit 0; \
 	fi
-	uvicorn app.api.main:app --host 0.0.0.0 --port 8000 >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE)
+	uvicorn app.api.main:app --host 127.0.0.1 --port 8000 >> $(LOG_FILE) 2>&1 & echo $$! > $(PID_FILE)
 	@sleep 0.5
 	@echo "Started (pid $$(cat $(PID_FILE))). Logs: $(LOG_FILE)"
 

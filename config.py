@@ -19,6 +19,12 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
+    # Server-side API authentication. Every endpoint except GET /health requires
+    # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is
+    # provisioned in the Hermes client `.env`. If left empty, the server fails
+    # closed (503 on all authenticated routes) rather than serving an open API.
+    PM_PLATFORM_API_TOKEN: str = ""
+
     # Auto-triage: runs with relevance_score strictly below this threshold are
     # automatically completed as 'file' mode without pausing at Gate 1.
     # Range 1–5. Default 3 means scores 1–2 are auto-triaged; score 3+ goes to PM.
