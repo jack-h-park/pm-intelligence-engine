@@ -134,8 +134,48 @@ Rules:
         source_stage="s2",
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="checkpoint",
+        content_md=_build_checkpoint(input.s1_output.title, input.s1_output.category, output_data),
+        content_json=output.model_dump_json(),
+        source_stage="s2",
+    )
+
     emit_event("s2", "completed", context.run_id, {"signal_id": input.signal_id})
     return output
+
+
+def _build_checkpoint(title: str, category: str, data: S2OutputData) -> str:
+    pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
+    mode_next = {
+        "file": "Pipeline complete — signal filed for reference.",
+        "brief": "Pipeline complete at brief depth.",
+        "opportunity": "Next: S3 Opportunity Framing",
+        "evaluate": "Next: S3 → S4 Evaluation",
+        "decide": "Next: S3 → S4 → S5 → S6 → S7",
+    }.get(data.suggested_mode, f"Next: continue pipeline ({data.suggested_mode})")
+
+    return f"""# Pipeline Checkpoint — S2 Complete
+
+**Signal:** {title} ({category})
+**Relevance:** {data.relevance_score}/5 · Suggested depth: `{data.suggested_mode}`
+
+## What Changed
+{data.what_changed}
+
+## Why It Matters
+{data.relevance_explanation}
+
+## Reframing
+{data.reframing}
+
+## Strategy Pillars
+{pillars}
+
+---
+**{mode_next}**
+"""
 
 
 def _build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
