@@ -65,6 +65,9 @@ class ArtifactType(str, enum.Enum):
     poc_plan = "poc_plan"
     prd = "prd"
     executive_summary = "executive_summary"
+    insight_memo = "insight_memo"
+    opportunity_memo = "opportunity_memo"
+    decision_memo = "decision_memo"
 
 
 def _new_uuid() -> str:

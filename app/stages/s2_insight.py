@@ -126,8 +126,38 @@ Rules:
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="insight_memo",
+        content_md=_build_insight_memo(input.s1_output.title, input.s1_output.category, output_data),
+        content_json=output.model_dump_json(),
+    )
+
     emit_event("s2", "completed", context.run_id, {"signal_id": input.signal_id})
     return output
+
+
+def _build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
+    pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
+    return f"""# Insight Memo
+
+**Signal:** {title}
+**Category:** {category}
+**Relevance Score:** {data.relevance_score}/5
+**Suggested Mode:** {data.suggested_mode}
+
+## What Changed
+{data.what_changed}
+
+## Why It Matters
+{data.relevance_explanation}
+
+## Reframing
+{data.reframing}
+
+## Strategy Pillars
+{pillars}
+"""
 
 
 def _parse_json(raw: str) -> dict:

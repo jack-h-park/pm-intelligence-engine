@@ -93,8 +93,33 @@ Rules:
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="opportunity_memo",
+        content_md=_build_opportunity_memo(output_data),
+        content_json=output.model_dump_json(),
+    )
+
     emit_event("s3", "completed", context.run_id, {"signal_id": input.signal_id})
     return output
+
+
+def _build_opportunity_memo(data: S3OutputData) -> str:
+    return f"""# Opportunity Memo
+
+## Problem Statement
+{data.problem_statement}
+
+## Target User
+{data.target_user}
+
+## Hypothesis
+{data.hypothesis}
+
+## Value
+- **User:** {data.assumed_value_user}
+- **Business:** {data.assumed_value_business}
+"""
 
 
 def _parse_json(raw: str) -> dict:
