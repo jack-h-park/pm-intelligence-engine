@@ -98,6 +98,7 @@ Rules:
         artifact_type="opportunity_memo",
         content_md=_build_opportunity_memo(output_data),
         content_json=output.model_dump_json(),
+        source_stage="s3",
     )
 
     emit_event("s3", "completed", context.run_id, {"signal_id": input.signal_id})

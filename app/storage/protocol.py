@@ -74,6 +74,7 @@ class PMWorkflowStore(Protocol):
         artifact_type: str,
         content_md: str,
         content_json: str,
+        source_stage: Optional[str] = None,
     ) -> str: ...
 
     def list_artifacts(

@@ -150,6 +150,7 @@ class Artifact(Base):
     type = Column(SAEnum(ArtifactType), nullable=False)
     content_md = Column(Text, nullable=False)
     content_json = Column(Text, nullable=False)
+    source_stage = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utc_now)
 
     run = relationship("WorkflowRun", back_populates="artifacts")
