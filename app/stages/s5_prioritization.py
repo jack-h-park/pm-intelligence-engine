@@ -165,6 +165,14 @@ Rules:
         source_stage="s5",
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="checkpoint",
+        content_md=_build_checkpoint(stage_input, output_data),
+        content_json=output.model_dump_json(),
+        source_stage="s5",
+    )
+
     emit_event(
         "s5",
         "completed",
@@ -176,6 +184,45 @@ Rules:
         },
     )
     return output
+
+
+def _build_checkpoint(stage_input: S5Input, data: S5OutputData) -> str:
+    routing_label = data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
+
+    persona_rows = "\n".join(
+        f"| {p.persona.capitalize()} | {p.dimension} | {p.score}/5 |"
+        for p in stage_input.s4_output.personas
+    )
+
+    blocking = [a for a in data.assumptions if a.severity == "Blocking"]
+    blocking_lines = "\n".join(f"- {a.statement}" for a in blocking) if blocking else "None"
+
+    next_action = {
+        "kill": "Pipeline complete — opportunity killed.",
+        "poc": "Next: S6A PoC Plan → S7 Executive Summary",
+        "prd": "Next: S6B PRD → S7 Executive Summary",
+    }.get(str(data.routing), "Next: continue pipeline")
+
+    return f"""# Pipeline Checkpoint — S5 Complete
+
+## Evaluation Summary
+| Persona | Dimension | Score |
+|---------|-----------|-------|
+{persona_rows}
+
+**Composite Score:** {data.composite_score}/5.00
+
+## Decision
+**Routing: {routing_label}**
+
+**Blocking Assumptions:**
+{blocking_lines}
+
+**Rationale:** {data.rationale}
+
+---
+**{next_action}**
+"""
 
 
 def _build_decision_memo(data: S5OutputData) -> str:

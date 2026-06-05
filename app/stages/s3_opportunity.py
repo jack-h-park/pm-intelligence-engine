@@ -8,7 +8,7 @@ import json
 
 from app.logging import emit_event
 from app.llm.protocol import LLMProvider
-from app.models.stages import RunContext, S3Input, S3Output, S3OutputData, StageMetadata
+from app.models.stages import RunContext, S2OutputData, S3Input, S3Output, S3OutputData, StageMetadata
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -101,8 +101,37 @@ Rules:
         source_stage="s3",
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="checkpoint",
+        content_md=_build_checkpoint(input.s2_output, output_data),
+        content_json=output.model_dump_json(),
+        source_stage="s3",
+    )
+
     emit_event("s3", "completed", context.run_id, {"signal_id": input.signal_id})
     return output
+
+
+def _build_checkpoint(s2: S2OutputData, s3: S3OutputData) -> str:
+    return f"""# Pipeline Checkpoint — S3 Complete
+
+## Signal Insight
+{s2.what_changed}
+
+_{s2.relevance_explanation}_
+
+## Opportunity
+**Problem:** {s3.problem_statement}
+**Target User:** {s3.target_user}
+**Hypothesis:** {s3.hypothesis}
+
+**User value:** {s3.assumed_value_user}
+**Business value:** {s3.assumed_value_business}
+
+---
+**Next:** S4 Persona Evaluation — or stop here if opportunity depth is sufficient.
+"""
 
 
 def _build_opportunity_memo(data: S3OutputData) -> str:
