@@ -1,8 +1,30 @@
 # API Contract
 ## pm-intelligence-engine — Public Interface for Hermes
 
-**Version:** 1.0  
-**Last updated:** 2026-05-29
+**Version:** 1.1  
+**Last updated:** 2026-06-05
+
+## Authentication
+
+Every endpoint **except `GET /health`** requires a bearer token:
+
+```
+Authorization: Bearer ${PM_PLATFORM_API_TOKEN}
+```
+
+- The server validates the header against `PM_PLATFORM_API_TOKEN` from its own
+  environment (launchd / `.env`). The same shared token is provisioned in the
+  Hermes client `.env`; all Hermes profiles send it.
+- Missing, malformed, or mismatched token → **`401`** (with `WWW-Authenticate: Bearer`).
+- If the server is started without `PM_PLATFORM_API_TOKEN` set, it **fails closed**:
+  authenticated routes return **`503`** rather than serving an open API. `GET /health`
+  stays available so liveness probes / launchd `KeepAlive` do not thrash.
+- `GET /health` is intentionally unauthenticated (liveness probe only; returns no data).
+
+**Network bind:** the service binds to **`127.0.0.1:8000`** (loopback only). It is not
+reachable off-device. Same-host callers (Hermes on the iMac, local scripts) use
+`http://localhost:8000`. Off-device review links must go through HTTPS / a reverse
+proxy — not a wide plain-HTTP bind.
 
 **URL policy:**
 
@@ -40,7 +62,7 @@ version bump.
 | `POST` | `/runs/{id}/reject` | Gate 2 reject | Bridge PM rejection |
 | `POST` | `/runs/{id}/routing-review` | Gate 3 confirm/override | Bridge PM routing decision |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
-| `GET` | `/health` | Health check | Liveness probe |
+| `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
 
 ---
 
@@ -294,8 +316,10 @@ Hermes intervention.
 
 | Code | Meaning |
 |------|---------|
+| 401 | Missing, malformed, or invalid `Authorization: Bearer` token |
 | 404 | Run or signal not found |
 | 409 | Run is not in the expected state for this action |
 | 422 | Invalid request body (e.g. unknown mode or routing value) |
+| 503 | Server started without `PM_PLATFORM_API_TOKEN` set (fails closed) |
 
 All errors return `{ "detail": "human-readable message" }`.
