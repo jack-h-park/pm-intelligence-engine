@@ -157,6 +157,13 @@ Rules:
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="decision_memo",
+        content_md=_build_decision_memo(output_data),
+        content_json=output.model_dump_json(),
+    )
+
     emit_event(
         "s5",
         "completed",
@@ -168,6 +175,41 @@ Rules:
         },
     )
     return output
+
+
+def _build_decision_memo(data: S5OutputData) -> str:
+    routing_label = data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
+
+    blocking = [a for a in data.assumptions if a.severity == "Blocking"]
+    informing = [a for a in data.assumptions if a.severity != "Blocking"]
+
+    def _fmt_assumptions(items: list[Assumption]) -> str:
+        if not items:
+            return "None"
+        return "\n".join(f"- {a.statement}" for a in items)
+
+    return f"""# Decision Memo
+
+**Routing:** {routing_label}
+**Composite Score:** {data.composite_score}/5.00
+
+## Score Breakdown
+| Dimension | Score |
+|-----------|-------|
+| Impact (Explorer) | {data.impact_score}/5 |
+| Strategic Fit (Strategist) | {data.strategic_fit_score}/5 |
+| Feasibility (Builder) | {data.feasibility_score}/5 |
+| Confidence (Skeptic) | {data.confidence_score}/5 |
+
+## Blocking Assumptions
+{_fmt_assumptions(blocking)}
+
+## Informing Assumptions
+{_fmt_assumptions(informing)}
+
+## Rationale
+{data.rationale}
+"""
 
 
 def _compute_routing(composite: float, blocking: list[Assumption]) -> str:
