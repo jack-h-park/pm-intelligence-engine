@@ -67,6 +67,7 @@ class ArtifactType(str, enum.Enum):
     executive_summary = "executive_summary"
     insight_memo = "insight_memo"
     opportunity_memo = "opportunity_memo"
+    evaluation_brief = "evaluation_brief"
     decision_memo = "decision_memo"
 
 

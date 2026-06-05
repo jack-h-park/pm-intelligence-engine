@@ -22,6 +22,7 @@ from app.models.stages import (
     StageMetadata,
 )
 from app.storage.protocol import PMWorkflowStore
+from app.models.stages import S4RubricResult
 from eval.rubrics.s4_rubric import check as check_s4_rubric
 
 
@@ -69,6 +70,13 @@ async def run(
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="evaluation_brief",
+        content_md=_build_evaluation_brief(personas, rubric),
+        content_json=output.model_dump_json(),
+    )
+
     emit_event(
         "s4",
         "completed",
@@ -80,6 +88,43 @@ async def run(
         },
     )
     return output
+
+
+_PERSONA_LABELS = {
+    "explorer": ("Impact", "🔭"),
+    "strategist": ("Strategic Fit", "🧭"),
+    "builder": ("Feasibility", "🔨"),
+    "skeptic": ("Confidence", "🔍"),
+}
+
+
+def _build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult) -> str:
+    rows = []
+    for p in personas:
+        label, icon = _PERSONA_LABELS.get(p.persona, (p.dimension, ""))
+        rows.append(f"| {icon} {p.persona.capitalize()} | {label} | {p.score}/5 | {p.key_argument} |")
+
+    table = "\n".join(rows)
+
+    open_qs = "\n".join(
+        f"- **{p.persona.capitalize()}:** {p.open_question}" for p in personas
+    )
+
+    rubric_status = "✅ Passed" if rubric.passed else "❌ Failed"
+
+    return f"""# Evaluation Brief
+
+## Persona Scores
+| Persona | Dimension | Score | Key Argument |
+|---------|-----------|-------|--------------|
+{table}
+
+## Open Questions
+{open_qs}
+
+## Rubric
+**{rubric_status}** ({rubric.total_score}/12)
+"""
 
 
 def _resolve_model() -> str:
