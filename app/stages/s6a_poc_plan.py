@@ -115,8 +115,40 @@ Rules:
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="poc_plan",
+        content_md=_build_poc_plan_artifact(output_data),
+        content_json=output.model_dump_json(),
+        source_stage="s6a",
+    )
+
     emit_event("s6a", "completed", context.run_id, {"timeline_weeks": output_data.timeline_weeks})
     return output
+
+
+def _build_poc_plan_artifact(data: S6AOutputData) -> str:
+    assumptions = "\n".join(f"- {a}" for a in data.blocking_assumptions_addressed)
+    return f"""# PoC Plan
+
+## Goal
+{data.experiment_goal}
+
+## Blocking Assumptions Being Tested
+{assumptions}
+
+## Experiment Design
+{data.experiment_design}
+
+## Success Criteria
+{data.success_criteria}
+
+## Timeline
+{data.timeline_weeks} weeks
+
+## Resources Needed
+{data.resources_needed}
+"""
 
 
 def _parse_json(raw: str) -> dict:

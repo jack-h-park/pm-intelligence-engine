@@ -116,6 +116,14 @@ Rules:
         output_json=output.model_dump_json(),
     )
 
+    store.save_artifact(
+        run_id=context.run_id,
+        artifact_type="prd",
+        content_md=_build_prd_artifact(output_data),
+        content_json=output.model_dump_json(),
+        source_stage="s6b",
+    )
+
     emit_event(
         "s6b",
         "completed",
@@ -123,6 +131,44 @@ Rules:
         {"completeness_score": f"{completeness.score}/12"},
     )
     return output
+
+
+def _build_prd_artifact(data: S6BOutputData) -> str:
+    def _fmt_list(items: list[str]) -> str:
+        return "\n".join(f"- {item}" for item in items) if items else "—"
+
+    return f"""# PRD
+
+## Problem Statement
+{data.problem_statement}
+
+## Target User
+{data.target_user}
+
+## Success Metrics
+{_fmt_list(data.success_metrics)}
+
+## User Stories
+{_fmt_list(data.user_stories)}
+
+## In Scope
+{_fmt_list(data.in_scope)}
+
+## Out of Scope
+{_fmt_list(data.out_of_scope)}
+
+## Technical Dependencies
+{_fmt_list(data.technical_dependencies)}
+
+## Open Questions
+{_fmt_list(data.open_questions)}
+
+## Risks
+{_fmt_list(data.risks)}
+
+---
+**Completeness:** {data.completeness.score}/12
+"""
 
 
 def _compute_completeness(data: dict) -> PRDCompletenessCheck:
