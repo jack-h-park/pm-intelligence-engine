@@ -53,6 +53,7 @@ class SourceType(str, enum.Enum):
     manual = "manual"
     rss = "rss"
     file_watch = "file_watch"
+    web = "web"
 
 
 class ApprovalAction(str, enum.Enum):

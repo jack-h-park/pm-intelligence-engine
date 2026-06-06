@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.factory import PMEngine
 from app.api.deps import get_engine
+from app.models.workflow import SourceType
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -15,7 +16,7 @@ class SignalCreate(BaseModel):
     raw_content: str
     source_url: Optional[str] = None
     category: str = "other"
-    source_type: str = "manual"
+    source_type: SourceType = SourceType.manual
 
 
 class SignalResponse(BaseModel):
