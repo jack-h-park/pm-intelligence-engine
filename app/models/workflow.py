@@ -109,6 +109,7 @@ class WorkflowRun(Base):
     recommendation_json = Column(Text, nullable=True)  # S2 suggested_mode + reasoning
     routing = Column(SAEnum(Routing), nullable=True)
     composite_score = Column(Float, nullable=True)
+    notification_chat_id = Column(String, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utc_now)
     completed_at = Column(DateTime, nullable=True)
 

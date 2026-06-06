@@ -154,6 +154,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
             routing=routing,
             composite_score=s5_out.output.composite_score,
             blocking_count=s5_out.output.blocking_count,
+            chat_id_override=run["notification_chat_id"],
         )
 
     except Exception as exc:  # noqa: BLE001
