@@ -167,7 +167,15 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
 List persisted artifacts for a run in reverse chronological order.
 
 **Query parameters:**
-- `artifact_type` — optional filter (`executive_summary`, `prd`, `poc_plan`)
+- `artifact_type` — optional filter. Valid values:
+  - `insight_memo` — signal insight summary (saved at S2)
+  - `opportunity_memo` — opportunity framing (saved at S3)
+  - `evaluation_brief` — 4-persona evaluation summary (saved at S4)
+  - `decision_memo` — routing decision with scores and rationale (saved at S5)
+  - `poc_plan` — minimum experiment design (saved at S6A)
+  - `prd` — full PRD (saved at S6B)
+  - `executive_summary` — final stakeholder report (saved at S7)
+  - `checkpoint` — cumulative pipeline state snapshot (saved at S2, S3, S5)
 - `limit` — max results (default 20)
 
 **Response (200):**
@@ -179,13 +187,15 @@ List persisted artifacts for a run in reverse chronological order.
     "type": "executive_summary",
     "content_md": "# Summary",
     "content_json": "{\"markdown\": \"# Summary\"}",
+    "source_stage": "s7",
     "created_at": "2026-05-24T10:12:34"
   }
 ]
 ```
 
 Hermes should prefer this endpoint when it only needs persisted Markdown/JSON artifacts
-and does not need every stage output blob.
+and does not need every stage output blob. Use `artifact_type=checkpoint` to retrieve
+the latest pipeline state when a run is paused, killed, or still in progress.
 
 ---
 

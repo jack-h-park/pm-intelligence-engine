@@ -262,11 +262,17 @@ created_at      datetime
 ```
 artifact_id     uuid, primary key
 run_id          uuid, foreign key → WorkflowRun
-type            enum: poc_plan | prd | executive_summary
+type            enum: insight_memo | opportunity_memo | evaluation_brief |
+                      decision_memo | poc_plan | prd | executive_summary | checkpoint
 content_md      text (Markdown)
 content_json    text (structured JSON)
+source_stage    str | null  (stage that produced this artifact, e.g. "s2", "s7")
 created_at      datetime
 ```
+
+Artifacts are saved by each stage as human-readable documents. `checkpoint`
+artifacts accumulate pipeline state at S2, S3, and S5 — readable even if
+the run is paused or killed before S7 completes.
 
 ---
 
