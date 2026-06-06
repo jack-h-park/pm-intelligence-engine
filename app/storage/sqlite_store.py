@@ -257,7 +257,6 @@ class SQLiteStore:
             "recommendation_json": r.recommendation_json,
             "routing": r.routing.value if r.routing else None,
             "composite_score": r.composite_score,
-            "notification_chat_id": r.notification_chat_id,
             "created_at": r.created_at.isoformat(),
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         }

@@ -46,7 +46,6 @@ class TelegramNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
-        chat_id_override: str | None = None,
     ) -> None:
         text = (
             f"📡 <b>[Gate 1] New Signal</b>\n\n"
@@ -58,7 +57,7 @@ class TelegramNotifier:
             f"<code>POST /runs/{run_id}/direction</code>\n"
             f'<code>{{"mode": "{suggested_mode}"}}</code>'
         )
-        await self._send(text, run_id, chat_id_override=chat_id_override)
+        await self._send(text, run_id)
 
     async def send_gate2(
         self,
@@ -71,7 +70,6 @@ class TelegramNotifier:
         skeptic_score: int,
         key_concern: str,
         review_url: str = "",
-        chat_id_override: str | None = None,
     ) -> None:
         link_line = (
             f'\n\n🔗 <a href="{review_url}">Open Review Page</a>'
@@ -87,7 +85,7 @@ class TelegramNotifier:
             f"<i>\"{key_concern}\"</i>"
             f"{link_line}"
         )
-        await self._send(text, run_id, chat_id_override=chat_id_override)
+        await self._send(text, run_id)
 
     async def send_gate3(
         self,
@@ -97,7 +95,6 @@ class TelegramNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        chat_id_override: str | None = None,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
@@ -122,13 +119,13 @@ class TelegramNotifier:
             f'<code>{{"action": "confirm"}}</code>  → {routing_label}\n'
             f"{override_lines}"
         )
-        await self._send(text, run_id, chat_id_override=chat_id_override)
+        await self._send(text, run_id)
 
-    async def _send(self, text: str, run_id: str, chat_id_override: str | None = None) -> None:
+    async def _send(self, text: str, run_id: str) -> None:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 self._base,
-                json={"chat_id": chat_id_override or self._chat_id, "text": text, "parse_mode": "HTML"},
+                json={"chat_id": self._chat_id, "text": text, "parse_mode": "HTML"},
                 timeout=10.0,
             )
             resp.raise_for_status()
@@ -152,7 +149,6 @@ class SlackNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
-        chat_id_override: str | None = None,
     ) -> None:
         payload = {
             "blocks": [
@@ -199,7 +195,6 @@ class SlackNotifier:
         skeptic_score: int,
         key_concern: str,
         review_url: str = "",
-        chat_id_override: str | None = None,
     ) -> None:
         scores_text = (
             f"Explorer: {explorer_score}  ·  Strategist: {strategist_score}  ·  "
@@ -243,7 +238,6 @@ class SlackNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        chat_id_override: str | None = None,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
@@ -323,7 +317,6 @@ class FanoutNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
-        chat_id_override: str | None = None,
     ) -> None:
         for provider in self._providers:
             try:
@@ -334,7 +327,6 @@ class FanoutNotifier:
                     relevance_score=relevance_score,
                     suggested_mode=suggested_mode,
                     reasoning=reasoning,
-                    chat_id_override=chat_id_override,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {
@@ -353,7 +345,6 @@ class FanoutNotifier:
         skeptic_score: int,
         key_concern: str,
         review_url: str = "",
-        chat_id_override: str | None = None,
     ) -> None:
         for provider in self._providers:
             try:
@@ -367,7 +358,6 @@ class FanoutNotifier:
                     skeptic_score=skeptic_score,
                     key_concern=key_concern,
                     review_url=review_url,
-                    chat_id_override=chat_id_override,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {
@@ -383,7 +373,6 @@ class FanoutNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        chat_id_override: str | None = None,
     ) -> None:
         for provider in self._providers:
             try:
@@ -394,7 +383,6 @@ class FanoutNotifier:
                     routing=routing,
                     composite_score=composite_score,
                     blocking_count=blocking_count,
-                    chat_id_override=chat_id_override,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {

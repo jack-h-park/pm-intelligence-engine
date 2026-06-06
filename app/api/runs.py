@@ -18,7 +18,6 @@ class RunStartRequest(BaseModel):
     signal_id: str
     product_id: str
     mode: str | None = None  # If provided, skip awaiting_direction and run immediately
-    notification_chat_id: str | None = None  # Override Telegram chat_id for this run's Gate alerts
 
 
 class RunResponse(BaseModel):
@@ -31,7 +30,6 @@ class RunResponse(BaseModel):
     recommendation_json: str | None
     routing: str | None
     composite_score: float | None
-    notification_chat_id: str | None = None
     created_at: str
     completed_at: str | None
     stage_outputs: list[dict] | None = None
@@ -65,12 +63,7 @@ async def start_run(
         product_id=canonical_product_id,
         signal_id=body.signal_id,
     )
-    engine.store.update_run(
-        run_id,
-        status="running",
-        current_stage="s1",
-        notification_chat_id=body.notification_chat_id,
-    )
+    engine.store.update_run(run_id, status="running", current_stage="s1")
     engine.store.update_signal_status(body.signal_id, "in_run")
 
     background_tasks.add_task(
@@ -235,7 +228,6 @@ async def _execute_s1_s2(
                 current_stage="s2",
             )
             emit_event("run", "awaiting_direction", run_id, recommendation)
-            run_for_notify = engine.store.get_run(run_id)
             await engine.notifier.send_gate1(
                 run_id=run_id,
                 product_id=product_id,
@@ -243,7 +235,6 @@ async def _execute_s1_s2(
                 relevance_score=s2_out.output.relevance_score,
                 suggested_mode=s2_out.output.suggested_mode,
                 reasoning=s2_out.output.suggestion_reasoning,
-                chat_id_override=run_for_notify["notification_chat_id"] if run_for_notify else None,
             )
             return
 
@@ -333,7 +324,6 @@ async def _continue_after_direction(
             personas["skeptic"].key_argument if "skeptic" in personas else ""
         )
         review_url = f"{_notify_cfg.BASE_URL}/runs/{run_id}/review"
-        run_for_notify = engine.store.get_run(run_id)
         await engine.notifier.send_gate2(
             run_id=run_id,
             product_id=context.product_id,
@@ -344,7 +334,6 @@ async def _continue_after_direction(
             skeptic_score=personas.get("skeptic", _DummyPersona).score,
             key_concern=skeptic_concern,
             review_url=review_url,
-            chat_id_override=run_for_notify["notification_chat_id"] if run_for_notify else None,
         )
 
     except Exception as exc:  # noqa: BLE001
