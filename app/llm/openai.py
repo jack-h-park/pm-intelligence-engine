@@ -30,7 +30,7 @@ class OpenAIProvider:
             try:
                 kwargs: dict = {
                     "model": model or self._default_model,
-                    "max_tokens": max_tokens,
+                    "max_completion_tokens": max_tokens,
                     "messages": messages,
                 }
                 if temperature is not None:
