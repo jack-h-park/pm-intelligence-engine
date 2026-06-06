@@ -138,42 +138,23 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         routing = s5_out.output.routing
         engine.store.update_run(run_id, routing=routing)
 
-        if routing == "kill":
-            # Pause for PM review — kill based on LLM assumption classification may be incorrect
-            engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
-            emit_event("run", "waiting_routing_review", run_id, {
-                "composite": s5_out.output.composite_score,
-                "blocking_count": s5_out.output.blocking_count,
-            })
-            # Notify PM via configured providers (Telegram / Slack)
-            signal_for_g3 = engine.store.get_signal(run["signal_id"])
-            signal_title_g3 = signal_for_g3["title"] if signal_for_g3 else run_id
-            await engine.notifier.send_gate3(
-                run_id=run_id,
-                product_id=context.product_id,
-                signal_title=signal_title_g3,
-                composite_score=s5_out.output.composite_score,
-                blocking_count=s5_out.output.blocking_count,
-            )
-            return
-
-        if routing == "poc":
-            engine.store.update_run(run_id, current_stage="s6a")
-            s6_out = await s6a_poc_plan.run(
-                S6AInput(s5_output=s5_out.output), context, engine.llm, engine.store
-            )
-            s7_in = S7Input(s5_output=s5_out.output, s6a_output=s6_out.output)
-        else:
-            engine.store.update_run(run_id, current_stage="s6b")
-            s6_out = await s6b_prd.run(
-                S6BInput(s5_output=s5_out.output), context, engine.llm, engine.store
-            )
-            s7_in = S7Input(s5_output=s5_out.output, s6b_output=s6_out.output)
-
-        engine.store.update_run(run_id, current_stage="s7")
-        await s7_summary.run(s7_in, context, engine.llm, engine.store)
-
-        finalize_run(run_id, "completed", engine)
+        # All routings pause for PM review at Gate 3.
+        engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
+        emit_event("run", "waiting_routing_review", run_id, {
+            "routing": routing,
+            "composite": s5_out.output.composite_score,
+            "blocking_count": s5_out.output.blocking_count,
+        })
+        signal_for_g3 = engine.store.get_signal(run["signal_id"])
+        signal_title_g3 = signal_for_g3["title"] if signal_for_g3 else run_id
+        await engine.notifier.send_gate3(
+            run_id=run_id,
+            product_id=context.product_id,
+            signal_title=signal_title_g3,
+            routing=routing,
+            composite_score=s5_out.output.composite_score,
+            blocking_count=s5_out.output.blocking_count,
+        )
 
     except Exception as exc:  # noqa: BLE001
         finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

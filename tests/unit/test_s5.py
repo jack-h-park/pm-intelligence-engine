@@ -80,7 +80,7 @@ _LLM_RESPONSE_BLOCKING = json.dumps({
 
 def test_composite_formula():
     """Composite = Impact×0.35 + StrategicFit×0.30 + Feasibility×0.20 + Confidence×0.15."""
-    from app.stages.s5_prioritization import _WEIGHTS
+    from app.stages.s5_prioritization import _DEFAULT_WEIGHTS as _WEIGHTS
     scores = {"explorer": 4, "strategist": 5, "builder": 4, "skeptic": 4}
     expected = round(4 * 0.35 + 5 * 0.30 + 4 * 0.20 + 4 * 0.15, 2)
     computed = round(sum(scores[p] * w for p, w in _WEIGHTS.items()), 2)
@@ -90,7 +90,7 @@ def test_composite_formula():
 
 def test_composite_kill_range():
     """Low scores produce composite ≤ 1.5 → kill routing."""
-    from app.stages.s5_prioritization import _WEIGHTS
+    from app.stages.s5_prioritization import _DEFAULT_WEIGHTS as _WEIGHTS
     scores = {"explorer": 1, "strategist": 1, "builder": 2, "skeptic": 1}
     composite = round(sum(scores[p] * w for p, w in _WEIGHTS.items()), 2)
     assert composite <= 1.5

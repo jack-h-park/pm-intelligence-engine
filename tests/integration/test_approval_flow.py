@@ -309,7 +309,7 @@ def test_routing_review_confirm_kills_run(client, engine):
             )
 
     assert resp.status_code == 202
-    assert resp.json()["action"] == "kill_confirmed"
+    assert resp.json()["action"] == "routing_confirmed"
 
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(run["signal_id"])
@@ -400,11 +400,11 @@ def test_routing_review_override_requires_routing_field(client, engine):
 
 
 def test_routing_review_override_invalid_routing_value(client, engine):
-    """POST /routing-review with action=override and routing=kill returns 422."""
+    """POST /routing-review with action=override and an unknown routing value returns 422."""
     run_id = _seed_run(engine, status="waiting_routing_review", mode="decide", routing="kill")
     resp = client.post(
         f"/runs/{run_id}/routing-review",
-        json={"action": "override", "routing": "kill"},  # kill is not a valid override
+        json={"action": "override", "routing": "unknown"},  # not a valid routing
     )
     assert resp.status_code == 422
 

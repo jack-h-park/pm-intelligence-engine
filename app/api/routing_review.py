@@ -1,11 +1,12 @@
-"""Routing Review Gate — confirm or override a kill routing decision after Stage 5.
+"""Routing Review Gate — confirm or override a routing decision after Stage 5.
 
-Only fires when Stage 5 routes to 'kill'. The PM sees the assumption list and
-composite score, then either confirms the kill or overrides to poc/prd.
+Fires for all Stage 5 routing outcomes (prd, poc, kill). The PM sees the composite
+score and assumption list, then confirms or overrides before Stage 6 starts.
 
 State transitions:
-  waiting_routing_review + confirm  → killed
-  waiting_routing_review + override → running (Stage 6 starts with overridden routing)
+  waiting_routing_review + confirm (kill)     → killed
+  waiting_routing_review + confirm (poc/prd)  → running (Stage 6 starts)
+  waiting_routing_review + override           → running (Stage 6 with overridden routing)
 """
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -20,7 +21,7 @@ router = APIRouter(prefix="/runs", tags=["routing-review"])
 
 class RoutingReviewRequest(BaseModel):
     action: str  # "confirm" or "override"
-    routing: Optional[str] = None  # required when action == "override": "poc" | "prd"
+    routing: Optional[str] = None  # required when action == "override": "poc" | "prd" | "kill"
     reason: Optional[str] = None  # optional PM note
 
 
@@ -49,27 +50,49 @@ async def routing_review(
             detail="action must be 'confirm' or 'override'",
         )
     if body.action == "override":
-        if body.routing not in ("poc", "prd"):
+        if body.routing not in ("poc", "prd", "kill"):
             raise HTTPException(
                 status_code=422,
-                detail="routing must be 'poc' or 'prd' when action is 'override'",
+                detail="routing must be 'poc', 'prd', or 'kill' when action is 'override'",
             )
 
-    _require_waiting_routing_review(run_id, engine)
+    run = _require_waiting_routing_review(run_id, engine)
 
     if body.action == "confirm":
-        from app.services.run_finalizer import finalize_run
+        routing = run.get("routing", "kill")
+        return await _apply_routing(run_id, routing, engine, background_tasks, body.reason, confirmed=True)
+
+    # override: PM changes the routing from S5's recommendation
+    effective_routing = body.routing
+    engine.store.update_run(run_id, routing=effective_routing)
+    return await _apply_routing(run_id, effective_routing, engine, background_tasks, body.reason, confirmed=False)
+
+
+async def _apply_routing(
+    run_id: str,
+    routing: str,
+    engine: PMEngine,
+    background_tasks: BackgroundTasks,
+    reason: Optional[str],
+    confirmed: bool,
+) -> dict:
+    """Apply an effective routing: kill finalizes immediately; poc/prd starts Stage 6."""
+    from app.services.run_finalizer import finalize_run
+
+    action_label = "routing_confirmed" if confirmed else "routing_overridden"
+
+    if routing == "kill":
         finalize_run(
             run_id, "killed", engine,
-            event_action="kill_confirmed",
-            event_detail={"reason": body.reason},
+            event_action="kill_confirmed" if confirmed else "kill_overridden",
+            event_detail={"reason": reason},
         )
-        return {"run_id": run_id, "action": "kill_confirmed"}
+        return {"run_id": run_id, "action": action_label, "routing": "kill"}
 
-    # override: PM disagrees with blocking classification, proceed with chosen routing
-    engine.store.update_run(run_id, routing=body.routing, status="running", current_stage="s6")
-    background_tasks.add_task(_execute_s6_s7_with_routing, run_id, body.routing, engine)
-    return {"run_id": run_id, "action": "routing_overridden", "routing": body.routing}
+    # poc or prd — start Stage 6 in background
+    engine.store.update_run(run_id, status="running", current_stage="s6")
+    background_tasks.add_task(_execute_s6_s7_with_routing, run_id, routing, engine)
+    return {"run_id": run_id, "action": action_label, "routing": routing}
 
 
 async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngine) -> None:

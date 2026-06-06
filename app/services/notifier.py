@@ -92,21 +92,32 @@ class TelegramNotifier:
         run_id: str,
         product_id: str,
         signal_title: str,
+        routing: str,
         composite_score: float,
         blocking_count: int,
     ) -> None:
+        icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
+        routing_label = routing.upper()
+        blocking_line = (
+            f"Blocking assumptions: <b>{blocking_count}</b>\n\n"
+            if routing == "kill" else "\n"
+        )
+        overrides = [r for r in ("kill", "poc", "prd") if r != routing]
+        override_lines = "\n".join(
+            f'<code>{{"action": "override", "routing": "{r}"}}</code>  → {r.upper()}'
+            for r in overrides
+        )
         text = (
-            f"⚠️ <b>[Gate 3] Kill Routing Review</b>\n\n"
+            f"{icon} <b>[Gate 3] Routing Review — {routing_label}</b>\n\n"
             f"Product: <code>{product_id}</code>\n"
             f"Signal: {signal_title}\n"
             f"Run: <code>{run_id}</code>\n\n"
             f"Composite: <b>{composite_score:.1f}</b> · "
-            f"Blocking assumptions: <b>{blocking_count}</b>\n\n"
-            f"S5 recommends <b>KILL</b>. Confirm or override:\n"
+            f"{blocking_line}"
+            f"S5 recommends <b>{routing_label}</b>. Confirm or override:\n"
             f"<code>POST /runs/{run_id}/routing-review</code>\n"
-            f'<code>{{"action": "confirm"}}</code>  → kill\n'
-            f'<code>{{"action": "override", "routing": "poc"}}</code>  → POC\n'
-            f'<code>{{"action": "override", "routing": "prd"}}</code>  → PRD'
+            f'<code>{{"action": "confirm"}}</code>  → {routing_label}\n'
+            f"{override_lines}"
         )
         await self._send(text, run_id)
 
@@ -224,13 +235,24 @@ class SlackNotifier:
         run_id: str,
         product_id: str,
         signal_title: str,
+        routing: str,
         composite_score: float,
         blocking_count: int,
     ) -> None:
+        icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
+        routing_label = routing.upper()
+        blocking_detail = (
+            f"Blocking assumptions: {blocking_count}  ·  " if routing == "kill" else ""
+        )
+        overrides = [r for r in ("kill", "poc", "prd") if r != routing]
+        override_cmds = "\n".join(
+            f'{{ "action": "override", "routing": "{r}" }}  → {r.upper()}'
+            for r in overrides
+        )
         blocks = [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": "⚠️ Gate 3 — Kill Routing Review"},
+                "text": {"type": "plain_text", "text": f"{icon} Gate 3 — Routing Review ({routing_label})"},
             },
             {
                 "type": "section",
@@ -246,8 +268,8 @@ class SlackNotifier:
                     "text": (
                         f"*{signal_title}*\n"
                         f"Composite: {composite_score:.1f}  ·  "
-                        f"Blocking assumptions: {blocking_count}\n\n"
-                        f"S5 recommends *KILL*. Confirm or override:"
+                        f"{blocking_detail}"
+                        f"S5 recommends *{routing_label}*. Confirm or override:"
                     ),
                 },
             },
@@ -257,9 +279,8 @@ class SlackNotifier:
                     "type": "mrkdwn",
                     "text": (
                         f"```POST /runs/{run_id}/routing-review\n"
-                        f'{{ "action": "confirm" }}         → kill\n'
-                        f'{{ "action": "override", "routing": "poc" }}  → POC\n'
-                        f'{{ "action": "override", "routing": "prd" }}  → PRD```'
+                        f'{{ "action": "confirm" }}  → {routing_label}\n'
+                        f"{override_cmds}```"
                     ),
                 },
             },
@@ -349,6 +370,7 @@ class FanoutNotifier:
         run_id: str,
         product_id: str,
         signal_title: str,
+        routing: str,
         composite_score: float,
         blocking_count: int,
     ) -> None:
@@ -358,6 +380,7 @@ class FanoutNotifier:
                     run_id=run_id,
                     product_id=product_id,
                     signal_title=signal_title,
+                    routing=routing,
                     composite_score=composite_score,
                     blocking_count=blocking_count,
                 )

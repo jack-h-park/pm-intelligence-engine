@@ -20,12 +20,52 @@ from app.models.stages import (
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
-_WEIGHTS = {
+_DEFAULT_WEIGHTS = {
     "explorer": 0.35,    # Impact
     "strategist": 0.30,  # Strategic Fit
     "builder": 0.20,     # Feasibility
     "skeptic": 0.15,     # Confidence
 }
+
+_WEIGHT_KEYS = {"impact": "explorer", "strategic_fit": "strategist", "feasibility": "builder", "confidence": "skeptic"}
+
+
+def _load_weights(product_id: str) -> dict:
+    """Load per-product scoring weights from pm-decision-context.
+
+    Reads {DECISION_CONTEXT_ROOT}/products/{product_id}/scoring.yaml.
+    Falls back to _DEFAULT_WEIGHTS if the file is absent or malformed.
+
+    scoring.yaml format:
+      impact: 0.35
+      strategic_fit: 0.30
+      feasibility: 0.20
+      confidence: 0.15
+    """
+    import pathlib
+    import yaml
+    from config import settings
+
+    path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
+    if not path.exists():
+        return _DEFAULT_WEIGHTS.copy()
+
+    try:
+        raw = yaml.safe_load(path.read_text())
+        if not isinstance(raw, dict):
+            return _DEFAULT_WEIGHTS.copy()
+        weights = {}
+        for yaml_key, persona_key in _WEIGHT_KEYS.items():
+            val = raw.get(yaml_key)
+            if isinstance(val, (int, float)) and val > 0:
+                weights[persona_key] = float(val)
+        if len(weights) != 4:
+            return _DEFAULT_WEIGHTS.copy()
+        # Normalise so weights always sum to 1.0
+        total = sum(weights.values())
+        return {k: round(v / total, 6) for k, v in weights.items()}
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_WEIGHTS.copy()
 
 _ASSUMPTION_JSON_SCHEMA = """{
   "assumptions": [
@@ -51,9 +91,10 @@ async def run(
     personas = stage_input.s4_output.personas
     scores = {p.persona: p.score for p in personas}
 
+    weights = _load_weights(context.product_id)
     # Deterministic composite score
     composite = round(
-        sum(scores.get(persona, 3) * weight for persona, weight in _WEIGHTS.items()), 2
+        sum(scores.get(persona, 3) * weight for persona, weight in weights.items()), 2
     )
     skeptic_score = scores.get("skeptic", 3)
 
