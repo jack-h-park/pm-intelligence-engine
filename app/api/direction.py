@@ -43,6 +43,8 @@ async def set_direction(
     validate_mode_for_product(body.mode, run["product_id"])
 
     if run["status"] != "awaiting_direction":
+        if run.get("mode") == body.mode:
+            return {"run_id": run_id, "mode": body.mode, "action": "already_set"}
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run['status']}', expected 'awaiting_direction'",
