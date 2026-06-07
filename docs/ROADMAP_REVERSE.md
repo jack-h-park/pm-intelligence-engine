@@ -92,6 +92,28 @@ Further artifact endpoints deferred until Hermes integration confirms need.
 
 ## Later
 
+### E6 — API Authorization Hardening
+
+#### US-26 — Per-profile action scoping (P1)
+**Status:** Planned (depends on P0 bearer auth being stable in production)
+
+As a maintainer, I want each Hermes profile to be restricted to the pm-engine
+endpoints it is authorized to call, so that a compromised or misconfigured
+profile cannot approve runs or modify state beyond its declared scope.
+
+**Design doc:** `hermes-control-plane/docs/design/guardrail-enforcement-roadmap.md § P1`
+
+**Acceptance criteria**
+
+- pm-engine supports per-token (or per-caller) action scopes; requests to
+  endpoints outside the caller's scope return `403`
+- `distributions/*/mcp/pm-engine.yaml` `approved_actions` lists become the
+  source of truth for each profile's token scope
+- read-only profiles (e.g. `eval`) cannot call `POST /runs/{id}/approve`
+- write profiles (e.g. `ops`) retain full access
+
+---
+
 ## Exit Criteria
 
 The remaining roadmap can be considered closed when:
