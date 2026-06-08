@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="PM Agentic Platform",
+    title="Jack H. Park's PM Intelligence Engine",
     description="Automates the PM signal-to-decision workflow",
     version="0.1.0",
     lifespan=lifespan,
