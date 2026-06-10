@@ -14,7 +14,18 @@ from app.api.signals import router as signals_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from app.agents.builder import BuilderAgent
+    from app.agents.explorer import ExplorerAgent
+    from app.agents.skeptic import SkepticAgent
+    from app.agents.strategist import StrategistAgent
     from app.factory import build_engine
+    from app.services.template_service import TemplateService
+    from config import settings
+
+    # Preflight: persona prompts live in decision-context (US-37). Fail fast at
+    # boot if that checkout is stale rather than crashing mid-run at S4.
+    personas = [a.persona for a in (ExplorerAgent, StrategistAgent, BuilderAgent, SkepticAgent)]
+    TemplateService(settings.DECISION_SYSTEM_ROOT).validate_persona_prompts(personas)
 
     app.state.engine = build_engine("local")
     yield

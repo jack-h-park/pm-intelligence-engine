@@ -93,6 +93,21 @@ def test_parse_sections_basic():
     assert sections["evaluation question"] == "q line 1\n- bullet"
 
 
+def test_validate_persona_prompts_passes_with_real_files(service):
+    # All four persona files exist in decision-context — no raise.
+    service.validate_persona_prompts(["explorer", "strategist", "builder", "skeptic"])
+
+
+def test_validate_persona_prompts_fails_fast_when_missing(tmp_path):
+    # Simulate a stale decision-context checkout without persona files.
+    bad = TemplateService(str(tmp_path))
+    with pytest.raises(RuntimeError) as exc:
+        bad.validate_persona_prompts(["explorer", "skeptic"])
+    msg = str(exc.value)
+    assert "explorer" in msg and "skeptic" in msg
+    assert "deploy decision-context" in msg
+
+
 def test_parse_sections_ignores_html_comment_and_h1():
     text = "<!-- comment -->\n# Heading\nintro\n## Lens\nbody\n"
     sections = _parse_sections(text)

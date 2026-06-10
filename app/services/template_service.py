@@ -75,6 +75,31 @@ class TemplateService:
                 "(expected '## Lens' and '## Evaluation Question')"
             ) from exc
 
+    def validate_persona_prompts(self, personas: list[str]) -> None:
+        """Fail fast at startup if any S4 persona prompt is missing or malformed.
+
+        The engine reads persona lens/question from decision-context at runtime
+        (US-37). A decision-context checkout that predates the persona files
+        would otherwise crash mid-run at S4 with FileNotFoundError. Running this
+        at app startup turns a deploy-ordering mistake (pm-engine deployed
+        before decision-context) into an immediate, clear boot failure.
+        """
+        problems: list[str] = []
+        for persona in personas:
+            try:
+                prompt = self.load_persona_prompt(persona)
+                if not prompt["lens"].strip() or not prompt["question"].strip():
+                    problems.append(f"{persona}: lens or question is empty")
+            except (FileNotFoundError, ValueError) as exc:
+                problems.append(f"{persona}: {exc}")
+        if problems:
+            raise RuntimeError(
+                "S4 persona prompt preflight failed. The decision-context checkout at "
+                f"{self._prompts_root} is missing or has malformed persona prompts — "
+                "deploy decision-context (prompts/s4-personas/) before pm-engine "
+                "(see DESIGN_DECISIONS § 8 / US-37):\n  - " + "\n  - ".join(problems)
+            )
+
     def render_template(self, template: str, variables: dict) -> str:
         """Substitute {variable_name} placeholders in the template.
 
