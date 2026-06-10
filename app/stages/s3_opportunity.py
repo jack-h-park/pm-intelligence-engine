@@ -4,9 +4,8 @@ LLM call: converts the S2 insight into a structured, evaluatable opportunity
 with a falsifiable hypothesis.
 """
 
-import json
-
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import RunContext, S2OutputData, S3Input, S3Output, S3OutputData, StageMetadata
 from app.services.template_service import TemplateService
@@ -70,15 +69,16 @@ Rules:
 - "target_user" must be more specific than the segment defined in context.md.
 - Both value fields must be distinct and concrete — not generic statements."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s3",
+        run_id=context.run_id,
         max_tokens=1024,
     )
-
-    data = _parse_json(raw)
     output_data = S3OutputData(**data)
 
     output = S3Output(
@@ -150,14 +150,6 @@ def _build_opportunity_memo(data: S3OutputData) -> str:
 - **User:** {data.assumed_value_user}
 - **Business:** {data.assumed_value_business}
 """
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:

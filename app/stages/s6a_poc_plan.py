@@ -4,9 +4,8 @@ Converts Blocking assumptions from S5 into a minimum experiment design.
 Only runs when S5 routing is 'poc'.
 """
 
-import json
-
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import (
     RunContext,
@@ -92,15 +91,16 @@ Rules:
 - timeline_weeks should be realistic given the resources described — typically 2–6 weeks.
 - success_criteria must be binary (pass/fail) — not "learn more about"."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s6a",
+        run_id=context.run_id,
         max_tokens=1024,
     )
-
-    data = _parse_json(raw)
     output_data = S6AOutputData(**data)
 
     output = S6AOutput(
@@ -149,14 +149,6 @@ def _build_poc_plan_artifact(data: S6AOutputData) -> str:
 ## Resources Needed
 {data.resources_needed}
 """
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:

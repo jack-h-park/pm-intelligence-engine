@@ -4,9 +4,8 @@ LLM call: extracts "what changed", reframing, strategy pillar references,
 and why the signal matters for the specific product.
 """
 
-import json
-
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import RunContext, S2Input, S2Output, S2OutputData, StageMetadata
 from app.services.template_service import TemplateService
@@ -103,15 +102,16 @@ Rules:
 - "suggested_mode" must be exactly one of: file, brief, opportunity, evaluate, decide.
 - Do not hallucinate facts not present in the signal or product context."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s2",
+        run_id=context.run_id,
         max_tokens=1024,
     )
-
-    data = _parse_json(raw)
     output_data = S2OutputData(**data)
 
     output = S2Output(
@@ -199,15 +199,6 @@ def _build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
 ## Strategy Pillars
 {pillars}
 """
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    # Strip markdown code fences if the model wrapped the response
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:

@@ -4,9 +4,8 @@ Produces a full PRD from S5 output. Only runs when S5 routing is 'prd'.
 Completeness check is computed deterministically from the LLM output.
 """
 
-import json
-
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import (
     PRDCompletenessCheck,
@@ -92,15 +91,16 @@ Rules:
 - success_metrics must have at least 2 entries, each with a measurement method.
 - open_questions must name a suggested owner role in parentheses."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s6b",
+        run_id=context.run_id,
         max_tokens=2048,
     )
-
-    data = _parse_json(raw)
     completeness = _compute_completeness(data)
     output_data = S6BOutputData(**data, completeness=completeness)
 
@@ -186,14 +186,6 @@ def _compute_completeness(data: dict) -> PRDCompletenessCheck:
         rollout_phases=False,
         risks=len(data.get("risks", [])) > 0,
     )
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from typing import Optional
 
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import PersonaOutput, RunContext, S3OutputData
 
@@ -68,15 +68,16 @@ Rules:
 - open_question must name *who* can answer it and *how* (e.g., "customer interview", "engineering spike", "legal review").
 - Do NOT default to "insufficient data" — steelman the strongest argument you can from available evidence."""
 
-        raw = await llm.complete(
+        data = await complete_json(
+            llm,
             messages=[
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
             ],
+            stage="s4",
+            run_id=context.run_id,
             max_tokens=512,
         )
-
-        data = _parse_json(raw)
         return PersonaOutput(
             persona=self.persona,  # type: ignore[arg-type]
             dimension=self.dimension,
@@ -84,11 +85,3 @@ Rules:
             key_argument=data["key_argument"],
             open_question=data["open_question"],
         )
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)

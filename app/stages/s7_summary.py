@@ -8,6 +8,7 @@ Output is saved as both a StageOutput and an Artifact (Markdown).
 import json
 
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import (
     RunContext,
@@ -134,15 +135,16 @@ Rules:
 - "markdown" must include a Run Summary table filled with actual data from the stages that ran.
 - A stakeholder who reads only the markdown should understand what was done and why."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s7",
+        run_id=context.run_id,
         max_tokens=2048,
     )
-
-    data = _parse_json(raw)
     output_data = S7OutputData(**data)
 
     output = S7Output(
@@ -210,12 +212,6 @@ def _mode_description(mode: str) -> str:
     return descriptions.get(mode, mode)
 
 
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:

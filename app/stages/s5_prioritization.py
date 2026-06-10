@@ -5,9 +5,8 @@ LLM classifies assumptions (Blocking / Informing) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
 
-import json
-
 from app.logging import emit_event
+from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import (
     Assumption,
@@ -157,16 +156,17 @@ Rules:
   leaves zero residual value with no alternative.
 - Limit to 5 assumptions maximum."""
 
-    raw = await llm.complete(
+    data = await complete_json(
+        llm,
         messages=[
             {"role": "system", "content": system_message},
             {"role": "user", "content": user_message},
         ],
+        stage="s5",
+        run_id=context.run_id,
         max_tokens=1024,
         temperature=0,  # deterministic — blocking classification must be consistent
     )
-
-    data = _parse_json(raw)
     assumptions = [Assumption(**a) for a in data.get("assumptions", [])]
     rationale = data.get("rationale", "")
 
@@ -308,14 +308,6 @@ def _compute_routing(composite: float, blocking: list[Assumption]) -> str:
     if composite >= 3.5:
         return "prd"
     return "poc"
-
-
-def _parse_json(raw: str) -> dict:
-    text = raw.strip()
-    if text.startswith("```"):
-        lines = text.splitlines()
-        text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
 
 
 def _resolve_model() -> str:
