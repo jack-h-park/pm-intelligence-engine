@@ -111,7 +111,48 @@ class LLMProvider(Protocol):
 
 ---
 
-## 8. Patterns Directly Reused (by design, not by code copy)
+## 8. S5 Routing Rule: Two-Axis Hybrid (2026-06-10)
+
+The deterministic routing rule in `_compute_routing()` (`app/stages/s5_prioritization.py`)
+has gone through three versions:
+
+| Version | Rule | Problem |
+|---|---|---|
+| v1 (initial commit) | `skeptic_score >= 4 → prd`, else `poc` — faithful to `04-scoring.md`'s Confidence-based routing | Routing flips on a single persona's one-point swing (Skeptic 3 vs 4); brittle against LLM score variance |
+| v2 (`c124036`, 2026-05-23) | `composite >= 3.5 → prd`, else `poc` | Confidence is diluted to its 0.15 weight. A high-impact, unvalidated opportunity (e.g. 5/5/4/2 → composite 4.35) skips PoC and goes straight to PRD — the opposite of the framework's stated intent ("low confidence is a signal to run a PoC"). The design doc was never updated, leaving a silent doc/code mismatch. |
+| **v3 (decided 2026-06-10)** | **Two-axis hybrid** (see below) | — |
+
+**v3 rule** (first match wins):
+
+```
+1. blocking assumptions OR composite <= KILL_THRESHOLD (1.5)  → kill
+2. composite >= PRD_THRESHOLD (3.5) AND confidence >= 4       → prd
+3. composite >= PRD_THRESHOLD AND confidence < 4              → poc
+4. otherwise                                                  → poc
+```
+
+**Rationale:** composite and confidence answer different questions. Composite
+("how good is this overall?") sets the quality floor — it decides kill and
+PRD-eligibility, and its weighted-average stability prevents single-score flips
+on the kill decision. Confidence ("do we know enough to commit?") is the
+readiness gate — it alone decides PRD vs PoC for strong opportunities. This
+restores v1's intent while keeping v2's stability where it matters.
+
+**Residual brittleness is accepted:** PRD vs PoC can still flip on Skeptic
+3 → 4, but Gate 3 (`waiting_routing_review`) puts a human on every routing
+decision, so the rule only needs to be a good default, not an infallible one.
+
+**Thresholds** (kill 1.5, prd 3.5, confidence gate 4) move from hardcoded
+constants to per-product `scoring.yaml`, following the existing pattern for
+dimension weights.
+
+Canonical framework documentation: `pm-decision-context/core/04-scoring.md`
+("Routing Decision — Two-Axis Hybrid Rule"). That document and this code must
+change together — the v2 episode is the cautionary example.
+
+---
+
+## 9. Patterns Directly Reused (by design, not by code copy)
 
 These patterns from `ai-agent-test` are deliberately reproduced:
 
