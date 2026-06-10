@@ -2,7 +2,8 @@
 
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.models.stages import (
     PersonaOutput,
@@ -39,6 +40,17 @@ def _make_store() -> MagicMock:
     store = MagicMock()
     store.save_stage_output = MagicMock(return_value="output-id")
     return store
+
+
+@contextmanager
+def _mock_persona_templates():
+    """Stub TemplateService so S4 stage tests stay hermetic (no disk reads)."""
+    with patch("app.stages.s4_evaluation.TemplateService") as MockTS:
+        MockTS.return_value.load_persona_prompt.side_effect = lambda persona: {
+            "lens": f"{persona} lens text",
+            "question": f"{persona} evaluation question",
+        }
+        yield MockTS
 
 
 def _make_persona(
@@ -155,12 +167,13 @@ async def test_s4_runs_4_agents_independently():
     store = _make_store()
     context = _make_context()
 
-    output = await s4_evaluation.run(
-        S4Input(s3_output=_make_s3_output()),
-        context,
-        llm,
-        store,
-    )
+    with _mock_persona_templates():
+        output = await s4_evaluation.run(
+            S4Input(s3_output=_make_s3_output()),
+            context,
+            llm,
+            store,
+        )
 
     assert len(output.output.personas) == 4
     personas_by_name = {p.persona: p for p in output.output.personas}
@@ -183,12 +196,13 @@ async def test_s4_version_propagates():
     llm.complete = AsyncMock(return_value=resp)
     store = _make_store()
 
-    output = await s4_evaluation.run(
-        S4Input(s3_output=_make_s3_output(), version=2),
-        _make_context(),
-        llm,
-        store,
-    )
+    with _mock_persona_templates():
+        output = await s4_evaluation.run(
+            S4Input(s3_output=_make_s3_output(), version=2),
+            _make_context(),
+            llm,
+            store,
+        )
     assert output.version == 2
 
 
@@ -208,12 +222,13 @@ async def test_s4_feedback_injected():
     store = _make_store()
 
     feedback = "Please focus more on government segment specifically."
-    await s4_evaluation.run(
-        S4Input(s3_output=_make_s3_output(), feedback=feedback),
-        _make_context(),
-        llm,
-        store,
-    )
+    with _mock_persona_templates():
+        await s4_evaluation.run(
+            S4Input(s3_output=_make_s3_output(), feedback=feedback),
+            _make_context(),
+            llm,
+            store,
+        )
 
     all_content = " ".join(m["content"] for m in captured_messages)
     assert feedback in all_content

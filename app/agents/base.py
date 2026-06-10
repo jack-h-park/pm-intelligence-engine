@@ -16,22 +16,28 @@ _JSON_SCHEMA = """{
 
 
 class PersonaAgent:
+    """Persona wiring only — identity, dimension, weight.
+
+    The persona's lens and evaluation question are NOT defined here; they live
+    in pm-decision-context (prompts/s4-personas/{persona}.md) and are passed in
+    via ``prompt`` so workflow design stays owned by decision-context (US-37).
+    """
+
     persona: str
     dimension: str
     weight: float
-    system_prompt: str
-    question: str
 
     async def evaluate(
         self,
         opportunity: S3OutputData,
         context: RunContext,
         llm: LLMProvider,
+        prompt: dict,
         feedback: Optional[str] = None,
     ) -> PersonaOutput:
         system = (
             f"You are the {self.persona.capitalize()} persona in a PM evaluation framework.\n\n"
-            f"Your lens: {self.system_prompt}\n\n"
+            f"Your lens: {prompt['lens']}\n\n"
             f"PM Identity:\n{context.pm_identity}"
         )
 
@@ -52,7 +58,7 @@ Value for user: {opportunity.assumed_value_user}
 Value for business: {opportunity.assumed_value_business}
 
 ## Your Evaluation Question
-{self.question}
+{prompt['question']}
 {feedback_block}
 
 ## Instructions

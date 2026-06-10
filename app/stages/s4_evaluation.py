@@ -23,6 +23,7 @@ from app.models.stages import (
 )
 from app.storage.protocol import PMWorkflowStore
 from app.models.stages import S4RubricResult
+from app.services.template_service import TemplateService
 from eval.rubrics.s4_rubric import check as check_s4_rubric
 
 
@@ -33,13 +34,25 @@ async def run(
     store: PMWorkflowStore,
 ) -> S4Output:
     """Run 4 persona agents in parallel and score the result with the S4 rubric."""
+    from config import settings
+
     agents = [ExplorerAgent(), StrategistAgent(), BuilderAgent(), SkepticAgent()]
+
+    # Persona lens + question are owned by decision-context (US-37); load once.
+    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    prompts = {agent.persona: template_service.load_persona_prompt(agent.persona) for agent in agents}
 
     # Parallel execution — agents cannot see each other's outputs
     personas: list[PersonaOutput] = list(
         await asyncio.gather(
             *[
-                agent.evaluate(stage_input.s3_output, context, llm, feedback=stage_input.feedback)
+                agent.evaluate(
+                    stage_input.s3_output,
+                    context,
+                    llm,
+                    prompt=prompts[agent.persona],
+                    feedback=stage_input.feedback,
+                )
                 for agent in agents
             ]
         )
