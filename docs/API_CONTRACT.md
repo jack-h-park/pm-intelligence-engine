@@ -61,6 +61,7 @@ version bump.
 | `POST` | `/runs/{id}/revise` | Gate 2 revise | Bridge PM revision |
 | `POST` | `/runs/{id}/reject` | Gate 2 reject | Bridge PM rejection |
 | `POST` | `/runs/{id}/routing-review` | Gate 3 confirm/override | Bridge PM routing decision |
+| `POST` | `/runs/{id}/reopen` | Revive an auto-triaged run | Auto-triage digest follow-up |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
 
@@ -131,6 +132,9 @@ List runs. Hermes uses this for polling actionable queues.
 - `product_id` — filter by product
 - `status` — filter by status (e.g. `awaiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
+- `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`, `revise`, `reject`).
+  `event=auto_triaged` is the canonical query for the Hermes auto-triage digest (US-31).
+- `since` — ISO 8601 timestamp; only runs created at or after this time
 - `limit` — max results (default 50)
 
 **Response (200):** Array of run objects (see run schema below).
@@ -155,11 +159,23 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
   "composite_score": 4.15,
   "created_at": "2026-05-24T10:00:00",
   "completed_at": "2026-05-24T10:12:34",
-  "stage_outputs": [...]
+  "stage_outputs": [...],
+  "gate3_review": {
+    "routing": "poc",
+    "composite_score": 4.3,
+    "blocking_count": 1,
+    "assumptions": [{"statement": "...", "severity": "Blocking", "reason": "..."}],
+    "rationale": "...",
+    "personas": [{"persona": "skeptic", "dimension": "Confidence", "score": 3, "key_argument": "..."}],
+    "rubric_total": "11/12"
+  }
 }
 ```
 
 `stage_outputs` is only present when `include_outputs=true`.
+`gate3_review` is `null` until S5 has run, then present on every response
+(US-30) — Hermes renders it in the Gate 3 notification follow-up and the PM
+can inspect it when confirming or overriding routing.
 
 ---
 
@@ -291,6 +307,22 @@ Gate 3 — confirm a kill decision or override to poc/prd.
 // or
 { "run_id": "uuid", "action": "routing_overridden", "routing": "prd" }
 ```
+
+---
+
+### `POST /runs/{id}/reopen`
+Revive an auto-triaged run to `awaiting_direction` (US-31). Only runs that were
+silently filed by the relevance gate are revivable — deliberate PM decisions
+(file at Gate 1, reject at Gate 2, kill at Gate 3) return `409`.
+
+**Response (200):** updated run object (`status=awaiting_direction`, `mode=null`,
+`completed_at=null`); the signal returns to `status="in_run"`.
+
+**Errors:** `404` unknown run · `409` not auto-triaged, or not in `completed` state.
+
+**Digest ownership:** pm-engine sends no notification for auto-triaged runs.
+The daily digest is Hermes-owned: poll `GET /runs?event=auto_triaged&since=<last-digest>`
+and include the results in the hermes-eval / hermes-ops digest.
 
 ---
 

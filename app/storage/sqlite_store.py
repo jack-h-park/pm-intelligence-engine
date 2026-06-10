@@ -118,6 +118,8 @@ class SQLiteStore:
         product_id: Optional[str] = None,
         status: Optional[str] = None,
         routing: Optional[str] = None,
+        event: Optional[str] = None,
+        since: Optional[datetime] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -128,6 +130,12 @@ class SQLiteStore:
                 q = q.filter(WorkflowRun.status == RunStatus(status))
             if routing:
                 q = q.filter(WorkflowRun.routing == Routing(routing))
+            if event:
+                q = q.join(ApprovalEvent).filter(
+                    ApprovalEvent.action == ApprovalAction(event)
+                )
+            if since:
+                q = q.filter(WorkflowRun.created_at >= since)
             q = q.order_by(WorkflowRun.created_at.desc()).limit(limit)
             return [self._run_to_dict(r) for r in q.all()]
 
@@ -193,6 +201,26 @@ class SQLiteStore:
             session.add(event)
             session.commit()
             return event.event_id
+
+    def get_approval_events(self, run_id: str) -> list[dict]:
+        with self._Session() as session:
+            events = (
+                session.query(ApprovalEvent)
+                .filter(ApprovalEvent.run_id == run_id)
+                .order_by(ApprovalEvent.created_at.asc())
+                .all()
+            )
+            return [
+                {
+                    "event_id": e.event_id,
+                    "run_id": e.run_id,
+                    "stage": e.stage,
+                    "action": e.action.value,
+                    "feedback_text": e.feedback_text,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in events
+            ]
 
     # --- Artifact ---
 

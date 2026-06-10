@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Optional, Protocol, runtime_checkable
 
 
@@ -37,6 +38,8 @@ class PMWorkflowStore(Protocol):
         product_id: Optional[str] = None,
         status: Optional[str] = None,
         routing: Optional[str] = None,
+        event: Optional[str] = None,
+        since: Optional[datetime] = None,
         limit: int = 50,
     ) -> list[dict]: ...
 
@@ -66,6 +69,8 @@ class PMWorkflowStore(Protocol):
         action: str,
         feedback_text: Optional[str] = None,
     ) -> str: ...
+
+    def get_approval_events(self, run_id: str) -> list[dict]: ...
 
     # --- Artifact ---
     def save_artifact(

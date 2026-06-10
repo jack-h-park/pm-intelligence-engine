@@ -135,3 +135,68 @@ def test_auto_triage_syncs_signal_status_done(client, engine):
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(run["signal_id"])
     assert signal["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# US-31 — auto-triage safety net: queryability + reopen
+# ---------------------------------------------------------------------------
+
+
+def test_auto_triaged_runs_queryable_by_event(client, engine):
+    triaged_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
+    gated_id = _start_run_with_s2_score(client, engine, relevance_score=4, suggested_mode="evaluate")
+
+    resp = client.get("/runs", params={"event": "auto_triaged"})
+    assert resp.status_code == 200
+    ids = [r["run_id"] for r in resp.json()]
+    assert triaged_id in ids
+    assert gated_id not in ids
+
+
+def test_list_runs_rejects_unknown_event(client):
+    resp = client.get("/runs", params={"event": "bogus"})
+    assert resp.status_code == 422
+
+
+def test_list_runs_since_filter(client, engine):
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
+
+    resp = client.get("/runs", params={"event": "auto_triaged", "since": "2000-01-01T00:00:00"})
+    assert run_id in [r["run_id"] for r in resp.json()]
+
+    resp = client.get("/runs", params={"event": "auto_triaged", "since": "2999-01-01T00:00:00"})
+    assert run_id not in [r["run_id"] for r in resp.json()]
+
+    resp = client.get("/runs", params={"since": "not-a-date"})
+    assert resp.status_code == 422
+
+
+def test_reopen_revives_auto_triaged_run(client, engine):
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
+
+    resp = client.post(f"/runs/{run_id}/reopen")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "awaiting_direction"
+    assert body["mode"] is None
+    assert body["completed_at"] is None
+
+    run = engine.store.get_run(run_id)
+    signal = engine.store.get_signal(run["signal_id"])
+    assert signal["status"] == "in_run"
+    actions = [e["action"] for e in engine.store.get_approval_events(run_id)]
+    assert actions == ["auto_triaged", "reopen"]
+
+
+def test_reopen_rejected_for_non_auto_triaged_run(client, engine):
+    """A deliberate PM decision is not undone by reopen."""
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=4, suggested_mode="evaluate")
+    # Run paused at Gate 1 — never auto-triaged
+    resp = client.post(f"/runs/{run_id}/reopen")
+    assert resp.status_code == 409
+
+
+def test_reopen_twice_rejected(client, engine):
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
+    assert client.post(f"/runs/{run_id}/reopen").status_code == 200
+    assert client.post(f"/runs/{run_id}/reopen").status_code == 409

@@ -60,6 +60,8 @@ class ApprovalAction(str, enum.Enum):
     approve = "approve"
     revise = "revise"
     reject = "reject"
+    auto_triaged = "auto_triaged"  # system decision at the relevance gate (US-31)
+    reopen = "reopen"              # PM revives an auto-triaged run (US-31)
 
 
 class ArtifactType(str, enum.Enum):

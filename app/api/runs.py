@@ -141,13 +141,82 @@ async def list_runs(
     product_id: str | None = None,
     status: str | None = None,
     routing: str | None = None,
+    event: str | None = None,
+    since: str | None = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[RunResponse]:
+    since_dt = None
+    if since is not None:
+        from datetime import datetime
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid 'since' value '{since}' — expected ISO 8601",
+            )
+    if event is not None:
+        valid_events = {"approve", "revise", "reject", "auto_triaged", "reopen"}
+        if event not in valid_events:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid event '{event}'. Must be one of: {', '.join(sorted(valid_events))}",
+            )
     runs = engine.store.list_runs(
-        product_id=product_id, status=status, routing=routing, limit=limit
+        product_id=product_id,
+        status=status,
+        routing=routing,
+        event=event,
+        since=since_dt,
+        limit=limit,
     )
     return [RunResponse(**r) for r in runs]
+
+
+@router.post("/{run_id}/reopen", response_model=RunResponse)
+async def reopen_run(
+    run_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> RunResponse:
+    """Revive an auto-triaged run to awaiting_direction (US-31).
+
+    Only runs that were silently filed by the relevance gate are revivable —
+    a deliberate PM decision (file at Gate 1, reject at Gate 2, kill at Gate 3)
+    is not undone by this endpoint.
+    """
+    from app.logging import emit_event
+
+    run = engine.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    events = engine.store.get_approval_events(run_id)
+    if not any(e["action"] == "auto_triaged" for e in events):
+        raise HTTPException(
+            status_code=409,
+            detail="Only auto-triaged runs can be reopened",
+        )
+    if run["status"] != "completed":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is '{run['status']}', expected 'completed' "
+                   "(already reopened runs cannot be reopened again)",
+        )
+
+    engine.store.record_approval(run_id=run_id, stage="s2", action="reopen")
+    engine.store.update_run(
+        run_id,
+        status="awaiting_direction",
+        current_stage="s2",
+        mode=None,
+        completed_at=None,
+    )
+    engine.store.update_signal_status(run["signal_id"], "in_run")
+    emit_event("run", "reopened", run_id, {"from": "auto_triaged"})
+
+    updated = engine.store.get_run(run_id)
+    return RunResponse(**updated, gate3_review=None)
 
 
 def _validate_mode(mode: str) -> None:
@@ -239,6 +308,14 @@ async def _execute_s1_s2(
         from config import settings as _cfg
         if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
             engine.store.update_run(run_id, mode="file")  # set mode before finalize
+            # Durable marker so auto-triaged runs stay queryable and revivable
+            # (GET /runs?event=auto_triaged, POST /runs/{id}/reopen — US-31)
+            engine.store.record_approval(
+                run_id=run_id,
+                stage="s2",
+                action="auto_triaged",
+                feedback_text=s2_out.output.suggestion_reasoning,
+            )
             finalize_run(
                 run_id, "completed", engine,
                 event_action="auto_triaged",
