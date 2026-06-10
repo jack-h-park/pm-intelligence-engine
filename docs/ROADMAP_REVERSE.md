@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 0.8  
-**Last updated:** 2026-06-10 (v0.8: E7 Now block US-27..US-31 completed; next up US-37)
+**Version:** 0.9  
+**Last updated:** 2026-06-10 (v0.9: US-37 completed; next up US-32)
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -171,7 +171,7 @@ Further artifact endpoints deferred until Hermes integration confirms need.
 ### E7 — Decision Quality Refactor (continued)
 
 #### US-37 — Persona prompt ownership migration (Step 6)
-**Status:** Open (blocked by US-31)
+**Status:** ✅ Completed (2026-06-10, pm-engine af3269d / decision-context afdfd10)
 
 As a maintainer, I want the S4 persona prompts (question sets, lens
 descriptions, instructions) to live in `pm-decision-context` templates instead
