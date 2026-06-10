@@ -134,6 +134,73 @@ def test_routing_kill_blocking_overrides_high_composite():
 
 
 # ---------------------------------------------------------------------------
+# Two-axis hybrid routing boundary matrix (US-28 → US-29)
+#
+# Target rule (04-scoring.md "Routing Decision — Two-Axis Hybrid Rule"):
+#   1. blocking OR composite <= 1.5            -> kill
+#   2. composite >= 3.5 AND confidence >= 4    -> prd
+#   3. composite >= 3.5 AND confidence < 4     -> poc
+#   4. otherwise                               -> poc
+#
+# These tests target the post-US-29 signature
+# _compute_routing(composite, confidence, blocking) and are xfail until
+# US-29 lands. Remove the xfail markers as part of US-29.
+# ---------------------------------------------------------------------------
+
+_HYBRID_PENDING = pytest.mark.xfail(
+    reason="US-29 pending: two-axis hybrid rule not yet implemented", strict=False
+)
+
+
+@_HYBRID_PENDING
+def test_hybrid_strong_and_validated_routes_prd():
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(4.30, confidence=4, blocking=[]) == "prd"
+
+
+@_HYBRID_PENDING
+def test_hybrid_strong_but_unvalidated_routes_poc():
+    # Case A from 04-scoring.md: 5/5/4/2 -> composite 4.35, confidence 2
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(4.35, confidence=2, blocking=[]) == "poc"
+
+
+@_HYBRID_PENDING
+def test_hybrid_confidence_gate_boundary_3_vs_4():
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(4.50, confidence=3, blocking=[]) == "poc"  # R05 pattern
+    assert _compute_routing(4.50, confidence=4, blocking=[]) == "prd"
+
+
+@_HYBRID_PENDING
+def test_hybrid_prd_threshold_boundary():
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(3.5, confidence=4, blocking=[]) == "prd"   # at threshold
+    assert _compute_routing(3.4, confidence=5, blocking=[]) == "poc"   # just below
+
+
+@_HYBRID_PENDING
+def test_hybrid_modest_but_certain_routes_poc():
+    # Case B from 04-scoring.md: 3/3/3/4 -> composite 3.15, confidence 4
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(3.15, confidence=4, blocking=[]) == "poc"
+
+
+@_HYBRID_PENDING
+def test_hybrid_kill_threshold_boundary():
+    from app.stages.s5_prioritization import _compute_routing
+    assert _compute_routing(1.5, confidence=5, blocking=[]) == "kill"  # at threshold
+    assert _compute_routing(1.6, confidence=1, blocking=[]) == "poc"   # just above
+
+
+@_HYBRID_PENDING
+def test_hybrid_blocking_overrides_both_axes():
+    from app.stages.s5_prioritization import _compute_routing
+    blocking = [Assumption(statement="Fatal", severity="Blocking", reason="Fatal")]
+    assert _compute_routing(4.5, confidence=5, blocking=blocking) == "kill"
+
+
+# ---------------------------------------------------------------------------
 # S5 stage integration (mocked LLM)
 # ---------------------------------------------------------------------------
 
