@@ -147,6 +147,13 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         })
         signal_for_g3 = engine.store.get_signal(run["signal_id"])
         signal_title_g3 = signal_for_g3["title"] if signal_for_g3 else run_id
+        persona_lines = [
+            f"{p.persona.capitalize()} ({p.dimension}) {p.score}/5 — {p.key_argument}"
+            for p in s4_output_data.personas
+        ]
+        rubric_total = (
+            f"{s4_output_data.rubric.total_score}/12" if s4_output_data.rubric else None
+        )
         await engine.notifier.send_gate3(
             run_id=run_id,
             product_id=context.product_id,
@@ -154,6 +161,9 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
             routing=routing,
             composite_score=s5_out.output.composite_score,
             blocking_count=s5_out.output.blocking_count,
+            assumptions=[a.model_dump() for a in s5_out.output.assumptions],
+            persona_lines=persona_lines,
+            rubric_total=rubric_total,
         )
 
     except Exception as exc:  # noqa: BLE001

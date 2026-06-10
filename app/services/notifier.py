@@ -28,6 +28,12 @@ import httpx
 from app.logging import emit_event
 
 
+def _short(text: str, limit: int = 110) -> str:
+    """Truncate long arguments so gate messages stay within provider limits."""
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 # ---------------------------------------------------------------------------
 # Telegram
 # ---------------------------------------------------------------------------
@@ -95,13 +101,25 @@ class TelegramNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
+        assumptions: list[dict] | None = None,
+        persona_lines: list[str] | None = None,
+        rubric_total: str | None = None,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
-        blocking_line = (
-            f"Blocking assumptions: <b>{blocking_count}</b>\n\n"
-            if routing == "kill" else "\n"
+        rubric_part = f" · S4 rubric: <b>{rubric_total}</b>" if rubric_total else ""
+        persona_block = (
+            "\n" + "\n".join(f"• {_short(line)}" for line in persona_lines) + "\n"
+            if persona_lines else ""
         )
+        assumption_block = ""
+        if assumptions:
+            rows = "\n".join(
+                f"{'❗' if a.get('severity') == 'Blocking' else '·'} "
+                f"[{a.get('severity', '?')}] {_short(a.get('statement', ''))}"
+                for a in assumptions
+            )
+            assumption_block = f"\n<b>Assumptions ({blocking_count} blocking):</b>\n{rows}\n"
         overrides = [r for r in ("kill", "poc", "prd") if r != routing]
         override_lines = "\n".join(
             f'<code>{{"action": "override", "routing": "{r}"}}</code>  → {r.upper()}'
@@ -112,8 +130,9 @@ class TelegramNotifier:
             f"Product: <code>{product_id}</code>\n"
             f"Signal: {signal_title}\n"
             f"Run: <code>{run_id}</code>\n\n"
-            f"Composite: <b>{composite_score:.1f}</b> · "
-            f"{blocking_line}"
+            f"Composite: <b>{composite_score:.1f}</b>{rubric_part}\n"
+            f"{persona_block}"
+            f"{assumption_block}\n"
             f"S5 recommends <b>{routing_label}</b>. Confirm or override:\n"
             f"<code>POST /runs/{run_id}/routing-review</code>\n"
             f'<code>{{"action": "confirm"}}</code>  → {routing_label}\n'
@@ -238,12 +257,13 @@ class SlackNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
+        assumptions: list[dict] | None = None,
+        persona_lines: list[str] | None = None,
+        rubric_total: str | None = None,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
-        blocking_detail = (
-            f"Blocking assumptions: {blocking_count}  ·  " if routing == "kill" else ""
-        )
+        rubric_part = f"  ·  S4 rubric: {rubric_total}" if rubric_total else ""
         overrides = [r for r in ("kill", "poc", "prd") if r != routing]
         override_cmds = "\n".join(
             f'{{ "action": "override", "routing": "{r}" }}  → {r.upper()}'
@@ -267,24 +287,44 @@ class SlackNotifier:
                     "type": "mrkdwn",
                     "text": (
                         f"*{signal_title}*\n"
-                        f"Composite: {composite_score:.1f}  ·  "
-                        f"{blocking_detail}"
+                        f"Composite: {composite_score:.1f}{rubric_part}\n"
                         f"S5 recommends *{routing_label}*. Confirm or override:"
                     ),
                 },
             },
-            {
+        ]
+        if persona_lines:
+            blocks.append({
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": (
-                        f"```POST /runs/{run_id}/routing-review\n"
-                        f'{{ "action": "confirm" }}  → {routing_label}\n'
-                        f"{override_cmds}```"
-                    ),
+                    "text": "\n".join(f"• {_short(line)}" for line in persona_lines),
                 },
+            })
+        if assumptions:
+            rows = "\n".join(
+                f"{'❗' if a.get('severity') == 'Blocking' else '·'} "
+                f"[{a.get('severity', '?')}] {_short(a.get('statement', ''))}"
+                for a in assumptions
+            )
+            blocks.append({
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"*Assumptions ({blocking_count} blocking):*\n{rows}",
+                },
+            })
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": (
+                    f"```POST /runs/{run_id}/routing-review\n"
+                    f'{{ "action": "confirm" }}  → {routing_label}\n'
+                    f"{override_cmds}```"
+                ),
             },
-        ]
+        })
         await self._send({"blocks": blocks}, run_id)
 
     async def _send(self, payload: dict, run_id: str) -> None:
@@ -373,6 +413,9 @@ class FanoutNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
+        assumptions: list[dict] | None = None,
+        persona_lines: list[str] | None = None,
+        rubric_total: str | None = None,
     ) -> None:
         for provider in self._providers:
             try:
@@ -383,6 +426,9 @@ class FanoutNotifier:
                     routing=routing,
                     composite_score=composite_score,
                     blocking_count=blocking_count,
+                    assumptions=assumptions,
+                    persona_lines=persona_lines,
+                    rubric_total=rubric_total,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {

@@ -33,6 +33,42 @@ class RunResponse(BaseModel):
     created_at: str
     completed_at: str | None
     stage_outputs: list[dict] | None = None
+    gate3_review: dict | None = None
+
+
+def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
+    """Assemble the Gate 3 review payload from stored S4/S5 outputs.
+
+    Returns None until S5 has run. Present on every response thereafter so the
+    routing decision context stays inspectable after confirm/override.
+    """
+    s5_raw = engine.store.get_stage_output(run_id, "s5")
+    if s5_raw is None:
+        return None
+    s5 = json.loads(s5_raw["output_json"])["output"]
+    review: dict = {
+        "routing": s5.get("routing"),
+        "composite_score": s5.get("composite_score"),
+        "blocking_count": s5.get("blocking_count"),
+        "assumptions": s5.get("assumptions", []),
+        "rationale": s5.get("rationale"),
+    }
+    s4_raw = engine.store.get_stage_output(run_id, "s4")
+    if s4_raw is not None:
+        s4 = json.loads(s4_raw["output_json"])["output"]
+        review["personas"] = [
+            {
+                "persona": p.get("persona"),
+                "dimension": p.get("dimension"),
+                "score": p.get("score"),
+                "key_argument": p.get("key_argument"),
+            }
+            for p in s4.get("personas", [])
+        ]
+        rubric = s4.get("rubric") or {}
+        if rubric.get("total_score") is not None:
+            review["rubric_total"] = f"{rubric['total_score']}/12"
+    return review
 
 
 @router.post("/start", response_model=RunResponse, status_code=202)
@@ -93,7 +129,11 @@ async def get_run(
     if include_outputs:
         stage_outputs = engine.store.get_all_stage_outputs(run_id)
 
-    return RunResponse(**run, stage_outputs=stage_outputs)
+    return RunResponse(
+        **run,
+        stage_outputs=stage_outputs,
+        gate3_review=_build_gate3_review(run_id, engine),
+    )
 
 
 @router.get("", response_model=list[RunResponse])
