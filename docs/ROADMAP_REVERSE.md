@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 0.9  
-**Last updated:** 2026-06-10 (v0.9: US-37 completed; next up US-32)
+**Version:** 1.0  
+**Last updated:** 2026-06-10 (v1.0: US-32 completed + US-37 startup guard; gpt-5.4 calibration gap logged as US-39)
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -188,7 +188,7 @@ the routing v2 doc/code mismatch).
 - Ordered **before** US-32 so all subsequent prompt work happens in one repo
 
 #### US-32 — Calibration anchors + traceable principles (Step 7)
-**Status:** Open (blocked by US-37; work lands in `pm-decision-context`)
+**Status:** ✅ Completed (2026-06-10, pm-engine c532ad7 / decision-context e73059a). Deliverables landed: S5 Blocking/Informing worked examples (R06/R04), S2 relevance anchors, Explorer reach bullet, S5 `governing_heuristics` field. **Open finding (see US-39):** anchors did not close the gpt-5.4 over-flagging gap.
 
 As the PM, I want stage prompts calibrated against the golden runs and
 decisions traceable to my stated principles, so scoring is consistent over time
@@ -261,6 +261,29 @@ profile cannot approve runs or modify state beyond its declared scope.
 - write profiles (e.g. `ops`) retain full access
 
 ### E8 — Evaluation Depth (backlog, direction fixed 2026-06-10)
+
+#### US-39 — Production model calibration: gpt-5.4 kill-bias
+**Status:** Open — decision required (discovered 2026-06-10)
+
+Production (iMac) runs `LLM_PROVIDER=openai` / `gpt-5.4`, but the golden set
+(R01–R07) and all scoring are calibrated against Claude historical manual runs.
+gpt-5.4 systematically over-classifies assumptions as **Blocking**, forcing
+false Kills: post-US-32 gpt-5.4 eval routes R04/R05/R07 to `kill` (each on 1–2
+Blocking) where the baseline expects prd/poc; only R06 (true Kill) matches.
+US-32 worked-example anchors reduced but did not eliminate the bias (R04 3→2
+Blocking, still kill).
+
+Options to decide:
+- **A. Run Claude in production** (key now provisioned on iMac) to match the
+  calibration the system was built on — lowest effort; verify with a Claude
+  baseline eval first.
+- **B. Re-baseline the golden set for gpt-5.4** — accept its risk posture,
+  update expected routings (means accepting more Kills).
+- **C. Verifier pass (US-34)** — a second adversarial call challenges each
+  Blocking ("is there an alternative path?") before it counts toward Kill.
+- **D. Routing-rule change** — require ≥2 Blocking for Kill (risky; alters US-29).
+
+Recommended: confirm with a Claude baseline eval (A), then decide A vs C.
 
 #### US-34 — LLM-as-judge rubrics (replacing keyword-matching rubrics)
 **Status:** Backlog — direction agreed, implementation not scheduled
