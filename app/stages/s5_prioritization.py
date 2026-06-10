@@ -28,6 +28,12 @@ _DEFAULT_WEIGHTS = {
 
 _WEIGHT_KEYS = {"impact": "explorer", "strategic_fit": "strategist", "feasibility": "builder", "confidence": "skeptic"}
 
+_DEFAULT_THRESHOLDS = {
+    "kill_threshold": 1.5,    # composite at or below -> kill
+    "prd_threshold": 3.5,     # composite at or above -> PRD-eligible
+    "confidence_gate": 4,     # confidence at or above -> prd, below -> poc
+}
+
 
 def _load_weights(product_id: str) -> dict:
     """Load per-product scoring weights from pm-decision-context.
@@ -65,6 +71,41 @@ def _load_weights(product_id: str) -> dict:
         return {k: round(v / total, 6) for k, v in weights.items()}
     except Exception:  # noqa: BLE001
         return _DEFAULT_WEIGHTS.copy()
+
+
+def _load_thresholds(product_id: str) -> dict:
+    """Load per-product routing thresholds from pm-decision-context.
+
+    Reads the same {DECISION_CONTEXT_ROOT}/products/{product_id}/scoring.yaml
+    as _load_weights. Falls back to _DEFAULT_THRESHOLDS for any key that is
+    absent or malformed.
+
+    scoring.yaml keys (all optional):
+      kill_threshold: 1.5
+      prd_threshold: 3.5
+      confidence_gate: 4
+    """
+    import pathlib
+    import yaml
+    from config import settings
+
+    path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
+    if not path.exists():
+        return _DEFAULT_THRESHOLDS.copy()
+
+    try:
+        raw = yaml.safe_load(path.read_text())
+        if not isinstance(raw, dict):
+            return _DEFAULT_THRESHOLDS.copy()
+        thresholds = _DEFAULT_THRESHOLDS.copy()
+        for key in _DEFAULT_THRESHOLDS:
+            val = raw.get(key)
+            if isinstance(val, (int, float)) and val > 0:
+                thresholds[key] = float(val)
+        return thresholds
+    except Exception:  # noqa: BLE001
+        return _DEFAULT_THRESHOLDS.copy()
+
 
 _ASSUMPTION_JSON_SCHEMA = """{
   "assumptions": [
@@ -172,7 +213,9 @@ Rules:
 
     # Deterministic routing rule (never delegated to LLM)
     blocking = [a for a in assumptions if a.severity == "Blocking"]
-    routing = _compute_routing(composite, blocking)
+    routing = _compute_routing(
+        composite, skeptic_score, blocking, _load_thresholds(context.product_id)
+    )
 
     output_data = S5OutputData(
         impact_score=scores.get("explorer", 3),
@@ -301,11 +344,26 @@ def _build_decision_memo(data: S5OutputData) -> str:
 """
 
 
-def _compute_routing(composite: float, blocking: list[Assumption]) -> str:
-    """Deterministic routing — not delegated to the LLM."""
-    if blocking or composite <= 1.5:
+def _compute_routing(
+    composite: float,
+    confidence: int,
+    blocking: list[Assumption],
+    thresholds: dict | None = None,
+) -> str:
+    """Deterministic two-axis hybrid routing — not delegated to the LLM.
+
+    Composite answers "how good is this overall?" and sets the quality floor
+    (kill and PRD-eligibility). Confidence answers "do we know enough to commit?"
+    and alone decides prd vs poc for PRD-eligible opportunities — high scores
+    elsewhere must never let an unvalidated opportunity skip validation.
+
+    Canonical rule documentation: pm-decision-context/core/04-scoring.md
+    ("Routing Decision — Two-Axis Hybrid Rule"). Change them together.
+    """
+    t = thresholds or _DEFAULT_THRESHOLDS
+    if blocking or composite <= t["kill_threshold"]:
         return "kill"
-    if composite >= 3.5:
+    if composite >= t["prd_threshold"] and confidence >= t["confidence_gate"]:
         return "prd"
     return "poc"
 

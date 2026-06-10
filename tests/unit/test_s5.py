@@ -103,97 +103,116 @@ def test_composite_kill_range():
 
 def test_routing_prd_high_composite_no_blocking():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(4.30, blocking=[]) == "prd"
+    assert _compute_routing(4.30, confidence=4, blocking=[]) == "prd"
 
 
 def test_routing_prd_composite_at_threshold():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(3.5, blocking=[]) == "prd"
+    assert _compute_routing(3.5, confidence=4, blocking=[]) == "prd"
 
 
 def test_routing_poc_composite_below_threshold():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(3.0, blocking=[]) == "poc"
+    assert _compute_routing(3.0, confidence=4, blocking=[]) == "poc"
 
 
 def test_routing_kill_with_blocking_assumptions():
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Partner needed", severity="Blocking", reason="No partner = no product")]
-    assert _compute_routing(3.0, blocking=blocking) == "kill"
+    assert _compute_routing(3.0, confidence=3, blocking=blocking) == "kill"
 
 
 def test_routing_kill_low_composite():
     from app.stages.s5_prioritization import _compute_routing
-    assert _compute_routing(1.35, blocking=[]) == "kill"
+    assert _compute_routing(1.35, confidence=3, blocking=[]) == "kill"
 
 
 def test_routing_kill_blocking_overrides_high_composite():
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Fatal assumption", severity="Blocking", reason="Fatal")]
-    assert _compute_routing(4.5, blocking=blocking) == "kill"
+    assert _compute_routing(4.5, confidence=5, blocking=blocking) == "kill"
 
 
 # ---------------------------------------------------------------------------
-# Two-axis hybrid routing boundary matrix (US-28 → US-29)
+# Two-axis hybrid routing boundary matrix (US-29)
 #
 # Target rule (04-scoring.md "Routing Decision — Two-Axis Hybrid Rule"):
 #   1. blocking OR composite <= 1.5            -> kill
 #   2. composite >= 3.5 AND confidence >= 4    -> prd
 #   3. composite >= 3.5 AND confidence < 4     -> poc
 #   4. otherwise                               -> poc
-#
-# These tests target the post-US-29 signature
-# _compute_routing(composite, confidence, blocking) and are xfail until
-# US-29 lands. Remove the xfail markers as part of US-29.
+
 # ---------------------------------------------------------------------------
 
-_HYBRID_PENDING = pytest.mark.xfail(
-    reason="US-29 pending: two-axis hybrid rule not yet implemented", strict=False
-)
-
-
-@_HYBRID_PENDING
 def test_hybrid_strong_and_validated_routes_prd():
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(4.30, confidence=4, blocking=[]) == "prd"
 
 
-@_HYBRID_PENDING
 def test_hybrid_strong_but_unvalidated_routes_poc():
     # Case A from 04-scoring.md: 5/5/4/2 -> composite 4.35, confidence 2
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(4.35, confidence=2, blocking=[]) == "poc"
 
 
-@_HYBRID_PENDING
 def test_hybrid_confidence_gate_boundary_3_vs_4():
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(4.50, confidence=3, blocking=[]) == "poc"  # R05 pattern
     assert _compute_routing(4.50, confidence=4, blocking=[]) == "prd"
 
 
-@_HYBRID_PENDING
 def test_hybrid_prd_threshold_boundary():
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(3.5, confidence=4, blocking=[]) == "prd"   # at threshold
     assert _compute_routing(3.4, confidence=5, blocking=[]) == "poc"   # just below
 
 
-@_HYBRID_PENDING
 def test_hybrid_modest_but_certain_routes_poc():
     # Case B from 04-scoring.md: 3/3/3/4 -> composite 3.15, confidence 4
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(3.15, confidence=4, blocking=[]) == "poc"
 
 
-@_HYBRID_PENDING
 def test_hybrid_kill_threshold_boundary():
     from app.stages.s5_prioritization import _compute_routing
     assert _compute_routing(1.5, confidence=5, blocking=[]) == "kill"  # at threshold
     assert _compute_routing(1.6, confidence=1, blocking=[]) == "poc"   # just above
 
 
-@_HYBRID_PENDING
+def test_thresholds_default_when_no_scoring_yaml(tmp_path):
+    from app.stages.s5_prioritization import _DEFAULT_THRESHOLDS, _load_thresholds
+    with patch("config.settings.DECISION_CONTEXT_ROOT", str(tmp_path)):
+        assert _load_thresholds("nonexistent-product") == _DEFAULT_THRESHOLDS
+
+
+def test_thresholds_overridable_per_product(tmp_path):
+    from app.stages.s5_prioritization import _compute_routing, _load_thresholds
+    product_dir = tmp_path / "products" / "test-product"
+    product_dir.mkdir(parents=True)
+    (product_dir / "scoring.yaml").write_text(
+        "impact: 0.35\nstrategic_fit: 0.30\nfeasibility: 0.20\nconfidence: 0.15\n"
+        "kill_threshold: 2.0\nprd_threshold: 4.0\nconfidence_gate: 3\n"
+    )
+    with patch("config.settings.DECISION_CONTEXT_ROOT", str(tmp_path)):
+        t = _load_thresholds("test-product")
+    assert t == {"kill_threshold": 2.0, "prd_threshold": 4.0, "confidence_gate": 3.0}
+    # Custom thresholds change routing outcomes
+    assert _compute_routing(1.8, confidence=5, blocking=[], thresholds=t) == "kill"
+    assert _compute_routing(4.0, confidence=3, blocking=[], thresholds=t) == "prd"
+
+
+def test_thresholds_partial_yaml_falls_back_per_key(tmp_path):
+    from app.stages.s5_prioritization import _load_thresholds
+    product_dir = tmp_path / "products" / "test-product"
+    product_dir.mkdir(parents=True)
+    (product_dir / "scoring.yaml").write_text("prd_threshold: 4.0\n")
+    with patch("config.settings.DECISION_CONTEXT_ROOT", str(tmp_path)):
+        t = _load_thresholds("test-product")
+    assert t["prd_threshold"] == 4.0
+    assert t["kill_threshold"] == 1.5
+    assert t["confidence_gate"] == 4
+
+
 def test_hybrid_blocking_overrides_both_axes():
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Fatal", severity="Blocking", reason="Fatal")]
