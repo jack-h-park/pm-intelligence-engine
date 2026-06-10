@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 0.7  
-**Last updated:** 2026-06-10 (v0.7: RICE/philosophy-chain review folded into E7; US-37 added)
+**Version:** 0.8  
+**Last updated:** 2026-06-10 (v0.8: E7 Now block US-27..US-31 completed; next up US-37)
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -60,7 +60,7 @@ Background and rule rationale: `docs/DESIGN_DECISIONS.md § 8` and
 `pm-decision-context/core/04-scoring.md` ("Routing Decision — Two-Axis Hybrid Rule").
 
 #### US-27 — LLM output robustness (Step 1)
-**Status:** Open
+**Status:** ✅ Completed (2026-06-10, commit 4099391)
 
 As a maintainer, I want malformed LLM JSON output to be repaired via bounded
 retry instead of failing the run, so downstream refactor steps can be validated
@@ -73,7 +73,7 @@ without flaky failures.
 - Repair attempts are visible via emitted events
 
 #### US-28 — Eval golden set boundary cases (Step 2)
-**Status:** Open (blocked by US-27)
+**Status:** ✅ Completed (2026-06-10, commit db7daee)
 
 As a maintainer, I want boundary scenarios in `eval/scenarios.json` before the
 routing rule changes, so US-29 is verified by measurement, not inspection.
@@ -86,7 +86,7 @@ routing rule changes, so US-29 is verified by measurement, not inspection.
   EXPECTED TO FAIL until US-29 lands — document this in the scenario notes)
 
 #### US-29 — Two-axis hybrid routing (Step 3)
-**Status:** Open (blocked by US-28)
+**Status:** ✅ Completed (2026-06-10, commit 2e5b199 — live eval: R05/R06/R07 pass; R04 fails on documented gpt-4o blocking-classification drift, pre-existing at 2026-05-24 baseline)
 
 As the PM, I want routing to use composite for kill/PRD-eligibility and
 Confidence for PRD-vs-PoC, so unvalidated opportunities cannot skip validation.
@@ -102,7 +102,7 @@ Confidence for PRD-vs-PoC, so unvalidated opportunities cannot skip validation.
   `pm-decision-context/core/04-scoring.md`
 
 #### US-30 — Gate 3 information enrichment (Step 4)
-**Status:** Open (blocked by US-29)
+**Status:** ✅ Completed (2026-06-10, commit 7eec9f8)
 
 As the PM, I want the Gate 3 notification and run payload to include the full
 assumption list (not just a blocking count), per-persona one-line summaries,
@@ -116,7 +116,7 @@ the database.
   then can be updated to render the richer payload
 
 #### US-31 — Auto-triage safety net (Step 5)
-**Status:** Open (blocked by US-30)
+**Status:** ✅ Completed (2026-06-10, commit 14d5bd4)
 
 As the PM, I want auto-triaged (silently filed) signals to be reviewable and
 revivable, so a miscalibrated S2 relevance score cannot permanently discard a
