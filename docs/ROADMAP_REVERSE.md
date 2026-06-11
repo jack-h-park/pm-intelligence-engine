@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 1.1  
-**Last updated:** 2026-06-10 (v1.1: US-40 Informing→Adjusting rename done; US-39 decided keep-gpt-5.4 + retire golden set)
+**Version:** 1.2  
+**Last updated:** 2026-06-10 (v1.2: refactor deployed to iMac; US-42 Blocking verifier built opt-in, pending eval validation)
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -274,6 +274,21 @@ its stale routing fixed (Blocking → Kill). Future work **US-41 (Part B)**: add
 time-horizon/magnitude dimension so a *transient-but-large* opportunity can route
 to a fast time-boxed bet instead of Kill.
 
+#### US-42 — Adversarial Blocking-assumption verifier
+**Status:** Implemented, opt-in, **unvalidated** (2026-06-10, commit 504aa0e).
+After S5 classifies assumptions, an optional second adversarial LLM pass
+re-applies the strict two-question test to each Blocking and downgrades to
+Adjusting when a plausible alternative path exists — correcting gpt-5.4's
+over-eager Blocking flags (false Kills). Binary alternative-path test only; the
+time-horizon/magnitude axis is US-41 (Part B).
+
+`BLOCKING_VERIFIER_ENABLED` defaults **False**. Before enabling in production:
+- **Validation gate (open):** run a gpt-5.4 eval confirming the verifier
+  preserves genuine Kills (R06's three real blockings stay Blocking) while
+  downgrading over-flags (R04/R05). This session's eval run hit OpenAI rate
+  limits before reaching S5 — measurement deferred.
+- Risk if wrong: over-downgrading turns genuine Kills into proceed. Hence opt-in.
+
 #### US-39 — Production model calibration: gpt-5.4 kill-bias
 **Status:** Decided 2026-06-10 — keep gpt-5.4; retire the old golden set as a target
 
@@ -291,8 +306,9 @@ classifies more assumptions as Blocking than the old Claude dry-runs did.
   golden-set-not-ground-truth.)
 
 **Remaining (open) — the kill-bias itself still wants a real fix:**
-- **US-34 verifier pass** — a second adversarial call challenges each Blocking
-  ("is there an alternative path?") before it counts toward Kill. Best lever now.
+- **US-42 verifier pass** — built (opt-in, unvalidated); a second adversarial
+  call challenges each Blocking before it counts toward Kill. Pending eval
+  validation, then enable.
 - **US-41 (Part B)** — enrich the decision model (time-horizon/magnitude) so
   transient-but-large opportunities aren't force-killed.
 
