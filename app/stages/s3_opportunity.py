@@ -78,6 +78,7 @@ Rules:
         stage="s3",
         run_id=context.run_id,
         max_tokens=1024,
+        temperature=0,  # deterministic — opportunity framing must be reproducible run-to-run
     )
     output_data = S3OutputData(**data)
 

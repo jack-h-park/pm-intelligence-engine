@@ -111,6 +111,7 @@ Rules:
         stage="s2",
         run_id=context.run_id,
         max_tokens=1024,
+        temperature=0,  # deterministic — relevance scoring must be reproducible run-to-run
     )
     output_data = S2OutputData(**data)
 

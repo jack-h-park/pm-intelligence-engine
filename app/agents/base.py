@@ -83,6 +83,7 @@ Rules:
             stage="s4",
             run_id=context.run_id,
             max_tokens=512,
+            temperature=0,  # deterministic — persona scores must be reproducible run-to-run
         )
         return PersonaOutput(
             persona=self.persona,  # type: ignore[arg-type]
