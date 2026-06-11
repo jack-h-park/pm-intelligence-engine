@@ -383,6 +383,36 @@ from all thresholds, with notify-and-timeout semantics. Trades against the
 human-in-the-loop principle; revisit only if gate fatigue is observed in
 practice.
 
+#### US-43 — Processing-mode vocabulary + canonical documentation
+**Status:** Backlog — found 2026-06-11 during the first live run
+
+The five processing modes (`file | brief | opportunity | evaluate | decide`)
+are really a **progressive-depth ladder** (how far to process a signal: skip →
+insight → frame → evaluate → decide+build), but two problems:
+
+1. **Terms don't signal the ladder.** `file`/`decide` read OK, but `brief` is
+   ambiguous (noun vs verb), and `opportunity` names a *stage/artifact* (S3
+   output) rather than a depth/action — inconsistent with the action-like
+   siblings, so the list doesn't read as an ordered escalation.
+2. **No canonical definition; same ownership drift as the relevance table and
+   old Blocking/Informing.** The mode definitions live ONLY in engine code
+   (`s2_insight.py` `_MODE_GUIDANCE`, plus scattered Literals in
+   `models/stages.py`, `direction.py`, `approvals.py`, `run_finalizer.py`).
+   `pm-decision-context` (which owns workflow design) has no "processing depth /
+   modes" definition — `02-workflow.md` documents stages, not modes.
+
+**Acceptance criteria**
+- Add a canonical "Processing Depth — 5 modes" section to `pm-decision-context`
+  (e.g. `core/02-workflow.md`): the ladder, where each mode stops, and when to
+  pick it. Engine `_MODE_GUIDANCE` references it (close the drift).
+- (Optional, separate decision) rename for ladder clarity — e.g. `opportunity →
+  frame`, `brief → note`. Cross-cutting (code Literal + prompts + hermes skills),
+  so get PM sign-off on terms first, like the Informing → Adjusting rename (US-40).
+
+Related drift instances: S2 relevance table (code-only), Blocking/Adjusting
+(US-40). Pattern: workflow-design vocabulary buried in engine code instead of
+decision-context.
+
 ---
 
 ## Exit Criteria
