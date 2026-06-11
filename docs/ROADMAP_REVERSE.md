@@ -188,7 +188,7 @@ the routing v2 doc/code mismatch).
 - Ordered **before** US-32 so all subsequent prompt work happens in one repo
 
 #### US-32 — Calibration anchors + traceable principles (Step 7)
-**Status:** ✅ Completed (2026-06-10, pm-engine c532ad7 / decision-context e73059a). Deliverables landed: S5 Blocking/Informing worked examples (R06/R04), S2 relevance anchors, Explorer reach bullet, S5 `governing_heuristics` field. **Open finding (see US-39):** anchors did not close the gpt-5.4 over-flagging gap.
+**Status:** ✅ Completed (2026-06-10). Deliverables landed: S5 Blocking/Informing worked examples (R06/R04), S2 relevance anchors, Explorer reach bullet, S5 `governing_heuristics` field. **Open finding (see US-39):** anchors did not close the gpt-5.4 over-flagging gap.
 
 As the PM, I want stage prompts calibrated against the golden runs and
 decisions traceable to my stated principles, so scoring is consistent over time
