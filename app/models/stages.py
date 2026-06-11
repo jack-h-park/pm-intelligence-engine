@@ -243,6 +243,14 @@ class S5OutputData(BaseModel):
     assumptions: list[Assumption]
     rationale: str = Field(description="Narrative rationale for the routing decision")
     blocking_count: int
+    governing_heuristics: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Decision heuristic numbers from core/00-pm-identity.md that governed "
+            "this routing call (e.g. ['#7', '#14']). Makes the philosophy → "
+            "principles → decision chain auditable. Empty if none cited."
+        ),
+    )
 
 
 class S5Output(BaseModel):

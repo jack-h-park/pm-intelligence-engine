@@ -247,6 +247,58 @@ async def test_s5_prd_routing():
 
 
 @pytest.mark.asyncio
+async def test_s5_governing_heuristics_flow_through():
+    """governing_heuristics from the LLM appear in output and decision memo (US-32)."""
+    from app.stages import s5_prioritization
+
+    resp = json.dumps({
+        "assumptions": [
+            {"statement": "Admins want unified enforcement", "severity": "Informing",
+             "reason": "Scope narrows if false"},
+        ],
+        "rationale": "Strong fit, no blocking assumptions.",
+        "governing_heuristics": ["#7", "#14"],
+    })
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=resp)
+    store = _make_store()
+
+    with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        output = await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(explorer=4, strategist=5, builder=4, skeptic=4)),
+            _make_context(),
+            llm,
+            store,
+        )
+
+    assert output.output.governing_heuristics == ["#7", "#14"]
+    # Rendered into the decision memo artifact
+    memo_call = [c for c in store.save_artifact.call_args_list
+                 if c.kwargs.get("artifact_type") == "decision_memo"]
+    assert memo_call and "#7, #14" in memo_call[0].kwargs["content_md"]
+
+
+@pytest.mark.asyncio
+async def test_s5_governing_heuristics_default_empty():
+    """Backward compatible: response without governing_heuristics yields []."""
+    from app.stages import s5_prioritization
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=_LLM_RESPONSE_NO_BLOCKING)
+    store = _make_store()
+    with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        output = await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output()),
+            _make_context(),
+            llm,
+            store,
+        )
+    assert output.output.governing_heuristics == []
+
+
+@pytest.mark.asyncio
 async def test_s5_kill_routing_with_blocking():
     from app.stages import s5_prioritization
 

@@ -115,7 +115,8 @@ _ASSUMPTION_JSON_SCHEMA = """{
       "reason": "<why false = opportunity killed>"
     }
   ],
-  "rationale": "<1–3 sentence rationale for the routing decision>"
+  "rationale": "<1–3 sentence rationale for the routing decision>",
+  "governing_heuristics": ["<decision heuristic number(s) from the PM identity that governed this call, e.g. #7, #14>"]
 }"""
 
 
@@ -179,6 +180,7 @@ Open questions raised:
 1. Extract the assumptions underlying the low-confidence / high-risk signals in the persona arguments above.
 2. For each assumption, classify it as Blocking (if false → opportunity killed) or Informing (if false → scope adjusted).
 3. Write a 1–3 sentence rationale explaining the routing decision given the composite score ({composite}) and these assumptions.
+4. Cite the decision heuristic number(s) from the PM identity above (e.g. #7, #14) that most directly governed this call.
 
 Respond with a single JSON object matching this schema exactly — no markdown, no commentary:
 
@@ -193,8 +195,13 @@ Rules:
   the assumption is Informing — not Blocking.
 - An Informing assumption narrows scope, slows execution, or raises uncertainty,
   but an alternative path survives and the core value proposition holds.
+- "A competitor or platform vendor might close this gap later" is Informing
+  (timing/scope), NOT Blocking, unless closure is imminent AND leaves no residual value now.
 - When in doubt, prefer Informing. Reserve Blocking for assumptions where failure
-  leaves zero residual value with no alternative.
+  leaves zero residual value with no alternative. See the worked examples (R06 Kill
+  vs R04 PRD) in the Stage 5 Framework above.
+- governing_heuristics: cite the 1–3 heuristic numbers that actually drove the
+  decision (e.g. ["#7", "#14"]); use [] if none clearly apply.
 - Limit to 5 assumptions maximum."""
 
     data = await complete_json(
@@ -210,6 +217,7 @@ Rules:
     )
     assumptions = [Assumption(**a) for a in data.get("assumptions", [])]
     rationale = data.get("rationale", "")
+    governing_heuristics = [str(h) for h in data.get("governing_heuristics", []) if str(h).strip()]
 
     # Deterministic routing rule (never delegated to LLM)
     blocking = [a for a in assumptions if a.severity == "Blocking"]
@@ -227,6 +235,7 @@ Rules:
         assumptions=assumptions,
         rationale=rationale,
         blocking_count=len(blocking),
+        governing_heuristics=governing_heuristics,
     )
 
     output = S5Output(
@@ -341,6 +350,9 @@ def _build_decision_memo(data: S5OutputData) -> str:
 
 ## Rationale
 {data.rationale}
+
+## Governing Heuristics
+{", ".join(data.governing_heuristics) if data.governing_heuristics else "None cited"}
 """
 
 

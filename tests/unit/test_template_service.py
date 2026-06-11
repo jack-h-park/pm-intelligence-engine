@@ -12,7 +12,10 @@ import pytest
 from app.services.template_service import TemplateService, _parse_sections
 from config import settings
 
-# The exact strings previously hardcoded as PersonaAgent.system_prompt / .question.
+# Canonical persona lens/question text. Originally the strings hardcoded as
+# PersonaAgent.system_prompt/.question (US-37 behavior-preservation); the Explorer
+# question gained a reach-quantification first bullet in US-32. These pin the
+# parser output to the authored decision-context text.
 _EXPECTED = {
     "explorer": {
         "lens": (
@@ -21,7 +24,8 @@ _EXPECTED = {
             "You look for the ceiling of the opportunity and whether it opens strategic optionality."
         ),
         "question": (
-            "What is the realistic ceiling of this opportunity?\n"
+            "What is the current reach and the realistic ceiling of this opportunity?\n"
+            "- Current footprint: which user segments, and at what scale, does this affect today?\n"
             "- What adjacent markets or capabilities could this unlock?\n"
             "- Does winning here enable a larger strategic position, or is it a one-time gain?\n"
             "- What would need to be true for this to be 2–3x larger than currently framed?"
