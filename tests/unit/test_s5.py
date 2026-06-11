@@ -58,7 +58,7 @@ def _make_s4_output(
 
 _LLM_RESPONSE_NO_BLOCKING = json.dumps({
     "assumptions": [
-        {"statement": "KPE Ultra customers need unified APM policy", "severity": "Informing", "reason": "If false, scope narrows but value proposition survives"},
+        {"statement": "KPE Ultra customers need unified APM policy", "severity": "Adjusting", "reason": "If false, scope narrows but value proposition survives"},
     ],
     "rationale": "High composite score with no Blocking assumptions. PRD track is appropriate.",
 })
@@ -219,6 +219,14 @@ def test_hybrid_blocking_overrides_both_axes():
     assert _compute_routing(4.5, confidence=5, blocking=blocking) == "kill"
 
 
+def test_legacy_informing_severity_coerced_to_adjusting():
+    """Old stored runs (and stray LLM output) with 'Informing' read as 'Adjusting'."""
+    a = Assumption(statement="x", severity="Informing", reason="legacy")
+    assert a.severity == "Adjusting"
+    parsed = Assumption.model_validate({"statement": "x", "severity": "Informing", "reason": "r"})
+    assert parsed.severity == "Adjusting"
+
+
 # ---------------------------------------------------------------------------
 # S5 stage integration (mocked LLM)
 # ---------------------------------------------------------------------------
@@ -253,7 +261,7 @@ async def test_s5_governing_heuristics_flow_through():
 
     resp = json.dumps({
         "assumptions": [
-            {"statement": "Admins want unified enforcement", "severity": "Informing",
+            {"statement": "Admins want unified enforcement", "severity": "Adjusting",
              "reason": "Scope narrows if false"},
         ],
         "rationale": "Strong fit, no blocking assumptions.",

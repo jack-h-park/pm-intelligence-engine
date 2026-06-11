@@ -55,7 +55,7 @@ def _make_s5_output(routing: str = "prd") -> S5OutputData:
         assumptions=[
             Assumption(
                 statement="AMAPI deprecation timeline is confirmed",
-                severity="Informing",
+                severity="Adjusting",
                 reason="Affects urgency but not core value.",
             ),
         ],

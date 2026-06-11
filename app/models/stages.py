@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -227,10 +227,24 @@ class S5Input(BaseModel):
 
 class Assumption(BaseModel):
     statement: str = Field(description="The assumption being classified")
-    severity: Literal["Blocking", "Informing"] = Field(
-        description="Blocking kills the opportunity; Informing narrows scope"
+    severity: Literal["Blocking", "Adjusting"] = Field(
+        description=(
+            "Blocking gates WHETHER you build (if false, nothing worth building "
+            "is left → Kill). Adjusting gates HOW you build (if false, a smaller "
+            "or different version still survives). See core/04-scoring.md."
+        )
     )
-    reason: str = Field(description="Why this assumption is Blocking or Informing")
+    reason: str = Field(description="Why this assumption is Blocking or Adjusting")
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_legacy_severity(cls, v: object) -> object:
+        # "Informing" was renamed to "Adjusting" (2026-06-10). Coerce legacy
+        # stored values and any stray LLM output so old runs stay readable
+        # without a destructive DB migration.
+        if isinstance(v, str) and v.strip().lower() == "informing":
+            return "Adjusting"
+        return v
 
 
 class S5OutputData(BaseModel):

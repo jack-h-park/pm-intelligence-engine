@@ -80,7 +80,7 @@ _S5_OUTPUT = {
         "impact_score": 4, "strategic_fit_score": 5, "feasibility_score": 4,
         "confidence_score": 3, "composite_score": 4.3, "routing": "poc",
         "assumptions": [
-            {"statement": "Admins want unified enforcement", "severity": "Informing",
+            {"statement": "Admins want unified enforcement", "severity": "Adjusting",
              "reason": "Scope narrows if false"},
             {"statement": "Platform API ships in GA", "severity": "Blocking",
              "reason": "No product without it"},
@@ -122,7 +122,7 @@ def test_gate3_review_present_after_s5(client, engine):
 
     severities = {a["statement"]: a["severity"] for a in review["assumptions"]}
     assert severities["Platform API ships in GA"] == "Blocking"
-    assert severities["Admins want unified enforcement"] == "Informing"
+    assert severities["Admins want unified enforcement"] == "Adjusting"
 
     personas = {p["persona"]: p for p in review["personas"]}
     assert len(personas) == 4

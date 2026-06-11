@@ -59,7 +59,7 @@ def _make_s5_output(routing: str = "poc") -> S5OutputData:
             ),
             Assumption(
                 statement="AMAPI deprecation applies to KPE",
-                severity="Informing",
+                severity="Adjusting",
                 reason="Narrows scope if false.",
             ),
         ],

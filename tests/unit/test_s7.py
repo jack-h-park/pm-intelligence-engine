@@ -167,7 +167,7 @@ def _make_s5_output() -> S5OutputData:
         assumptions=[
             Assumption(
                 statement="AMAPI NFC deprecation applies to KPE Ultra",
-                severity="Informing",
+                severity="Adjusting",
                 reason="Narrows urgency if false.",
             ),
         ],

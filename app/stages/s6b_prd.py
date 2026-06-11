@@ -50,8 +50,8 @@ async def run(
     template = template_service.load_template("s6b")
 
     s5 = stage_input.s5_output
-    informing = [a for a in s5.assumptions if a.severity == "Informing"]
-    informing_text = "\n".join(f"- {a.statement}" for a in informing) if informing else "None identified."
+    adjusting = [a for a in s5.assumptions if a.severity == "Adjusting"]
+    adjusting_text = "\n".join(f"- {a.statement}" for a in adjusting) if adjusting else "None identified."
 
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"
@@ -73,8 +73,8 @@ Composite score: {s5.composite_score}/5.00
 Impact: {s5.impact_score}/5 | Strategic Fit: {s5.strategic_fit_score}/5 | Feasibility: {s5.feasibility_score}/5 | Confidence: {s5.confidence_score}/5
 Rationale: {s5.rationale}
 
-Assumptions to manage (Informing — not Blocking):
-{informing_text}
+Assumptions to manage (Adjusting — not Blocking):
+{adjusting_text}
 
 ---
 

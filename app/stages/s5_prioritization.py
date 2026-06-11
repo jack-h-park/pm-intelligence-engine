@@ -1,7 +1,7 @@
 """Stage 5 — Prioritization and Routing.
 
 Composite score is computed deterministically from S4 persona scores.
-LLM classifies assumptions (Blocking / Informing) and writes a rationale.
+LLM classifies assumptions (Blocking / Adjusting) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
 
@@ -178,7 +178,7 @@ Open questions raised:
 
 ## Your Task
 1. Extract the assumptions underlying the low-confidence / high-risk signals in the persona arguments above.
-2. For each assumption, classify it as Blocking (if false → opportunity killed) or Informing (if false → scope adjusted).
+2. For each assumption, classify it as Blocking (if false → nothing worth building is left → opportunity killed) or Adjusting (if false → a smaller or different version still survives).
 3. Write a 1–3 sentence rationale explaining the routing decision given the composite score ({composite}) and these assumptions.
 4. Cite the decision heuristic number(s) from the PM identity above (e.g. #7, #14) that most directly governed this call.
 
@@ -187,17 +187,20 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
 {_ASSUMPTION_JSON_SCHEMA}
 
 Rules:
+- Blocking gates WHETHER you build; Adjusting gates HOW you build. Two-question test:
+  Q1 (gate) "if this assumption is false, is there STILL a version worth building?"
+  No → Blocking. Yes → it is Adjusting (Q2: the surviving version is just smaller/different/slower).
 - Only include assumptions that appear in the persona arguments or open questions above.
 - A Blocking assumption requires BOTH conditions to be true:
     (1) The opportunity is worthless if the assumption is false, AND
     (2) No alternative path to the same value is described in the persona arguments.
   If any persona already mentions a workaround, fallback, or alternative implementation path,
-  the assumption is Informing — not Blocking.
-- An Informing assumption narrows scope, slows execution, or raises uncertainty,
+  the assumption is Adjusting — not Blocking.
+- An Adjusting assumption narrows scope, slows execution, or raises uncertainty,
   but an alternative path survives and the core value proposition holds.
-- "A competitor or platform vendor might close this gap later" is Informing
+- "A competitor or platform vendor might close this gap later" is Adjusting
   (timing/scope), NOT Blocking, unless closure is imminent AND leaves no residual value now.
-- When in doubt, prefer Informing. Reserve Blocking for assumptions where failure
+- When in doubt, prefer Adjusting. Reserve Blocking for assumptions where failure
   leaves zero residual value with no alternative. See the worked examples (R06 Kill
   vs R04 PRD) in the Stage 5 Framework above.
 - governing_heuristics: cite the 1–3 heuristic numbers that actually drove the
@@ -322,7 +325,7 @@ def _build_decision_memo(data: S5OutputData) -> str:
     routing_label = data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
 
     blocking = [a for a in data.assumptions if a.severity == "Blocking"]
-    informing = [a for a in data.assumptions if a.severity != "Blocking"]
+    adjusting = [a for a in data.assumptions if a.severity != "Blocking"]
 
     def _fmt_assumptions(items: list[Assumption]) -> str:
         if not items:
@@ -345,8 +348,8 @@ def _build_decision_memo(data: S5OutputData) -> str:
 ## Blocking Assumptions
 {_fmt_assumptions(blocking)}
 
-## Informing Assumptions
-{_fmt_assumptions(informing)}
+## Adjusting Assumptions
+{_fmt_assumptions(adjusting)}
 
 ## Rationale
 {data.rationale}

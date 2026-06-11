@@ -7,7 +7,7 @@ from app.services.notifier import FanoutNotifier, TelegramNotifier
 
 _ASSUMPTIONS = [
     {"statement": "Platform API ships in GA", "severity": "Blocking", "reason": "r"},
-    {"statement": "Admins want unified enforcement", "severity": "Informing", "reason": "r"},
+    {"statement": "Admins want unified enforcement", "severity": "Adjusting", "reason": "r"},
 ]
 _PERSONA_LINES = [
     "Explorer (Impact) 4/5 — Opens adjacent market.",
@@ -33,7 +33,7 @@ async def test_telegram_gate3_renders_enriched_fields():
     text = send.call_args.args[0]
     assert "S4 rubric: <b>11/12</b>" in text
     assert "[Blocking] Platform API ships in GA" in text
-    assert "[Informing] Admins want unified enforcement" in text
+    assert "[Adjusting] Admins want unified enforcement" in text
     assert "Skeptic (Confidence) 3/5" in text
     assert "Assumptions (1 blocking)" in text
 

@@ -44,10 +44,10 @@ async def run(
 
     s5 = stage_input.s5_output
     blocking = [a for a in s5.assumptions if a.severity == "Blocking"]
-    informing = [a for a in s5.assumptions if a.severity == "Informing"]
+    adjusting = [a for a in s5.assumptions if a.severity == "Adjusting"]
 
     blocking_text = "\n".join(f"- {a.statement} (Blocking: {a.reason})" for a in blocking)
-    informing_text = "\n".join(f"- {a.statement}" for a in informing) if informing else "None"
+    adjusting_text = "\n".join(f"- {a.statement}" for a in adjusting) if adjusting else "None"
 
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"
@@ -72,8 +72,8 @@ Rationale: {s5.rationale}
 Blocking assumptions (must be addressed):
 {blocking_text}
 
-Informing assumptions (nice to validate):
-{informing_text}
+Adjusting assumptions (nice to validate):
+{adjusting_text}
 
 ---
 
