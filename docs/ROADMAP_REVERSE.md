@@ -414,7 +414,12 @@ endpoint behind it.
 - Should reversals themselves be recorded as decisions (they should — US-44 pattern)
 
 #### US-43 — Processing-mode vocabulary + canonical documentation
-**Status:** Backlog — found 2026-06-11 during the first live run
+**Status:** ✅ Completed (2026-06-11). Renamed the depth ladder for clarity —
+`file→archive`, `brief→note`, `opportunity→structure` (evaluate/decide kept) —
+with legacy-value normalization (RunMode `_missing_`, Pydantic before-validators,
+API-input + DB migration) so stored data and existing clients keep working.
+Canonical "Processing Depth — 5 modes" added to decision-context
+`core/02-workflow.md`; engine `_MODE_GUIDANCE` refers there.
 
 The five processing modes (`file | brief | opportunity | evaluate | decide`)
 are really a **progressive-depth ladder** (how far to process a signal: skip →

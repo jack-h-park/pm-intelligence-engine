@@ -124,8 +124,8 @@ async def test_s2_includes_relevance_score():
 
 
 @pytest.mark.asyncio
-async def test_s2_low_relevance_score_sets_file_mode():
-    """A relevance_score of 1 must result in suggested_mode == 'file'."""
+async def test_s2_low_relevance_score_sets_archive_mode():
+    """relevance 1 → suggested_mode == 'archive' (legacy 'file' normalized — US-43)."""
     with patch("app.stages.s2_insight.TemplateService") as MockTS:
         MockTS.return_value.load_template.return_value = "template text"
         out = await s2_insight.run(
@@ -135,4 +135,4 @@ async def test_s2_low_relevance_score_sets_file_mode():
             store=_make_store(),
         )
     assert out.output.relevance_score == 1
-    assert out.output.suggested_mode == "file"
+    assert out.output.suggested_mode == "archive"  # fixture sends legacy "file"; normalized

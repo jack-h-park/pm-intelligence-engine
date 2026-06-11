@@ -9,7 +9,7 @@ This guarantees:
 Export policy
 -------------
 Only 'decide' mode runs are exported to DECISION_SYSTEM_ROOT.
-Modes file/brief/opportunity/evaluate produce no export artifact.
+Modes archive/note/structure/evaluate produce no export artifact.
 Auto-triaged runs (completed as mode='file') are also excluded.
 
 Wiki sync is NOT owned by pm-engine. Hermes consumes terminal run events
@@ -56,7 +56,7 @@ def finalize_run(
         semantic precision — the generic terminal event is still useful to Hermes
         for polling but the specific action label preserves intent.
     event_detail:
-        Arbitrary extra payload merged into the event (e.g. ``{"mode": "brief"}``).
+        Arbitrary extra payload merged into the event (e.g. ``{"mode": "note"}``).
     """
     from app.logging import emit_event
 

@@ -16,7 +16,7 @@ from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["direction"])
 
-_VALID_MODES = {"file", "brief", "opportunity", "evaluate", "decide"}
+_VALID_MODES = {"archive", "note", "structure", "evaluate", "decide"}
 
 
 class DirectionRequest(BaseModel):
@@ -30,6 +30,8 @@ async def set_direction(
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
 ) -> dict:
+    from app.modes import normalize_mode
+    body.mode = normalize_mode(body.mode)  # accept legacy file/brief/opportunity (US-43)
     if body.mode not in _VALID_MODES:
         raise HTTPException(
             status_code=422,

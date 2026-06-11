@@ -111,12 +111,20 @@ class S2OutputData(BaseModel):
             "1–2: noise; 3: borderline; 4–5: clearly relevant"
         ),
     )
-    suggested_mode: Literal["file", "brief", "opportunity", "evaluate", "decide"] = Field(
-        description="Recommended pipeline depth based on signal quality and relevance"
+    suggested_mode: Literal["archive", "note", "structure", "evaluate", "decide"] = Field(
+        description="Recommended processing depth (archive<note<structure<evaluate<decide)"
     )
     suggestion_reasoning: str = Field(
         description="One sentence explaining why this depth is appropriate"
     )
+
+    @field_validator("suggested_mode", mode="before")
+    @classmethod
+    def _normalize_legacy_mode(cls, v: object) -> object:
+        # file/brief/opportunity were renamed to archive/note/structure (US-43);
+        # coerce legacy values from stored S2 outputs / stray LLM output.
+        from app.modes import normalize_mode
+        return normalize_mode(v) if isinstance(v, str) else v
 
 
 class S2Output(BaseModel):
@@ -376,10 +384,16 @@ class S6BOutput(BaseModel):
 
 
 class S7Input(BaseModel):
-    mode: Literal["file", "brief", "opportunity", "evaluate", "decide"] = "decide"
+    mode: Literal["archive", "note", "structure", "evaluate", "decide"] = "decide"
     s5_output: Optional[S5OutputData] = None
     s6a_output: Optional[S6AOutputData] = None
     s6b_output: Optional[S6BOutputData] = None
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _normalize_legacy_mode(cls, v: object) -> object:
+        from app.modes import normalize_mode
+        return normalize_mode(v) if isinstance(v, str) else v
 
 
 class S7OutputData(BaseModel):

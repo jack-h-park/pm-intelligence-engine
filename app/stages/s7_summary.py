@@ -203,9 +203,9 @@ def _summarize_s6(stage_input: S7Input) -> str:
 
 def _mode_description(mode: str) -> str:
     descriptions = {
-        "file": "signal normalized and filed only",
-        "brief": "signal + insight extraction + brief summary",
-        "opportunity": "signal + insight + opportunity framing",
+        "archive": "signal normalized and set aside only",
+        "note": "signal + insight extraction + note",
+        "structure": "signal + insight + opportunity structuring",
         "evaluate": "signal + insight + opportunity + full persona evaluation",
         "decide": "full pipeline — evaluation, routing, and next step",
     }

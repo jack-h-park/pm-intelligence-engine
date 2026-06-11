@@ -92,9 +92,12 @@ async def start_run(
 
     canonical_product_id = signal["product_id"]
 
-    if body.mode is not None:
-        _validate_mode(body.mode)
-        validate_mode_for_product(body.mode, canonical_product_id)
+    # Accept legacy mode values (file/brief/opportunity) from existing clients (US-43)
+    from app.modes import normalize_mode
+    requested_mode = normalize_mode(body.mode)
+    if requested_mode is not None:
+        _validate_mode(requested_mode)
+        validate_mode_for_product(requested_mode, canonical_product_id)
 
     run_id = engine.store.create_run(
         product_id=canonical_product_id,
@@ -108,7 +111,7 @@ async def start_run(
         run_id,
         body.signal_id,
         canonical_product_id,
-        body.mode,
+        requested_mode,
         engine,
     )
 
@@ -224,7 +227,7 @@ async def reopen_run(
 
 
 def _validate_mode(mode: str) -> None:
-    valid = {"file", "brief", "opportunity", "evaluate", "decide"}
+    valid = {"archive", "note", "structure", "evaluate", "decide"}
     if mode not in valid:
         raise HTTPException(
             status_code=422,
@@ -234,7 +237,7 @@ def _validate_mode(mode: str) -> None:
 
 def validate_mode_for_product(mode: str, product_id: str) -> None:
     """Raise 422 if the mode is not allowed for the given product scope."""
-    _GENERAL_ALLOWED = {"file", "brief"}
+    _GENERAL_ALLOWED = {"archive", "note"}
     if product_id == "general" and mode not in _GENERAL_ALLOWED:
         raise HTTPException(
             status_code=422,
@@ -311,7 +314,7 @@ async def _execute_s1_s2(
         from app.services.run_finalizer import finalize_run
         from config import settings as _cfg
         if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
-            engine.store.update_run(run_id, mode="file")  # set mode before finalize
+            engine.store.update_run(run_id, mode="archive")  # set mode before finalize
             # Durable marker so auto-triaged runs stay queryable and revivable
             # (GET /runs?event=auto_triaged, POST /runs/{id}/reopen — US-31)
             engine.store.record_approval(
@@ -389,14 +392,14 @@ async def _continue_after_direction(
             raise ValueError("S2 output not found")
         s2_output_data = S2OutputData(**_json.loads(s2_raw["output_json"])["output"])
 
-        if mode == "file":
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "file"})
+        if mode == "archive":
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "archive"})
             return
 
-        if mode == "brief":
+        if mode == "note":
             engine.store.update_run(run_id, current_stage="s7")
-            await s7_summary.run(S7Input(mode="brief"), context, engine.llm, engine.store)
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "brief"})
+            await s7_summary.run(S7Input(mode="note"), context, engine.llm, engine.store)
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "note"})
             return
 
         # All remaining modes need Stage 3
@@ -413,8 +416,8 @@ async def _continue_after_direction(
             store=engine.store,
         )
 
-        if mode == "opportunity":
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "opportunity"})
+        if mode == "structure":
+            finalize_run(run_id, "completed", engine, event_detail={"mode": "structure"})
             return
 
         # evaluate + decide both need Stage 4

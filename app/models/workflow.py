@@ -22,11 +22,21 @@ class RunStatus(str, enum.Enum):
 
 
 class RunMode(str, enum.Enum):
-    file = "file"              # Stage 1 only — normalize and categorize the signal
-    brief = "brief"            # Stage 1 + 2 + 7 — insight extraction and brief summary
-    opportunity = "opportunity"  # Stage 1 + 2 + 3 — full opportunity framing
-    evaluate = "evaluate"      # Stage 1 + 2 + 3 + 4 — full evaluation, no routing
-    decide = "decide"          # Stage 1–7 — full pipeline with approval gate
+    # Processing-depth ladder (US-43). See app/modes.py and
+    # pm-decision-context/core/02-workflow.md.
+    archive = "archive"        # depth 1: S1 only — set aside, not pursued (was "file")
+    note = "note"              # depth 2: + S2 (+ S7) — record the insight (was "brief")
+    structure = "structure"    # depth 3: + S3 — structure the opportunity (was "opportunity")
+    evaluate = "evaluate"      # depth 4: + S4 — full persona evaluation, no routing
+    decide = "decide"          # depth 5: S1–S7 — full pipeline with gates
+
+    @classmethod
+    def _missing_(cls, value):
+        # Accept legacy mode strings (file/brief/opportunity) so old in-code
+        # RunMode(<legacy>) calls resolve. DB rows are migrated separately.
+        from app.modes import _LEGACY_MODE_ALIASES
+        alias = _LEGACY_MODE_ALIASES.get(value)
+        return cls(alias) if alias is not None else None
 
 
 class Routing(str, enum.Enum):

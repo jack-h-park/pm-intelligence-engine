@@ -17,7 +17,7 @@ _JSON_SCHEMA = """{
   "pillar_references": ["<pillar name or number from context>", "..."],
   "relevance_explanation": "<why this matters for this specific product — name a pillar, user segment, or pain point>",
   "relevance_score": <integer 1–5>,
-  "suggested_mode": "<one of: file | brief | opportunity | evaluate | decide>",
+  "suggested_mode": "<one of: archive | note | structure | evaluate | decide>",
   "suggestion_reasoning": "<one sentence explaining why this depth is appropriate>"
 }"""
 
@@ -41,15 +41,18 @@ Signals scored 3–5 warrant PM attention at minimum.
 
 After scoring relevance, recommend how deeply to process this signal:
 
+Modes are a depth ladder (shallow → deep). Pick the minimum depth needed.
+
 | Mode | When to suggest |
 |------|----------------|
-| file | Signal is noise — wrong product, wrong segment, or purely informational with no action possible |
-| brief | Signal is interesting but low urgency — worth noting the insight but no opportunity to pursue now |
-| opportunity | Signal warrants framing as an opportunity but the team should decide before investing in full evaluation |
+| archive | Signal is noise — wrong product, wrong segment, or purely informational with no action possible (set aside, not pursued) |
+| note | Signal is interesting but low urgency — worth recording the insight but no opportunity to pursue now |
+| structure | Signal warrants structuring into an opportunity, but the team should decide before investing in full evaluation |
 | evaluate | Signal is clearly relevant and an opportunity exists — run full 4-persona evaluation before deciding |
 | decide | Signal is directly actionable, opportunity is obvious, and the team is ready to commit to a path |
 
-Choose the minimum depth needed given the signal's relevance, urgency, and actionability."""
+Choose the minimum depth needed given the signal's relevance, urgency, and actionability.
+Canonical definition: pm-decision-context/core/02-workflow.md ("Processing Depth — 5 modes")."""
 
 
 async def run(
@@ -99,7 +102,7 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
 Rules:
 - "pillar_references" must contain at least one pillar name drawn from the Strategy Pillars section of the product context.
 - "what_changed" must describe a concrete, specific external change — not a trend or feeling.
-- "suggested_mode" must be exactly one of: file, brief, opportunity, evaluate, decide.
+- "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide.
 - Do not hallucinate facts not present in the signal or product context."""
 
     data = await complete_json(
@@ -150,9 +153,9 @@ Rules:
 def _build_checkpoint(title: str, category: str, data: S2OutputData) -> str:
     pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
     mode_next = {
-        "file": "Pipeline complete — signal filed for reference.",
-        "brief": "Pipeline complete at brief depth.",
-        "opportunity": "Next: S3 Opportunity Framing",
+        "archive": "Pipeline complete — signal set aside (not pursued).",
+        "note": "Pipeline complete at note depth.",
+        "structure": "Next: S3 Opportunity Structuring",
         "evaluate": "Next: S3 → S4 Evaluation",
         "decide": "Next: S3 → S4 → S5 → S6 → S7",
     }.get(data.suggested_mode, f"Next: continue pipeline ({data.suggested_mode})")

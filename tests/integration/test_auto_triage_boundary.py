@@ -110,7 +110,7 @@ def test_relevance_below_threshold_auto_triages(client, engine):
 
     run = engine.store.get_run(run_id)
     assert run["status"] == "completed"
-    assert run["mode"] == "file"
+    assert run["mode"] == "archive"  # US-43: file → archive
     assert run["completed_at"] is not None
     # Gate 1 was never reached
     engine.notifier.send_gate1.assert_not_awaited()

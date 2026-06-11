@@ -1,7 +1,7 @@
 """Evaluation Gate API — approve / revise / reject a Stage 4 evaluation.
 
 Only applies to runs in 'decide' mode that have reached 'waiting_approval' status.
-Other modes (file, brief, opportunity, evaluate) do not have an evaluation gate.
+Other modes (archive, note, structure, evaluate) do not have an evaluation gate.
 
 State transitions:
   waiting_approval + approve → running (Stage 5 Prioritization starts)
