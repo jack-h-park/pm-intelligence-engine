@@ -313,7 +313,7 @@ classifies more assumptions as Blocking than the old Claude dry-runs did.
   transient-but-large opportunities aren't force-killed.
 
 #### US-41 — Value Horizon: transient-but-large opportunities (Part B)
-**Status:** Design agreed 2026-06-10, not yet built. Canonical design:
+**Status:** ✅ Implemented 2026-06-10. Canonical design:
 `pm-decision-context/core/04-scoring.md` → "Value Horizon".
 
 Blocking/Adjusting captures dependency but not *time*. A transient-but-large

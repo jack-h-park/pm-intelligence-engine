@@ -16,7 +16,8 @@ _JSON_SCHEMA = """{
   "target_user": "<role + context — more specific than the broad user segment in context.md>",
   "hypothesis": "If we <action>, then <outcome> will happen, because <reason>.",
   "assumed_value_user": "<specific, concrete benefit for the user>",
-  "assumed_value_business": "<specific, concrete benefit for the business>"
+  "assumed_value_business": "<specific, concrete benefit for the business>",
+  "value_horizon": "<durable | transient>"
 }"""
 
 
@@ -67,7 +68,11 @@ Rules:
 - "hypothesis" must be falsifiable — it must be possible to design an experiment that proves it wrong.
 - "problem_statement" describes a problem, not a solution or feature.
 - "target_user" must be more specific than the segment defined in context.md.
-- Both value fields must be distinct and concrete — not generic statements."""
+- Both value fields must be distinct and concrete — not generic statements.
+- "value_horizon": is this opportunity's value **durable** (compounds / defensible
+  over time) or **transient** (a closing window — a platform vendor or competitor
+  may erase the value, e.g. by shipping a native capability)? Choose "transient"
+  only when there is a concrete reason the window may close; otherwise "durable"."""
 
     data = await complete_json(
         llm,

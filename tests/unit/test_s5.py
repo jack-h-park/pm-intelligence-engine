@@ -476,3 +476,69 @@ async def test_verifier_skipped_when_no_blocking():
         )
 
     assert llm.complete.call_count == 1  # no blocking → verifier not called
+
+
+# ---------------------------------------------------------------------------
+# Value Horizon — closing-window flag (US-41)
+# ---------------------------------------------------------------------------
+
+
+def _store_with_value_horizon(vh: str) -> MagicMock:
+    store = _make_store()
+    store.get_stage_output = MagicMock(
+        return_value={"output_json": json.dumps({"output": {"value_horizon": vh}})}
+    )
+    return store
+
+
+async def _run_s5(llm_response: str, store, **s4_scores):
+    from app.stages import s5_prioritization
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=llm_response)
+    with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        return await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(**s4_scores)),
+            _make_context(), llm, store,
+        )
+
+
+@pytest.mark.asyncio
+async def test_closing_window_flagged_when_transient_high_impact_no_blocking():
+    out = await _run_s5(_LLM_RESPONSE_NO_BLOCKING, _store_with_value_horizon("transient"),
+                        explorer=5, strategist=4, builder=4, skeptic=4)
+    assert out.output.closing_window is True
+    assert out.output.blocking_count == 0
+
+
+@pytest.mark.asyncio
+async def test_closing_window_not_flagged_when_durable():
+    out = await _run_s5(_LLM_RESPONSE_NO_BLOCKING, _store_with_value_horizon("durable"),
+                        explorer=5, strategist=4, builder=4, skeptic=4)
+    assert out.output.closing_window is False
+
+
+@pytest.mark.asyncio
+async def test_closing_window_not_flagged_when_blocking_present():
+    # transient + high impact, but a Blocking assumption exists → no closing window
+    out = await _run_s5(_LLM_RESPONSE_BLOCKING, _store_with_value_horizon("transient"),
+                        explorer=5, strategist=4, builder=4, skeptic=4)
+    assert out.output.blocking_count >= 1
+    assert out.output.closing_window is False
+
+
+@pytest.mark.asyncio
+async def test_closing_window_not_flagged_when_impact_low():
+    # transient + no blocking, but Impact (explorer) below threshold (4)
+    out = await _run_s5(_LLM_RESPONSE_NO_BLOCKING, _store_with_value_horizon("transient"),
+                        explorer=3, strategist=3, builder=3, skeptic=4)
+    assert out.output.closing_window is False
+
+
+@pytest.mark.asyncio
+async def test_value_horizon_defaults_durable_when_s3_absent():
+    from app.stages import s5_prioritization
+    store = _make_store()
+    store.get_stage_output = MagicMock(return_value=None)  # no S3 output stored
+    out = await _run_s5(_LLM_RESPONSE_NO_BLOCKING, store, explorer=5, strategist=5, builder=5, skeptic=5)
+    assert out.output.closing_window is False

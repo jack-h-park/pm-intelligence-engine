@@ -104,10 +104,16 @@ class TelegramNotifier:
         assumptions: list[dict] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
+        closing_window: bool = False,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
         rubric_part = f" · S4 rubric: <b>{rubric_total}</b>" if rubric_total else ""
+        closing_line = (
+            "\n⏳ <b>Closing window</b> — value is transient and Impact is high; "
+            f"consider a fast time-boxed bet over the default {routing_label}.\n"
+            if closing_window else ""
+        )
         persona_block = (
             "\n" + "\n".join(f"• {_short(line)}" for line in persona_lines) + "\n"
             if persona_lines else ""
@@ -131,6 +137,7 @@ class TelegramNotifier:
             f"Signal: {signal_title}\n"
             f"Run: <code>{run_id}</code>\n\n"
             f"Composite: <b>{composite_score:.1f}</b>{rubric_part}\n"
+            f"{closing_line}"
             f"{persona_block}"
             f"{assumption_block}\n"
             f"S5 recommends <b>{routing_label}</b>. Confirm or override:\n"
@@ -260,10 +267,16 @@ class SlackNotifier:
         assumptions: list[dict] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
+        closing_window: bool = False,
     ) -> None:
         icon = {"kill": "⚠️", "poc": "🔬", "prd": "📋"}.get(routing, "🔀")
         routing_label = routing.upper()
         rubric_part = f"  ·  S4 rubric: {rubric_total}" if rubric_total else ""
+        closing_part = (
+            f"\n⏳ *Closing window* — value is transient and Impact is high; "
+            f"consider a fast time-boxed bet over the default {routing_label}."
+            if closing_window else ""
+        )
         overrides = [r for r in ("kill", "poc", "prd") if r != routing]
         override_cmds = "\n".join(
             f'{{ "action": "override", "routing": "{r}" }}  → {r.upper()}'
@@ -287,7 +300,7 @@ class SlackNotifier:
                     "type": "mrkdwn",
                     "text": (
                         f"*{signal_title}*\n"
-                        f"Composite: {composite_score:.1f}{rubric_part}\n"
+                        f"Composite: {composite_score:.1f}{rubric_part}{closing_part}\n"
                         f"S5 recommends *{routing_label}*. Confirm or override:"
                     ),
                 },
@@ -416,6 +429,7 @@ class FanoutNotifier:
         assumptions: list[dict] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
+        closing_window: bool = False,
     ) -> None:
         for provider in self._providers:
             try:
@@ -429,6 +443,7 @@ class FanoutNotifier:
                     assumptions=assumptions,
                     persona_lines=persona_lines,
                     rubric_total=rubric_total,
+                    closing_window=closing_window,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {

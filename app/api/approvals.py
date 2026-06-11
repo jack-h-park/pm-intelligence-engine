@@ -164,6 +164,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
             assumptions=[a.model_dump() for a in s5_out.output.assumptions],
             persona_lines=persona_lines,
             rubric_total=rubric_total,
+            closing_window=s5_out.output.closing_window,
         )
 
     except Exception as exc:  # noqa: BLE001

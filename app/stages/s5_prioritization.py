@@ -34,6 +34,24 @@ _DEFAULT_THRESHOLDS = {
     "confidence_gate": 4,     # confidence at or above -> prd, below -> poc
 }
 
+# Value Horizon (US-41): a transient opportunity is only worth a fast bet if the
+# prize is large — gate the closing-window flag on Impact (explorer score).
+_CLOSING_WINDOW_IMPACT_MIN = 4
+
+
+def _value_horizon_from_store(store: PMWorkflowStore, run_id: str) -> str:
+    """Read the S3-judged value_horizon for this run. Defaults to 'durable'
+    (backward-compatible) if S3 output is absent or lacks the field."""
+    import json
+
+    raw = store.get_stage_output(run_id, "s3")
+    if raw is None:
+        return "durable"
+    try:
+        return json.loads(raw["output_json"])["output"].get("value_horizon", "durable")
+    except Exception:  # noqa: BLE001
+        return "durable"
+
 
 def _load_weights(product_id: str) -> dict:
     """Load per-product scoring weights from pm-decision-context.
@@ -245,8 +263,25 @@ Rules:
         composite, skeptic_score, blocking, _load_thresholds(context.product_id)
     )
 
+    # Value Horizon (US-41): flag a closing window — transient value + high Impact
+    # + not Blocked — so Gate 3 can prompt a fast time-boxed bet. Does NOT change
+    # routing; the PM decides. value_horizon is judged in S3.
+    impact_score = scores.get("explorer", 3)
+    closing_window = (
+        _value_horizon_from_store(store, context.run_id) == "transient"
+        and impact_score >= _CLOSING_WINDOW_IMPACT_MIN
+        and not blocking
+    )
+    if closing_window:
+        emit_event(
+            "s5",
+            "closing_window_flagged",
+            context.run_id,
+            {"impact": impact_score, "routing": routing},
+        )
+
     output_data = S5OutputData(
-        impact_score=scores.get("explorer", 3),
+        impact_score=impact_score,
         strategic_fit_score=scores.get("strategist", 3),
         feasibility_score=scores.get("builder", 3),
         confidence_score=skeptic_score,
@@ -256,6 +291,7 @@ Rules:
         rationale=rationale,
         blocking_count=len(blocking),
         governing_heuristics=governing_heuristics,
+        closing_window=closing_window,
     )
 
     output = S5Output(
@@ -373,6 +409,7 @@ def _build_decision_memo(data: S5OutputData) -> str:
 
 ## Governing Heuristics
 {", ".join(data.governing_heuristics) if data.governing_heuristics else "None cited"}
+{"" if not data.closing_window else chr(10) + "## ⏳ Closing Window" + chr(10) + "Value is transient and Impact is high — consider a fast, time-boxed bet over the default track."}
 """
 
 

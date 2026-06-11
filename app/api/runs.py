@@ -52,6 +52,7 @@ def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
         "blocking_count": s5.get("blocking_count"),
         "assumptions": s5.get("assumptions", []),
         "rationale": s5.get("rationale"),
+        "closing_window": s5.get("closing_window", False),
     }
     s4_raw = engine.store.get_stage_output(run_id, "s4")
     if s4_raw is not None:

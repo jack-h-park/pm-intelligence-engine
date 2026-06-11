@@ -156,6 +156,15 @@ class S3OutputData(BaseModel):
     )
     assumed_value_user: str = Field(description="Specific benefit for the user")
     assumed_value_business: str = Field(description="Specific benefit for the business")
+    value_horizon: Literal["durable", "transient"] = Field(
+        default="durable",
+        description=(
+            "Is the opportunity's value durable (compounds / defensible) or "
+            "transient (a closing window a vendor/competitor may erase)? Feeds the "
+            "Gate 3 closing-window recommendation (US-41). See core/04-scoring.md "
+            "'Value Horizon'. Default 'durable' (backward-compatible)."
+        ),
+    )
 
 
 class S3Output(BaseModel):
@@ -263,6 +272,15 @@ class S5OutputData(BaseModel):
             "Decision heuristic numbers from core/00-pm-identity.md that governed "
             "this routing call (e.g. ['#7', '#14']). Makes the philosophy → "
             "principles → decision chain auditable. Empty if none cited."
+        ),
+    )
+    closing_window: bool = Field(
+        default=False,
+        description=(
+            "Value Horizon flag (US-41): the opportunity's value is transient AND "
+            "Impact is high AND it is not Blocked — a closing window. Surfaced at "
+            "Gate 3 to prompt a fast, time-boxed bet over the default track. Does "
+            "NOT change routing. See core/04-scoring.md 'Value Horizon'."
         ),
     )
 

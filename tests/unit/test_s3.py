@@ -62,6 +62,25 @@ async def test_s3_produces_valid_output():
     assert out.output.hypothesis
     assert out.output.problem_statement
     assert out.output.target_user
+    # value_horizon defaults to durable when the LLM omits it (US-41, backward-compatible)
+    assert out.output.value_horizon == "durable"
+
+
+@pytest.mark.asyncio
+async def test_s3_value_horizon_transient_parsed():
+    """When the LLM marks the opportunity transient, it flows into the output (US-41)."""
+    resp = dict(_VALID_S3_RESPONSE, value_horizon="transient")
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=json.dumps(resp))
+    with patch("app.stages.s3_opportunity.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        out = await s3_opportunity.run(
+            input=S3Input(signal_id="sig-001", s2_output=_make_s2_output(), product_id="test"),
+            context=_make_context(),
+            llm=llm,
+            store=_make_store(),
+        )
+    assert out.output.value_horizon == "transient"
 
 
 @pytest.mark.asyncio

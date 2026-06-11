@@ -87,6 +87,7 @@ _S5_OUTPUT = {
         ],
         "blocking_count": 1,
         "rationale": "Strong composite, unvalidated confidence -> poc.",
+        "closing_window": True,
     },
 }
 
@@ -119,6 +120,7 @@ def test_gate3_review_present_after_s5(client, engine):
     assert review["blocking_count"] == 1
     assert review["rubric_total"] == "11/12"
     assert review["rationale"]
+    assert review["closing_window"] is True  # US-41
 
     severities = {a["statement"]: a["severity"] for a in review["assumptions"]}
     assert severities["Platform API ships in GA"] == "Blocking"
