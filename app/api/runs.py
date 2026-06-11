@@ -39,6 +39,7 @@ class RunResponse(BaseModel):
     created_at: str
     completed_at: str | None
     stage_outputs: list[dict] | None = None
+    gate1_review: dict | None = None
     gate3_review: dict | None = None
 
     @model_validator(mode="before")
@@ -89,6 +90,33 @@ def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
         rubric = s4.get("rubric") or {}
         if rubric.get("total_score") is not None:
             review["rubric_total"] = f"{rubric['total_score']}/12"
+    return review
+
+
+def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
+    """Assemble the Gate 1 review payload from stored S1/S2 outputs (US-46).
+
+    Returns None until S2 has run. Gives the PM the full insight needed to
+    decide the processing depth — not just relevance + suggestion.
+    """
+    s2_raw = engine.store.get_stage_output(run_id, "s2")
+    if s2_raw is None:
+        return None
+    from app.modes import normalize_mode
+    s2 = json.loads(s2_raw["output_json"])["output"]
+    review: dict = {
+        "relevance_score": s2.get("relevance_score"),
+        "suggested_depth": normalize_mode(s2.get("suggested_mode")),
+        "reasoning": s2.get("suggestion_reasoning"),
+        "what_changed": s2.get("what_changed"),
+        "reframing": s2.get("reframing"),
+        "relevance_explanation": s2.get("relevance_explanation"),
+        "pillar_references": s2.get("pillar_references", []),
+    }
+    s1_raw = engine.store.get_stage_output(run_id, "s1")
+    if s1_raw is not None:
+        s1 = json.loads(s1_raw["output_json"])["output"]
+        review["signal_summary"] = s1.get("summary")
     return review
 
 
@@ -156,6 +184,7 @@ async def get_run(
     return RunResponse(
         **run,
         stage_outputs=stage_outputs,
+        gate1_review=_build_gate1_review(run_id, engine),
         gate3_review=_build_gate3_review(run_id, engine),
     )
 
@@ -379,6 +408,9 @@ async def _execute_s1_s2(
                 relevance_score=s2_out.output.relevance_score,
                 suggested_mode=s2_out.output.suggested_mode,
                 reasoning=s2_out.output.suggestion_reasoning,
+                what_changed=s2_out.output.what_changed,
+                relevance_explanation=s2_out.output.relevance_explanation,
+                pillar_references=s2_out.output.pillar_references,
             )
             return
 

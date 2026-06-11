@@ -163,3 +163,36 @@ def test_run_response_mirrors_depth_and_mode(client, engine):
     engine.store.update_run(rid, status="completed", mode="decide")
     r = client.get(f"/runs/{rid}").json()
     assert r["depth"] == "decide" and r["mode"] == "decide"
+
+
+# ---------------------------------------------------------------------------
+# Gate 1 information enrichment (US-46)
+# ---------------------------------------------------------------------------
+
+def test_gate1_review_payload_surfaces_s2_insight(client, engine):
+    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    rid = engine.store.create_run("example-security-product", sid)
+    engine.store.update_run(rid, status="awaiting_direction", current_stage="s2")
+    engine.store.save_stage_output(run_id=rid, stage="s1", output_json=json.dumps(
+        {"output": {"summary": "Android 16 enables MTE via APM."}}))
+    engine.store.save_stage_output(run_id=rid, stage="s2", output_json=json.dumps({"output": {
+        "what_changed": "APM now turns on MTE",
+        "reframing": "consumer feature vs enterprise memory-safety mandate",
+        "pillar_references": ["Hardware-rooted security"],
+        "relevance_explanation": "Government deployments require provable memory-safety posture",
+        "relevance_score": 5,
+        "suggested_mode": "brief",  # legacy value → normalized to note
+        "suggestion_reasoning": "directionally relevant",
+    }}))
+    review = client.get(f"/runs/{rid}").json()["gate1_review"]
+    assert review["what_changed"] == "APM now turns on MTE"
+    assert review["relevance_explanation"].startswith("Government")
+    assert review["pillar_references"] == ["Hardware-rooted security"]
+    assert review["suggested_depth"] == "note"  # legacy brief normalized
+    assert review["signal_summary"].startswith("Android 16")
+
+
+def test_gate1_review_absent_before_s2(client, engine):
+    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    rid = engine.store.create_run("example-security-product", sid)
+    assert client.get(f"/runs/{rid}").json()["gate1_review"] is None

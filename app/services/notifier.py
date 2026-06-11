@@ -52,16 +52,26 @@ class TelegramNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
+        what_changed: str = "",
+        relevance_explanation: str = "",
+        pillar_references: list[str] | None = None,
     ) -> None:
+        pillars = ", ".join(pillar_references) if pillar_references else "—"
+        changed_block = f"\n<b>What changed:</b> {_short(what_changed, 280)}\n" if what_changed else ""
+        why_block = f"<b>Why it matters:</b> {_short(relevance_explanation, 280)}\n" if relevance_explanation else ""
         text = (
             f"📡 <b>[Gate 1] New Signal</b>\n\n"
             f"Product: <code>{product_id}</code>\n"
             f"Title: {signal_title}\n"
-            f"Relevance: <b>{relevance_score}/5</b> · Suggested: <b>{suggested_mode}</b>\n"
+            f"Relevance: <b>{relevance_score}/5</b> · Suggested depth: <b>{suggested_mode}</b>\n"
+            f"{changed_block}"
+            f"{why_block}"
+            f"Pillars: {pillars}\n"
             f"<i>\"{reasoning}\"</i>\n\n"
+            f"Depth ladder: archive &lt; note &lt; structure &lt; evaluate &lt; decide\n"
             f"To proceed:\n"
             f"<code>POST /runs/{run_id}/direction</code>\n"
-            f'<code>{{"mode": "{suggested_mode}"}}</code>'
+            f'<code>{{"depth": "{suggested_mode}"}}</code>'
         )
         await self._send(text, run_id)
 
@@ -175,7 +185,17 @@ class SlackNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
+        what_changed: str = "",
+        relevance_explanation: str = "",
+        pillar_references: list[str] | None = None,
     ) -> None:
+        pillars = ", ".join(pillar_references) if pillar_references else "—"
+        insight = ""
+        if what_changed:
+            insight += f"*What changed:* {_short(what_changed, 280)}\n"
+        if relevance_explanation:
+            insight += f"*Why it matters:* {_short(relevance_explanation, 280)}\n"
+        insight += f"*Pillars:* {pillars}"
         payload = {
             "blocks": [
                 {
@@ -186,14 +206,14 @@ class SlackNotifier:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*Product:*\n`{product_id}`"},
-                        {"type": "mrkdwn", "text": f"*Relevance:*\n{relevance_score}/5 · `{suggested_mode}`"},
+                        {"type": "mrkdwn", "text": f"*Relevance:*\n{relevance_score}/5 · depth `{suggested_mode}`"},
                     ],
                 },
                 {
                     "type": "section",
                     "text": {
                         "type": "mrkdwn",
-                        "text": f"*{signal_title}*\n_{reasoning}_",
+                        "text": f"*{signal_title}*\n{insight}\n_{reasoning}_",
                     },
                 },
                 {
@@ -201,8 +221,9 @@ class SlackNotifier:
                     "text": {
                         "type": "mrkdwn",
                         "text": (
+                            "Depth ladder: archive < note < structure < evaluate < decide\n"
                             f"```POST /runs/{run_id}/direction\n"
-                            f'{{ "mode": "{suggested_mode}" }}```'
+                            f'{{ "depth": "{suggested_mode}" }}```'
                         ),
                     },
                 },
@@ -370,6 +391,9 @@ class FanoutNotifier:
         relevance_score: int,
         suggested_mode: str,
         reasoning: str,
+        what_changed: str = "",
+        relevance_explanation: str = "",
+        pillar_references: list[str] | None = None,
     ) -> None:
         for provider in self._providers:
             try:
@@ -380,6 +404,9 @@ class FanoutNotifier:
                     relevance_score=relevance_score,
                     suggested_mode=suggested_mode,
                     reasoning=reasoning,
+                    what_changed=what_changed,
+                    relevance_explanation=relevance_explanation,
+                    pillar_references=pillar_references,
                 )
             except Exception as exc:  # noqa: BLE001
                 emit_event("notifier", "send_failed", run_id, {

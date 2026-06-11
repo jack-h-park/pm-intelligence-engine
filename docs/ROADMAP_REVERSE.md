@@ -395,6 +395,19 @@ labeled datapoint capturing system-suggestion vs PM-choice:
 - Gate 3 `confirm`/`override`: `chose=<routing>; recommended=<s5_routing>[; reason=...]`
 - queryable via `GET /runs?event=direction|confirm|override` (+ existing filters)
 
+#### US-46 — Gate 1 information enrichment
+**Status:** ✅ Completed (2026-06-11). Found during the first live run: the Gate 1
+notification showed only relevance + suggested depth + a one-line reason — too
+thin to actually decide the processing depth. The S2 insight (what_changed,
+reframing, relevance_explanation, pillar_references) was produced but never
+surfaced. Same under-surfacing pattern as Gate 3 (fixed in US-30).
+
+- `send_gate1` (Telegram/Slack/Fanout) now includes what_changed, why-it-matters,
+  pillars, a depth-ladder reminder, and the `{"depth": ...}` command
+- `GET /runs/{id}` gains a `gate1_review` payload (S2 insight + S1 summary +
+  `suggested_depth`) — parallel to `gate3_review`
+- additive; tests for payload + notification rendering; 239 pass
+
 #### US-45 — Decision revisit / reversal (design needed)
 **Status:** Backlog — design discussion required (found 2026-06-11)
 

@@ -75,3 +75,23 @@ async def test_fanout_passes_enrichment_through():
     assert kwargs["assumptions"] == _ASSUMPTIONS
     assert kwargs["persona_lines"] == _PERSONA_LINES
     assert kwargs["rubric_total"] == "10/12"
+
+
+@pytest.mark.asyncio
+async def test_telegram_gate1_renders_s2_insight():
+    notifier = TelegramNotifier(bot_token="t", chat_id="c")
+    with patch.object(notifier, "_send", new=AsyncMock()) as send:
+        await notifier.send_gate1(
+            run_id="r1", product_id="p1", signal_title="Sig",
+            relevance_score=5, suggested_mode="note", reasoning="why",
+            what_changed="APM enables MTE",
+            relevance_explanation="provable memory-safety posture required",
+            pillar_references=["Hardware-rooted security"],
+        )
+    text = send.call_args.args[0]
+    assert "What changed:" in text and "APM enables MTE" in text
+    assert "Why it matters:" in text and "provable memory-safety" in text
+    assert "Hardware-rooted security" in text
+    assert "Suggested depth: <b>note</b>" in text
+    assert '{"depth": "note"}' in text
+    assert "archive" in text and "decide" in text  # ladder reminder
