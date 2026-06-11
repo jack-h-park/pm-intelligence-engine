@@ -222,8 +222,25 @@ Rules:
     rationale = data.get("rationale", "")
     governing_heuristics = [str(h) for h in data.get("governing_heuristics", []) if str(h).strip()]
 
-    # Deterministic routing rule (never delegated to LLM)
+    # Blocking-assumption verifier (US-42): re-apply the strict two-question test
+    # to each Blocking and downgrade over-eager ones to Adjusting before routing.
     blocking = [a for a in assumptions if a.severity == "Blocking"]
+    if settings.BLOCKING_VERIFIER_ENABLED and blocking:
+        downgrades = await _verify_blocking_assumptions(
+            blocking, persona_summary, system_message, llm, context.run_id
+        )
+        for a in assumptions:
+            if a.severity == "Blocking" and a.statement in downgrades:
+                a.severity = "Adjusting"
+                emit_event(
+                    "s5",
+                    "blocking_downgraded",
+                    context.run_id,
+                    {"statement": a.statement, "reason": downgrades[a.statement]},
+                )
+        blocking = [a for a in assumptions if a.severity == "Blocking"]
+
+    # Deterministic routing rule (never delegated to LLM)
     routing = _compute_routing(
         composite, skeptic_score, blocking, _load_thresholds(context.product_id)
     )
@@ -357,6 +374,70 @@ def _build_decision_memo(data: S5OutputData) -> str:
 ## Governing Heuristics
 {", ".join(data.governing_heuristics) if data.governing_heuristics else "None cited"}
 """
+
+
+_VERIFIER_JSON_SCHEMA = """{
+  "verdicts": [
+    {"statement": "<the blocking assumption, copied verbatim>", "keep_blocking": true, "reason": "<why no alternative path exists, or why an alternative path exists>"}
+  ]
+}"""
+
+
+async def _verify_blocking_assumptions(
+    blocking: list[Assumption],
+    persona_summary: str,
+    system_message: str,
+    llm: LLMProvider,
+    run_id: str,
+) -> dict:
+    """Adversarially audit Blocking classifications (US-42).
+
+    Returns {statement: reason} for assumptions that should be DOWNGRADED to
+    Adjusting because a plausible alternative path to the value exists. Blocking
+    is rare; this corrects over-eager Blocking flags. It does NOT touch the
+    time-horizon/magnitude axis (that is separate, future Part B work).
+    """
+    listing = "\n".join(
+        f"{i+1}. {a.statement} — claimed reason: {a.reason}" for i, a in enumerate(blocking)
+    )
+    user_message = f"""You are auditing **Blocking** assumption classifications from a prior step. Blocking must be RARE.
+
+An assumption is **Blocking** ONLY if BOTH hold:
+  (1) the opportunity is worthless if the assumption is false, AND
+  (2) NO alternative path, workaround, or fallback to the same value exists in the evidence below.
+If a plausible alternative path exists, it is NOT Blocking — it is **Adjusting** (keep_blocking = false).
+Do not consider long-term/timing erosion here — only "is there an alternative path to the value right now?".
+
+## Evidence (persona arguments)
+{persona_summary}
+
+## Blocking assumptions to audit
+{listing}
+
+For each assumption, set keep_blocking = true only if there is genuinely NO alternative path.
+When a plausible alternative path exists, set keep_blocking = false (downgrade to Adjusting).
+Respond with a single JSON object — no markdown, no commentary:
+
+{_VERIFIER_JSON_SCHEMA}"""
+
+    data = await complete_json(
+        llm,
+        messages=[
+            {"role": "system", "content": system_message},
+            {"role": "user", "content": user_message},
+        ],
+        stage="s5",
+        run_id=run_id,
+        max_tokens=1024,
+        temperature=0,
+    )
+    blocking_statements = {a.statement for a in blocking}
+    downgrades: dict = {}
+    for v in data.get("verdicts", []):
+        stmt = v.get("statement", "")
+        if stmt in blocking_statements and not v.get("keep_blocking", True):
+            downgrades[stmt] = v.get("reason", "")
+    return downgrades
 
 
 def _compute_routing(

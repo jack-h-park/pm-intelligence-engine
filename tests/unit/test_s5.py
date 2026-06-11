@@ -370,3 +370,109 @@ async def test_s5_saves_to_store():
     store.save_stage_output.assert_called_once()
     call_kwargs = store.save_stage_output.call_args
     assert call_kwargs.kwargs.get("stage") == "s5" or call_kwargs.args[1] == "s5"
+
+
+# ---------------------------------------------------------------------------
+# Blocking-assumption verifier (US-42)
+# ---------------------------------------------------------------------------
+
+
+def _classification(statement: str, severity: str = "Blocking") -> str:
+    return json.dumps({
+        "assumptions": [{"statement": statement, "severity": severity, "reason": "claimed"}],
+        "rationale": "x",
+        "governing_heuristics": [],
+    })
+
+
+@pytest.mark.asyncio
+async def test_verifier_downgrades_overeager_blocking(capsys):
+    """Verifier finds an alternative path → Blocking downgraded → kill flips to prd."""
+    from app.stages import s5_prioritization
+
+    stmt = "No native admin-enforcement API exists"
+    verifier = json.dumps({"verdicts": [
+        {"statement": stmt, "keep_blocking": False, "reason": "Knox provides an alternative path"}
+    ]})
+    llm = AsyncMock()
+    llm.complete = AsyncMock(side_effect=[_classification(stmt), verifier])
+    store = _make_store()
+
+    with patch("config.settings.BLOCKING_VERIFIER_ENABLED", True), \
+         patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        out = await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(explorer=5, strategist=5, builder=4, skeptic=4)),
+            _make_context(), llm, store,
+        )
+
+    assert llm.complete.call_count == 2  # classification + verifier
+    assert out.output.blocking_count == 0
+    assert out.output.assumptions[0].severity == "Adjusting"
+    assert out.output.routing == "prd"  # composite 4.65, confidence 4, no blocking
+    events = [json.loads(l) for l in capsys.readouterr().out.strip().splitlines() if l.strip().startswith("{")]
+    assert any(e["action"] == "blocking_downgraded" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_verifier_keeps_genuine_blocking():
+    """Verifier confirms no alternative path → Blocking kept → kill."""
+    from app.stages import s5_prioritization
+
+    stmt = "DISA certification is required and unobtainable in time"
+    verifier = json.dumps({"verdicts": [
+        {"statement": stmt, "keep_blocking": True, "reason": "no alternative path exists"}
+    ]})
+    llm = AsyncMock()
+    llm.complete = AsyncMock(side_effect=[_classification(stmt), verifier])
+    store = _make_store()
+
+    with patch("config.settings.BLOCKING_VERIFIER_ENABLED", True), \
+         patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        out = await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(explorer=4, strategist=4, builder=3, skeptic=3)),
+            _make_context(), llm, store,
+        )
+
+    assert llm.complete.call_count == 2
+    assert out.output.blocking_count == 1
+    assert out.output.routing == "kill"
+
+
+@pytest.mark.asyncio
+async def test_verifier_skipped_when_disabled():
+    from app.stages import s5_prioritization
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=_classification("Some blocker"))
+    store = _make_store()
+
+    with patch("config.settings.BLOCKING_VERIFIER_ENABLED", False), \
+         patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        out = await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(explorer=2, strategist=2, builder=2, skeptic=2)),
+            _make_context(), llm, store,
+        )
+
+    assert llm.complete.call_count == 1  # verifier not called
+    assert out.output.blocking_count == 1
+
+
+@pytest.mark.asyncio
+async def test_verifier_skipped_when_no_blocking():
+    from app.stages import s5_prioritization
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=_LLM_RESPONSE_NO_BLOCKING)  # all Adjusting
+    store = _make_store()
+
+    with patch("config.settings.BLOCKING_VERIFIER_ENABLED", True), \
+         patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output()), _make_context(), llm, store,
+        )
+
+    assert llm.complete.call_count == 1  # no blocking → verifier not called

@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # Hermes has taken over auto-triage archive ownership.
     AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED: bool = True
 
+    # Blocking-assumption verifier (US-42): after S5 classifies assumptions, a
+    # second adversarial LLM pass re-applies the strict two-question test to each
+    # Blocking and downgrades to Adjusting when a plausible alternative path
+    # exists. Reduces false Kills from over-eager Blocking classification.
+    # Opt-in (default False): doubles S5 LLM calls and is an unvalidated
+    # heuristic — enable only after an eval confirms it preserves genuine Kills
+    # (e.g. R06) while correcting over-flags. See ROADMAP US-42.
+    BLOCKING_VERIFIER_ENABLED: bool = False
+
     # Base URL used to generate review page links sent in notifications.
     # Set to your server's public URL when deployed; default is local dev.
     BASE_URL: str = "http://localhost:8000"
