@@ -312,6 +312,37 @@ classifies more assumptions as Blocking than the old Claude dry-runs did.
 - **US-41 (Part B)** — enrich the decision model (time-horizon/magnitude) so
   transient-but-large opportunities aren't force-killed.
 
+#### US-41 — Value Horizon: transient-but-large opportunities (Part B)
+**Status:** Design agreed 2026-06-10, not yet built. Canonical design:
+`pm-decision-context/core/04-scoring.md` → "Value Horizon".
+
+Blocking/Adjusting captures dependency but not *time*. A transient-but-large
+opportunity (real value now, but a vendor may close the window) fits neither
+"Adjusting → slow PRD" nor "Blocking → Kill"; the right move can be a fast,
+time-boxed bet. Adds a second axis (value horizon × magnitude), orthogonal to
+Blocking/Adjusting.
+
+**Agreed design (human-in-the-loop, minimal — no automatic 4th route):**
+1. **Detect** — opportunity carries `value_horizon: durable | transient`
+   (LLM-judged), set in **S3**, available at **S5**.
+   - `S3OutputData` gains an optional `value_horizon` field (default "durable").
+2. **No new route** — routing stays `prd | poc | kill`.
+3. **Magnitude = existing Impact score** (no separate sizing).
+4. **Surface at Gate 3** — when S5 sees `value_horizon == transient` AND high
+   Impact AND not Blocking, attach a Gate 3 recommendation: "⏳ Closing window —
+   consider a time-boxed bet (fast/minimal PRD) over the default track." The PM
+   confirms the default or overrides to a fast-tracked PRD.
+
+**Acceptance criteria**
+- S3 prompt + `S3OutputData.value_horizon` (optional, default "durable",
+  backward-compatible like `governing_heuristics`)
+- S5 computes a `closing_window` recommendation (transient + Impact ≥ threshold +
+  no Blocking) and includes it in the Gate 3 payload (`gate3_review`) and
+  notification — additive, no routing-logic change
+- Tests: tag flows S3→S5; recommendation fires only on transient+high-Impact+
+  no-Blocking; durable opportunities unaffected
+- R04 worked case: flagged as closing-window at Gate 3
+
 #### US-34 — LLM-as-judge rubrics (replacing keyword-matching rubrics)
 **Status:** Backlog — direction agreed, implementation not scheduled
 
