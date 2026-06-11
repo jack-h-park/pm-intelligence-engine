@@ -1,8 +1,8 @@
 # Reverse Roadmap
 ## Remaining Gap Closure Backlog
 
-**Version:** 1.0  
-**Last updated:** 2026-06-10 (v1.0: US-32 completed + US-37 startup guard; gpt-5.4 calibration gap logged as US-39)
+**Version:** 1.1  
+**Last updated:** 2026-06-10 (v1.1: US-40 Informing→Adjusting rename done; US-39 decided keep-gpt-5.4 + retire golden set)
 
 This document contains only work that remains after the current verified baseline.
 Implemented workflow, contracts, and tests are tracked in:
@@ -262,28 +262,39 @@ profile cannot approve runs or modify state beyond its declared scope.
 
 ### E8 — Evaluation Depth (backlog, direction fixed 2026-06-10)
 
+#### US-40 — Rename assumption severity Informing → Adjusting + canonical definition
+**Status:** ✅ Completed (2026-06-10). The Blocking/Informing vocabulary was
+unintuitive and lossy (PM feedback). Renamed Informing → **Adjusting** across
+engine (`Assumption.severity` Literal + non-destructive legacy validator),
+prompts, and wiki. Canonical "Blocking vs Adjusting" definition (whether-vs-how,
+two-question test, worked example, transient-case caveat) now lives once in
+`decision-context/core/04-scoring.md`; S5 prompt + wiki reference it. Wiki concept
+file renamed (blocking-vs-informing → blocking-vs-adjusting, 10 links updated) and
+its stale routing fixed (Blocking → Kill). Future work **US-41 (Part B)**: add a
+time-horizon/magnitude dimension so a *transient-but-large* opportunity can route
+to a fast time-boxed bet instead of Kill.
+
 #### US-39 — Production model calibration: gpt-5.4 kill-bias
-**Status:** Open — decision required (discovered 2026-06-10)
+**Status:** Decided 2026-06-10 — keep gpt-5.4; retire the old golden set as a target
 
-Production (iMac) runs `LLM_PROVIDER=openai` / `gpt-5.4`, but the golden set
-(R01–R07) and all scoring are calibrated against Claude historical manual runs.
-gpt-5.4 systematically over-classifies assumptions as **Blocking**, forcing
-false Kills: post-US-32 gpt-5.4 eval routes R04/R05/R07 to `kill` (each on 1–2
-Blocking) where the baseline expects prd/poc; only R06 (true Kill) matches.
-US-32 worked-example anchors reduced but did not eliminate the bias (R04 3→2
-Blocking, still kill).
+Production (iMac) runs `LLM_PROVIDER=openai` / `gpt-5.4` — **decided as the
+production model** (cost/performance/use-case tradeoff). gpt-5.4 systematically
+classifies more assumptions as Blocking than the old Claude dry-runs did.
 
-Options to decide:
-- **A. Run Claude in production** (key now provisioned on iMac) to match the
-  calibration the system was built on — lowest effort; verify with a Claude
-  baseline eval first.
-- **B. Re-baseline the golden set for gpt-5.4** — accept its risk posture,
-  update expected routings (means accepting more Kills).
-- **C. Verifier pass (US-34)** — a second adversarial call challenges each
-  Blocking ("is there an alternative path?") before it counts toward Kill.
-- **D. Routing-rule change** — require ≥2 Blocking for Kill (risky; alters US-29).
+**Decisions:**
+- **Model:** gpt-5.4 stays. Pin it for both production and any calibration so
+  there is no cross-model conflict. (Option A "switch to Claude" is OFF.)
+- **Golden set:** R01–R07 are unvalidated dry-runs, **not ground truth** — so
+  "gpt-5.4 is wrong vs the baseline" is an invalid frame. `eval/scenarios.json`
+  is to be relabeled as regression fixtures; the real calibration target is
+  **accumulated human Gate decisions** going forward. (See memory:
+  golden-set-not-ground-truth.)
 
-Recommended: confirm with a Claude baseline eval (A), then decide A vs C.
+**Remaining (open) — the kill-bias itself still wants a real fix:**
+- **US-34 verifier pass** — a second adversarial call challenges each Blocking
+  ("is there an alternative path?") before it counts toward Kill. Best lever now.
+- **US-41 (Part B)** — enrich the decision model (time-horizon/magnitude) so
+  transient-but-large opportunities aren't force-killed.
 
 #### US-34 — LLM-as-judge rubrics (replacing keyword-matching rubrics)
 **Status:** Backlog — direction agreed, implementation not scheduled
