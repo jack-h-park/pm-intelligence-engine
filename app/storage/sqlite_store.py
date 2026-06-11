@@ -286,6 +286,7 @@ class SQLiteStore:
             "routing": r.routing.value if r.routing else None,
             "composite_score": r.composite_score,
             "created_at": r.created_at.isoformat(),
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
         }
 

@@ -163,6 +163,7 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
   "routing": "prd",
   "composite_score": 4.15,
   "created_at": "2026-05-24T10:00:00",
+  "updated_at": "2026-05-24T10:12:34",
   "completed_at": "2026-05-24T10:12:34",
   "stage_outputs": [...],
   "gate3_review": {

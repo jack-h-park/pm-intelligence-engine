@@ -125,6 +125,9 @@ class WorkflowRun(Base):
     routing = Column(SAEnum(Routing), nullable=True)
     composite_score = Column(Float, nullable=True)
     created_at = Column(DateTime, nullable=False, default=_utc_now)
+    # Bumped on every change (US: gate-watcher dedup needs to detect a run
+    # re-entering a gate state, e.g. waiting_approval after a Gate 2 revise).
+    updated_at = Column(DateTime, nullable=False, default=_utc_now, onupdate=_utc_now)
     completed_at = Column(DateTime, nullable=True)
 
     signal = relationship("Signal", back_populates="runs")

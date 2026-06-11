@@ -37,6 +37,7 @@ class RunResponse(BaseModel):
     routing: str | None
     composite_score: float | None
     created_at: str
+    updated_at: str | None = None  # bumped on every change — gate-watcher dedup
     completed_at: str | None
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
