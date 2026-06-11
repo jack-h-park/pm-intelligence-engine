@@ -62,6 +62,9 @@ class ApprovalAction(str, enum.Enum):
     reject = "reject"
     auto_triaged = "auto_triaged"  # system decision at the relevance gate (US-31)
     reopen = "reopen"              # PM revives an auto-triaged run (US-31)
+    direction = "direction"        # PM mode choice at Gate 1 (US-44)
+    confirm = "confirm"            # PM confirms S5 routing at Gate 3 (US-44)
+    override = "override"          # PM overrides S5 routing at Gate 3 (US-44)
 
 
 class ArtifactType(str, enum.Enum):

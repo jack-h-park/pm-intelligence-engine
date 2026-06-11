@@ -158,7 +158,10 @@ async def list_runs(
                 detail=f"Invalid 'since' value '{since}' — expected ISO 8601",
             )
     if event is not None:
-        valid_events = {"approve", "revise", "reject", "auto_triaged", "reopen"}
+        valid_events = {
+            "approve", "revise", "reject", "auto_triaged", "reopen",
+            "direction", "confirm", "override",
+        }
         if event not in valid_events:
             raise HTTPException(
                 status_code=422,

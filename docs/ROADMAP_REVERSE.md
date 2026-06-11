@@ -383,6 +383,36 @@ from all thresholds, with notify-and-timeout semantics. Trades against the
 human-in-the-loop principle; revisit only if gate fatigue is observed in
 practice.
 
+#### US-44 — Decision-audit completeness (all human gate decisions persisted)
+**Status:** ✅ Completed (2026-06-11). Foundational for "human Gate decisions =
+the real calibration dataset" (see memory: golden-set-not-ground-truth).
+
+Previously only Gate 2 (approve/revise/reject) was recorded in `approval_events`;
+**Gate 1 (mode) and Gate 3 (routing) decisions were not persisted** — 2/3 of the
+human decisions were missing from the audit log. Now every gate decision is a
+labeled datapoint capturing system-suggestion vs PM-choice:
+- Gate 1 `direction`: `chose=<mode>; suggested=<s2_suggested>`
+- Gate 3 `confirm`/`override`: `chose=<routing>; recommended=<s5_routing>[; reason=...]`
+- queryable via `GET /runs?event=direction|confirm|override` (+ existing filters)
+
+#### US-45 — Decision revisit / reversal (design needed)
+**Status:** Backlog — design discussion required (found 2026-06-11)
+
+There is no process to re-review or reverse a decision after a run reaches a
+terminal state. Within a run: Gate 2 has a `revise` loop and Gate 3 has
+`override`, but there is no cross-gate backward movement and no post-terminal
+reopen for deliberately-decided runs (US-31 `reopen` is auto-triaged-only;
+non-auto-triaged returns 409). A completed PRD/PoC or a killed run is final;
+new information forces a brand-new run with no link to the superseded decision.
+DESIGN_DECISIONS § 4's "the PM can reject the artifact" mitigation has no
+endpoint behind it.
+
+**Open design questions (need PM input before building):**
+- Reopen a terminal run to *where* (awaiting_direction? the deciding gate?)
+- What happens to already-produced/exported artifacts (PRD/PoC, archive export)?
+- Supersede semantics — link a new run as the successor of a reversed decision?
+- Should reversals themselves be recorded as decisions (they should — US-44 pattern)
+
 #### US-43 — Processing-mode vocabulary + canonical documentation
 **Status:** Backlog — found 2026-06-11 during the first live run
 

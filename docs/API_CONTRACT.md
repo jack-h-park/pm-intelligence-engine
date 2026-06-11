@@ -132,7 +132,11 @@ List runs. Hermes uses this for polling actionable queues.
 - `product_id` — filter by product
 - `status` — filter by status (e.g. `awaiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
-- `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`, `revise`, `reject`).
+- `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
+  `revise`, `reject`, `direction`, `confirm`, `override`). Every human gate decision is
+  now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
+  `reject`), Gate 3 routing (`confirm`/`override`) — each records the system suggestion
+  vs the PM's choice in `feedback_text`, forming the labeled human-decision dataset.
   `event=auto_triaged` is the canonical query for the Hermes auto-triage digest (US-31).
 - `since` — ISO 8601 timestamp; only runs created at or after this time
 - `limit` — max results (default 50)

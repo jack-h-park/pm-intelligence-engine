@@ -50,6 +50,22 @@ async def set_direction(
             detail=f"Run is '{run['status']}', expected 'awaiting_direction'",
         )
 
+    # Record the Gate 1 decision as a labeled calibration datapoint (US-44):
+    # what the system suggested vs what the PM chose.
+    import json as _json
+    suggested = None
+    if run.get("recommendation_json"):
+        try:
+            suggested = _json.loads(run["recommendation_json"]).get("suggested_mode")
+        except Exception:  # noqa: BLE001
+            suggested = None
+    engine.store.record_approval(
+        run_id=run_id,
+        stage="s2",
+        action="direction",
+        feedback_text=f"chose={body.mode}; suggested={suggested}",
+    )
+
     engine.store.update_run(run_id, mode=body.mode, status="running")
 
     background_tasks.add_task(_execute_from_direction, run_id, body.mode, engine)
