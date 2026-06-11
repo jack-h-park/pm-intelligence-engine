@@ -419,7 +419,10 @@ endpoint behind it.
 with legacy-value normalization (RunMode `_missing_`, Pydantic before-validators,
 API-input + DB migration) so stored data and existing clients keep working.
 Canonical "Processing Depth — 5 modes" added to decision-context
-`core/02-workflow.md`; engine `_MODE_GUIDANCE` refers there.
+`core/02-workflow.md`; engine `_MODE_GUIDANCE` refers there. **Part B:** the API
+field was renamed `mode → depth` (the concept is a depth, not a behavioral mode);
+`mode` is kept as a deprecated input alias and mirrored in responses (Hermes
+unaffected). Internal DB column stays `mode` (impl detail).
 
 The five processing modes (`file | brief | opportunity | evaluate | decide`)
 are really a **progressive-depth ladder** (how far to process a signal: skip →

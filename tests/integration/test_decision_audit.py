@@ -125,3 +125,41 @@ def test_decisions_queryable_by_event_filter(client, engine):
     resp = client.get("/runs", params={"event": "override"})
     assert resp.status_code == 200
     assert run_id in [r["run_id"] for r in resp.json()]
+
+
+# ---------------------------------------------------------------------------
+# depth field rename (US-43 part B) — `depth` canonical, `mode` deprecated alias
+# ---------------------------------------------------------------------------
+
+
+def _seed_awaiting(engine):
+    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    rid = engine.store.create_run("example-security-product", sid)
+    engine.store.update_run(rid, status="awaiting_direction", current_stage="s2",
+                            recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
+    return rid
+
+
+def test_direction_accepts_depth_field(client, engine):
+    rid = _seed_awaiting(engine)
+    with patch("app.api.direction._execute_from_direction", new=AsyncMock()):
+        resp = client.post(f"/runs/{rid}/direction", json={"depth": "decide"})
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+    assert body["depth"] == "decide" and body["mode"] == "decide"  # both returned
+
+
+def test_direction_accepts_legacy_mode_alias(client, engine):
+    rid = _seed_awaiting(engine)
+    with patch("app.api.direction._execute_from_direction", new=AsyncMock()):
+        resp = client.post(f"/runs/{rid}/direction", json={"mode": "opportunity"})  # legacy alias + legacy value
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["depth"] == "structure"  # alias + value both normalized
+
+
+def test_run_response_mirrors_depth_and_mode(client, engine):
+    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    rid = engine.store.create_run("example-security-product", sid)
+    engine.store.update_run(rid, status="completed", mode="decide")
+    r = client.get(f"/runs/{rid}").json()
+    assert r["depth"] == "decide" and r["mode"] == "decide"

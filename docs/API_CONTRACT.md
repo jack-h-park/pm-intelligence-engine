@@ -157,6 +157,7 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
   "signal_id": "uuid",
   "status": "completed",
   "current_stage": null,
+  "depth": "decide",
   "mode": "decide",
   "recommendation_json": "{\"suggested_mode\": \"decide\", \"reasoning\": \"...\", \"relevance_score\": 4}",
   "routing": "prd",
@@ -227,11 +228,16 @@ Start a pipeline run for an existing signal.
 {
   "signal_id": "uuid",
   "product_id": "example-security-product",
-  "mode": "decide"
+  "depth": "decide"
 }
 ```
 
-`mode` is optional. If omitted, the run pauses after Stage 2 in `awaiting_direction`.
+`depth` is the processing depth — one of `archive | note | structure | evaluate | decide`
+(the depth ladder; canonical definition in
+`pm-decision-context/core/02-workflow.md`). Optional; if omitted, the run pauses after
+Stage 2 in `awaiting_direction`. **`mode` is accepted as a deprecated alias** of `depth`
+(both the key `mode` and legacy values `file`/`brief`/`opportunity` are normalized), so
+existing clients keep working. Responses include both `depth` and `mode`.
 
 **Validation rules:**
 - the referenced signal must exist, otherwise `404`
@@ -243,12 +249,13 @@ Start a pipeline run for an existing signal.
 ---
 
 ### `POST /runs/{id}/direction`
-Gate 1 response — confirm or override the suggested mode.
+Gate 1 response — confirm or override the suggested processing depth.
 
 **Request body:**
 ```json
-{ "mode": "decide" }
+{ "depth": "decide" }
 ```
+(`mode` accepted as a deprecated alias.)
 
 `mode`: `"file"` | `"brief"` | `"opportunity"` | `"evaluate"` | `"decide"`
 

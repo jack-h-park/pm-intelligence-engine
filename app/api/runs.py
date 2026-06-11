@@ -1,7 +1,7 @@
 import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
@@ -15,9 +15,14 @@ class _DummyPersona:
 
 
 class RunStartRequest(BaseModel):
+    # `depth` is the canonical processing-depth field (US-43); `mode` is still
+    # accepted as a deprecated alias so existing clients (Hermes) keep working.
+    model_config = ConfigDict(populate_by_name=True)
     signal_id: str
     product_id: str
-    mode: str | None = None  # If provided, skip awaiting_direction and run immediately
+    depth: str | None = Field(
+        default=None, validation_alias=AliasChoices("depth", "mode")
+    )  # If provided, skip awaiting_direction and run immediately
 
 
 class RunResponse(BaseModel):
@@ -26,7 +31,8 @@ class RunResponse(BaseModel):
     signal_id: str
     status: str
     current_stage: str | None
-    mode: str | None
+    depth: str | None = None  # processing depth (canonical, US-43)
+    mode: str | None = None   # deprecated alias of `depth` (kept for existing clients)
     recommendation_json: str | None
     routing: str | None
     composite_score: float | None
@@ -34,6 +40,20 @@ class RunResponse(BaseModel):
     completed_at: str | None
     stage_outputs: list[dict] | None = None
     gate3_review: dict | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mirror_depth_mode(cls, data):
+        # The store dict uses "mode"; mirror it to "depth" (and vice-versa) so
+        # responses always carry both during the transition.
+        if isinstance(data, dict):
+            d = dict(data)
+            if d.get("depth") is None and d.get("mode") is not None:
+                d["depth"] = d["mode"]
+            elif d.get("mode") is None and d.get("depth") is not None:
+                d["mode"] = d["depth"]
+            return d
+        return data
 
 
 def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
@@ -92,9 +112,9 @@ async def start_run(
 
     canonical_product_id = signal["product_id"]
 
-    # Accept legacy mode values (file/brief/opportunity) from existing clients (US-43)
+    # `depth` (canonical) accepts the `mode` alias; legacy values are normalized (US-43)
     from app.modes import normalize_mode
-    requested_mode = normalize_mode(body.mode)
+    requested_mode = normalize_mode(body.depth)
     if requested_mode is not None:
         _validate_mode(requested_mode)
         validate_mode_for_product(requested_mode, canonical_product_id)

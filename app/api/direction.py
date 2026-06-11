@@ -8,7 +8,7 @@ State transition:
 """
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.api.deps import get_engine
 from app.api.runs import validate_mode_for_product
@@ -20,7 +20,9 @@ _VALID_MODES = {"archive", "note", "structure", "evaluate", "decide"}
 
 
 class DirectionRequest(BaseModel):
-    mode: str  # One of: file | brief | opportunity | evaluate | decide
+    # `depth` is canonical (US-43); `mode` accepted as a deprecated alias.
+    model_config = ConfigDict(populate_by_name=True)
+    depth: str = Field(validation_alias=AliasChoices("depth", "mode"))  # archive|note|structure|evaluate|decide
 
 
 @router.post("/{run_id}/direction", status_code=202)
@@ -31,22 +33,22 @@ async def set_direction(
     engine: PMEngine = Depends(get_engine),
 ) -> dict:
     from app.modes import normalize_mode
-    body.mode = normalize_mode(body.mode)  # accept legacy file/brief/opportunity (US-43)
-    if body.mode not in _VALID_MODES:
+    body.depth = normalize_mode(body.depth)  # accept legacy file/brief/opportunity (US-43)
+    if body.depth not in _VALID_MODES:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid mode '{body.mode}'. Must be one of: {', '.join(sorted(_VALID_MODES))}",
+            detail=f"Invalid depth '{body.depth}'. Must be one of: {', '.join(sorted(_VALID_MODES))}",
         )
 
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    validate_mode_for_product(body.mode, run["product_id"])
+    validate_mode_for_product(body.depth, run["product_id"])
 
     if run["status"] != "awaiting_direction":
-        if run.get("mode") == body.mode:
-            return {"run_id": run_id, "mode": body.mode, "action": "already_set"}
+        if run.get("mode") == body.depth:
+            return {"run_id": run_id, "depth": body.depth, "mode": body.depth, "action": "already_set"}
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run['status']}', expected 'awaiting_direction'",
@@ -65,16 +67,17 @@ async def set_direction(
         run_id=run_id,
         stage="s2",
         action="direction",
-        feedback_text=f"chose={body.mode}; suggested={suggested}",
+        feedback_text=f"chose={body.depth}; suggested={suggested}",
     )
 
-    engine.store.update_run(run_id, mode=body.mode, status="running")
+    engine.store.update_run(run_id, mode=body.depth, status="running")
 
-    background_tasks.add_task(_execute_from_direction, run_id, body.mode, engine)
+    background_tasks.add_task(_execute_from_direction, run_id, body.depth, engine)
 
     return {
         "run_id": run_id,
-        "mode": body.mode,
+        "depth": body.depth,
+        "mode": body.depth,  # deprecated alias
         "action": "direction_set",
     }
 
