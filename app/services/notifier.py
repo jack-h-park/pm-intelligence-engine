@@ -490,8 +490,18 @@ def build_notifier() -> FanoutNotifier:
     Providers with missing credentials are silently excluded.
     Returns a FanoutNotifier with zero providers if nothing is configured
     (all send_* calls become no-ops).
+
+    Single chokepoint for the gate-notification cutover (US-48): when
+    ``GATE_NOTIFICATIONS_ENABLED`` is false, no providers are wired, so every
+    send_gate1/2/3 call becomes a no-op without touching the three call sites.
+    Set false on the iMac once Hermes-ops owns gate (and terminal) messaging;
+    keep true locally/in tests. Reversible — flip the flag and restart.
     """
     from config import settings
+
+    if not settings.GATE_NOTIFICATIONS_ENABLED:
+        emit_event("notifier", "gate_notifications_disabled", "-")
+        return FanoutNotifier([])
 
     providers: list = []
 

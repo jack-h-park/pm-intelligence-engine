@@ -47,12 +47,19 @@ class Settings(BaseSettings):
     # Set to your server's public URL when deployed; default is local dev.
     BASE_URL: str = "http://localhost:8000"
 
-    # Notifications — Gate 1 and Gate 2 alerts.
+    # Notifications — Gate 1/2/3 alerts.
     # Leave a field empty ("") to disable that provider.
     # Both providers can be active simultaneously.
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
     SLACK_WEBHOOK_URL: str = ""  # Incoming Webhook URL from Slack App settings
+
+    # Master switch for pm-engine's built-in gate push (US-48). Default True
+    # (local/dev/test). Set False on the iMac to hand gate + terminal messaging
+    # to Hermes-ops (which polls the gate/terminal queues and composes
+    # conversational messages). When False, build_notifier() wires no providers
+    # so all send_gate1/2/3 calls are no-ops. Reversible — flip + restart.
+    GATE_NOTIFICATIONS_ENABLED: bool = True
 
     @model_validator(mode="after")
     def _resolve_decision_root_aliases(self) -> "Settings":

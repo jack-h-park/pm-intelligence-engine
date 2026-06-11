@@ -395,6 +395,27 @@ labeled datapoint capturing system-suggestion vs PM-choice:
 - Gate 3 `confirm`/`override`: `chose=<routing>; recommended=<s5_routing>[; reason=...]`
 - queryable via `GET /runs?event=direction|confirm|override` (+ existing filters)
 
+#### US-48 — Gate-notification cutover flag (consolidate notifications to Hermes)
+**Status:** Flag shipped 2026-06-11 (default true; cutover pending Hermes ops sweep).
+
+Notification ownership is consolidating to Hermes-ops (conversational, LLM-authored
+messages) instead of pm-engine's fixed-template push. pm-engine keeps the gate
+**state machine + API + queue queries**; it stops **composing human-facing messages**.
+
+- `GATE_NOTIFICATIONS_ENABLED` (config) — **single chokepoint** in `build_notifier()`:
+  when false, zero providers are wired so all send_gate1/2/3 calls are no-ops (the
+  three call sites are untouched). Default **true** (local/test); set false on the iMac.
+- **Cutover sequencing (avoid double- AND no-notification):** ship this flag (done,
+  default true → no prod change); then in ONE maintenance window flip iMac to false
+  AND enable the Hermes-ops `gate-watcher` cron sweep together. Reversible (flip + restart).
+- **Terminal notifications** (the evaluate-run silence) are folded in: Hermes-ops will
+  poll `GET /runs?status=completed|killed` and compose result messages — so pm-engine
+  needs no completion-notification feature (replaces a would-be US-47). gate1_review /
+  gate3_review payloads (US-46/30/41) are what ops reads to compose messages.
+- Hermes side (build the ops gate-watcher + enable sweep) is separate hermes-control-plane
+  work; handover reviewed 2026-06-11. Restart on iMac is via launchd
+  (`launchctl unload/load com.jackpark.pm-engine`), not `make restart`.
+
 #### US-46 — Gate 1 information enrichment
 **Status:** ✅ Completed (2026-06-11). Found during the first live run: the Gate 1
 notification showed only relevance + suggested depth + a one-line reason — too

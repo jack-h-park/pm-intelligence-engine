@@ -95,3 +95,31 @@ async def test_telegram_gate1_renders_s2_insight():
     assert "Suggested depth: <b>note</b>" in text
     assert '{"depth": "note"}' in text
     assert "archive" in text and "decide" in text  # ladder reminder
+
+
+@pytest.mark.asyncio
+async def test_gate_notifications_flag_disables_all_push():
+    """GATE_NOTIFICATIONS_ENABLED=false → build_notifier wires no providers (US-48)."""
+    from app.services.notifier import build_notifier
+    with patch("config.settings.GATE_NOTIFICATIONS_ENABLED", False), \
+         patch("config.settings.TELEGRAM_BOT_TOKEN", "t"), \
+         patch("config.settings.TELEGRAM_CHAT_ID", "c"), \
+         patch("config.settings.SLACK_WEBHOOK_URL", "https://hook"):
+        n = build_notifier()
+    assert not n.is_configured  # despite creds present, disabled → no providers
+    # all gate sends are silent no-ops (do not raise)
+    await n.send_gate1(run_id="r", product_id="p", signal_title="s",
+                       relevance_score=3, suggested_mode="note", reasoning="x")
+    await n.send_gate3(run_id="r", product_id="p", signal_title="s",
+                       routing="kill", composite_score=1.0, blocking_count=0)
+
+
+@pytest.mark.asyncio
+async def test_gate_notifications_flag_enabled_wires_providers():
+    from app.services.notifier import build_notifier
+    with patch("config.settings.GATE_NOTIFICATIONS_ENABLED", True), \
+         patch("config.settings.TELEGRAM_BOT_TOKEN", "t"), \
+         patch("config.settings.TELEGRAM_CHAT_ID", "c"), \
+         patch("config.settings.SLACK_WEBHOOK_URL", ""):
+        n = build_notifier()
+    assert n.is_configured
