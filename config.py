@@ -29,6 +29,11 @@ class Settings(BaseSettings):
     # automatically completed as 'file' mode without pausing at Gate 1.
     # Range 1–5. Default 3 means scores 1–2 are auto-triaged; score 3+ goes to PM.
     AUTO_TRIAGE_THRESHOLD: int = 3
+    # Portfolio Triage fan-out cutoff (US-49). A product receives a full run only
+    # when the signal scores at or above this relevance for that product. Range
+    # 1–5. Default 4 ("clearly relevant") is stricter than auto-triage — fan-out
+    # should reach only products with a real, actionable implication.
+    TRIAGE_RELEVANCE_THRESHOLD: int = 4
     # Transitional cutover switch. While True, pm-engine still writes the
     # legacy local wiki archive for auto-triaged signals. Set to False once
     # Hermes has taken over auto-triage archive ownership.

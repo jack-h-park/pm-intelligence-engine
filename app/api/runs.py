@@ -19,7 +19,9 @@ class RunStartRequest(BaseModel):
     # accepted as a deprecated alias so existing clients (Hermes) keep working.
     model_config = ConfigDict(populate_by_name=True)
     signal_id: str
-    product_id: str
+    # product_id is now OPTIONAL (US-49). Provided -> manual single-product start
+    # (back-compat). Omitted -> Portfolio Triage fans out to the relevant products.
+    product_id: str | None = None
     depth: str | None = Field(
         default=None, validation_alias=AliasChoices("depth", "mode")
     )  # If provided, skip awaiting_direction and run immediately
@@ -29,6 +31,7 @@ class RunResponse(BaseModel):
     run_id: str
     product_id: str
     signal_id: str
+    batch_id: str | None = None  # fan-out sibling group (US-49); null for single runs
     status: str
     current_stage: str | None
     depth: str | None = None  # processing depth (canonical, US-43)
@@ -56,6 +59,18 @@ class RunResponse(BaseModel):
                 d["mode"] = d["depth"]
             return d
         return data
+
+
+class BatchStartResponse(BaseModel):
+    """Response for a Portfolio Triage fan-out start (US-49).
+
+    Returned only when /runs/start is called without a product_id. A manual
+    single-product start still returns a plain RunResponse (back-compat).
+    """
+
+    batch_id: str
+    runs: list[RunResponse]
+    triage: list[dict]  # per-product verdicts (product_id, relevance_score, reason, relevant)
 
 
 def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
@@ -121,51 +136,110 @@ def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
     return review
 
 
-@router.post("/start", response_model=RunResponse, status_code=202)
+@router.post("/start", response_model=None, status_code=202)
 async def start_run(
     body: RunStartRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> RunResponse:
+) -> RunResponse | BatchStartResponse:
+    """Start a run.
+
+    Two modes (US-49):
+    - **Manual** — `product_id` provided: a single run for that product. Returns a
+      plain ``RunResponse`` (back-compat). The product is no longer required to
+      match the signal's origin hint; it just has to exist.
+    - **Fan-out** — `product_id` omitted: Portfolio Triage scores the signal
+      against the portfolio and a run is started for each relevant product.
+      Returns a ``BatchStartResponse``.
+    """
     signal = engine.store.get_signal(body.signal_id)
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
-    if body.product_id != signal["original_product_id"]:
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"product_id '{body.product_id}' does not match "
-                f"signal.original_product_id '{signal['original_product_id']}'"
-            ),
-        )
-
-    canonical_product_id = signal["original_product_id"]
 
     # `depth` (canonical) accepts the `mode` alias; legacy values are normalized (US-43)
     from app.modes import normalize_mode
     requested_mode = normalize_mode(body.depth)
     if requested_mode is not None:
         _validate_mode(requested_mode)
-        validate_mode_for_product(requested_mode, canonical_product_id)
 
-    run_id = engine.store.create_run(
-        product_id=canonical_product_id,
-        signal_id=body.signal_id,
+    if body.product_id is not None:
+        return _start_manual_run(
+            body.signal_id, body.product_id, requested_mode, background_tasks, engine
+        )
+    return await _start_fanout_runs(
+        body.signal_id, signal, requested_mode, background_tasks, engine
     )
+
+
+def _start_manual_run(
+    signal_id: str,
+    product_id: str,
+    requested_mode: str | None,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine,
+) -> RunResponse:
+    _validate_product_exists(product_id, engine)
+    if requested_mode is not None:
+        validate_mode_for_product(requested_mode, product_id)
+
+    run_id = engine.store.create_run(product_id=product_id, signal_id=signal_id)
     engine.store.update_run(run_id, status="running", current_stage="s1")
-    engine.store.update_signal_status(body.signal_id, "in_run")
-
+    engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
-        _execute_s1_s2,
-        run_id,
-        body.signal_id,
-        canonical_product_id,
-        requested_mode,
-        engine,
+        _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
+    )
+    return RunResponse(**engine.store.get_run(run_id))  # type: ignore[arg-type]
+
+
+async def _start_fanout_runs(
+    signal_id: str,
+    signal: dict,
+    requested_mode: str | None,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine,
+) -> BatchStartResponse:
+    from config import settings
+    from app.logging import emit_event
+    from app.stages import portfolio_triage
+
+    triage = await portfolio_triage.run(
+        signal_id=signal_id,
+        title=signal["title"],
+        summary=signal["raw_content"],
+        profiles=engine.context_loader.load_portfolio_profiles(),
+        llm=engine.llm,
+        threshold=settings.TRIAGE_RELEVANCE_THRESHOLD,
+        pm_identity=engine.context_loader.load_pm_identity(),
     )
 
-    run = engine.store.get_run(run_id)
-    return RunResponse(**run)  # type: ignore[arg-type]
+    batch_id = engine.store.create_batch(signal_id)
+    runs: list[RunResponse] = []
+    for product_id in triage.relevant_product_ids:
+        run_id = engine.store.create_run(
+            product_id=product_id, signal_id=signal_id, batch_id=batch_id
+        )
+        engine.store.update_run(run_id, status="running", current_stage="s1")
+        background_tasks.add_task(
+            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
+        )
+        runs.append(RunResponse(**engine.store.get_run(run_id)))  # type: ignore[arg-type]
+
+    if runs:
+        engine.store.update_signal_status(signal_id, "in_run")
+    # Membership is final immediately for product-agnostic fan-out (no manual
+    # scan gate here — that arrives with Increment C-2 scan). Closing it lets the
+    # Variant 2 synthesis trigger fire once all runs settle.
+    engine.store.close_batch_membership(batch_id)
+
+    emit_event(
+        "run", "fanout_started", signal_id,
+        {"batch_id": batch_id, "relevant": triage.relevant_product_ids},
+    )
+    return BatchStartResponse(
+        batch_id=batch_id,
+        runs=runs,
+        triage=[p.model_dump() for p in triage.products],
+    )
 
 
 @router.get("/{run_id}", response_model=RunResponse)
@@ -282,6 +356,20 @@ def _validate_mode(mode: str) -> None:
         raise HTTPException(
             status_code=422,
             detail=f"Invalid mode '{mode}'. Must be one of: {', '.join(sorted(valid))}",
+        )
+
+
+def _validate_product_exists(product_id: str, engine: PMEngine) -> None:
+    """Raise 422 if the product has no context directory (US-49).
+
+    Replaces the old strict equality gate: under 1:N the caller-supplied product
+    no longer has to match the signal's origin hint — it just has to be real.
+    """
+    try:
+        engine.context_loader.load_product_context(product_id)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=422, detail=f"Unknown product_id '{product_id}'"
         )
 
 

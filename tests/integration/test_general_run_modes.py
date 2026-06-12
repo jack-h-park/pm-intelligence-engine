@@ -36,6 +36,17 @@ def engine(tmp_path):
         product_id="general",
     )
 
+    # _validate_product_exists (US-49) calls load_product_context — mimic the real
+    # loader: known products resolve, unknown ones raise FileNotFoundError.
+    _known = {"general", "example-security-product"}
+
+    def _load_product_context(product_id):
+        if product_id not in _known:
+            raise FileNotFoundError(product_id)
+        return f"context for {product_id}"
+
+    context_loader.load_product_context.side_effect = _load_product_context
+
     template_service = MagicMock(spec=TemplateService)
     notifier = MagicMock(spec=FanoutNotifier)
     notifier.send = AsyncMock()
@@ -151,8 +162,34 @@ def test_error_message_consistent_across_endpoints(client, engine):
         assert "file" in detail or "brief" in detail
 
 
-def test_start_run_rejects_mismatched_signal_product(client, engine):
-    """Run start must reject caller-supplied product_id that disagrees with the signal."""
+def test_start_run_allows_product_other_than_origin(client, engine):
+    """Under 1:N (US-49), original_product_id is only a hint — the caller may
+
+    name any *existing* product; it no longer has to match the signal's origin.
+    """
+    signal_id = engine.store.save_signal(
+        original_product_id="general",
+        title="NIST AI RMF update",
+        raw_content="Full signal text.",
+    )
+
+    with pytest.MonkeyPatch.context() as mp:
+        async def _noop(*args, **kwargs):
+            return None
+
+        mp.setattr("app.api.runs._execute_s1_s2", _noop)
+        resp = client.post("/runs/start", json={
+            "signal_id": signal_id,
+            "product_id": "example-security-product",
+            "mode": "brief",
+        })
+
+    assert resp.status_code == 202, resp.text
+    assert resp.json()["product_id"] == "example-security-product"
+
+
+def test_start_run_rejects_unknown_product(client, engine):
+    """A caller-supplied product that has no context directory is rejected (US-49)."""
     signal_id = engine.store.save_signal(
         original_product_id="general",
         title="NIST AI RMF update",
@@ -161,12 +198,12 @@ def test_start_run_rejects_mismatched_signal_product(client, engine):
 
     resp = client.post("/runs/start", json={
         "signal_id": signal_id,
-        "product_id": "example-security-product",
+        "product_id": "nonexistent-product-xyz",
         "mode": "brief",
     })
 
     assert resp.status_code == 422
-    assert "does not match" in resp.json()["detail"]
+    assert "Unknown product_id" in resp.json()["detail"]
 
 
 def test_start_run_marks_signal_in_run(client, engine):

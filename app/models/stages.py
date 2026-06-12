@@ -76,6 +76,35 @@ class S1Output(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Portfolio Triage (US-49) — cross-product relevance routing, pre-fan-out
+# ---------------------------------------------------------------------------
+
+
+class ProductRelevance(BaseModel):
+    """One product's relevance verdict from Portfolio Triage."""
+
+    product_id: str
+    relevance_score: int = Field(ge=1, le=5, description="1–5 relevance to this product")
+    reason: str = Field(description="One sentence grounded in the product's profile")
+    relevant: bool = Field(
+        default=False,
+        description="Set by the engine: True iff relevance_score >= threshold",
+    )
+
+
+class PortfolioTriageOutput(BaseModel):
+    """Result of routing one signal across the portfolio."""
+
+    signal_id: str
+    threshold: int = Field(description="Relevance cutoff applied to decide fan-out")
+    products: list[ProductRelevance] = Field(default_factory=list)
+
+    @property
+    def relevant_product_ids(self) -> list[str]:
+        return [p.product_id for p in self.products if p.relevant]
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 — Insight Extraction
 # ---------------------------------------------------------------------------
 

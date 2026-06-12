@@ -51,6 +51,20 @@ class TemplateService:
             f"No template found for stage '{stage}' in {self._prompts_root}"
         )
 
+    def load_portfolio_prompt(self, kind: str) -> str:
+        """Load a cross-product portfolio prompt (US-49).
+
+        Reads prompts/portfolio/{kind}.md — the product-agnostic area that holds
+        framework prompts not owned by any single product (e.g. 'triage',
+        'synthesis'). decision-context owns the wording; the engine injects data.
+        """
+        path = self._prompts_root / "portfolio" / f"{kind}.md"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"No portfolio prompt '{kind}' at {path}"
+            )
+        return path.read_text(encoding="utf-8")
+
     def load_persona_prompt(self, persona: str) -> dict:
         """Load a single S4 persona's lens and evaluation question.
 

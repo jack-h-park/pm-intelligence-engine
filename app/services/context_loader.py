@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,6 +9,60 @@ class FullContext:
     company_context: str
     product_context: str
     product_id: str
+
+
+@dataclass
+class ProductProfile:
+    """Compressed product summary for Portfolio Triage (US-49).
+
+    A short, relevance-judging profile derived from products/<id>/context.md —
+    NOT the full context. Keeps the single Triage call cheap.
+    """
+
+    product_id: str
+    title: str
+    overview: str
+
+
+# Pseudo-products that are not real fan-out targets: the scaffold template and
+# the 'general' catch-all (special-cased to archive/note only).
+_NON_PRODUCT_DIRS = frozenset({"_template", "general"})
+
+
+def _extract_overview(context_md: str) -> tuple[str, str]:
+    """Return (title, overview) from a product context.md.
+
+    title  = the leading '# ' heading.
+    overview = the '## Product Overview' section body, falling back to the first
+               '## ' section if Product Overview is absent.
+    """
+    title = ""
+    sections: list[tuple[str, list[str]]] = []
+    current: str | None = None
+    buf: list[str] = []
+    for line in context_md.splitlines():
+        h1 = re.match(r"^#\s+(.+?)\s*$", line)
+        h2 = re.match(r"^##\s+(.+?)\s*$", line)
+        if h1 and not title:
+            title = h1.group(1).strip()
+        elif h2:
+            if current is not None:
+                sections.append((current, buf))
+            current = h2.group(1).strip().lower()
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        sections.append((current, buf))
+
+    overview = ""
+    for name, body in sections:
+        if name == "product overview":
+            overview = "\n".join(body).strip()
+            break
+    if not overview and sections:
+        overview = "\n".join(sections[0][1]).strip()
+    return title, overview
 
 
 class ContextLoader:
@@ -33,3 +88,40 @@ class ContextLoader:
             product_context=self.load_product_context(product_id),
             product_id=product_id,
         )
+
+    def load_portfolio_profiles(
+        self, exclude: tuple[str, ...] = ()
+    ) -> list[ProductProfile]:
+        """Compressed profiles of every real product, for Portfolio Triage (US-49).
+
+        Skips the scaffold (_template) and the 'general' catch-all, plus any
+        product ids in ``exclude`` (e.g. the manually-named origin product, which
+        is already getting a run). Products whose context.md is missing or has no
+        extractable overview are skipped — Triage routes only over describable
+        products.
+        """
+        products_root = self._root / "products"
+        if not products_root.is_dir():
+            return []
+
+        skip = _NON_PRODUCT_DIRS.union(exclude)
+        profiles: list[ProductProfile] = []
+        for product_dir in sorted(products_root.iterdir()):
+            if not product_dir.is_dir() or product_dir.name in skip:
+                continue
+            context_path = product_dir / "context.md"
+            if not context_path.exists():
+                continue
+            title, overview = _extract_overview(
+                context_path.read_text(encoding="utf-8")
+            )
+            if not overview:
+                continue
+            profiles.append(
+                ProductProfile(
+                    product_id=product_dir.name,
+                    title=title or product_dir.name,
+                    overview=overview,
+                )
+            )
+        return profiles

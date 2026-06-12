@@ -102,7 +102,7 @@ Submit a new signal for processing.
 **Request body:**
 ```json
 {
-  "product_id": "example-security-product",
+  "original_product_id": "example-security-product",
   "title": "Android 16 NFC admin control API released",
   "raw_content": "Full article text or summary...",
   "source_url": "https://example.com/article",
@@ -110,11 +110,14 @@ Submit a new signal for processing.
 }
 ```
 
-`source_type`: `"manual"` | `"rss"` | `"file_watch"`
+`original_product_id` is an **optional** origin/provenance hint (US-49) — `null` for
+product-agnostic intake (RSS / file_watch), where Portfolio Triage routes the signal.
+**`product_id` is accepted as a deprecated alias** so existing clients (Hermes) keep
+working. `source_type`: `"manual"` | `"rss"` | `"file_watch"`
 
 **Response (201):**
 ```json
-{ "signal_id": "uuid", "product_id": "...", "title": "...", "status": "pending" }
+{ "signal_id": "uuid", "original_product_id": "...", "title": "...", "status": "pending" }
 ```
 
 **Signal lifecycle:**
@@ -222,9 +225,9 @@ the latest pipeline state when a run is paused, killed, or still in progress.
 ---
 
 ### `POST /runs/start`
-Start a pipeline run for an existing signal.
+Start a pipeline run for an existing signal. Two modes (US-49):
 
-**Request body:**
+**Manual (single product)** — provide `product_id`:
 ```json
 {
   "signal_id": "uuid",
@@ -233,19 +236,33 @@ Start a pipeline run for an existing signal.
 }
 ```
 
+**Fan-out (Portfolio Triage)** — omit `product_id`:
+```json
+{ "signal_id": "uuid" }
+```
+Portfolio Triage scores the signal against every product profile in one call and a
+run is started for each product whose relevance is at or above
+`TRIAGE_RELEVANCE_THRESHOLD`. The spawned runs share a `batch_id`.
+
 `depth` is the processing depth — one of `archive | note | structure | evaluate | decide`
 (the depth ladder; canonical definition in
-`pm-decision-context/core/02-workflow.md`). Optional; if omitted, the run pauses after
+`pm-decision-context/core/02-workflow.md`). Optional; if omitted, runs pause after
 Stage 2 in `awaiting_direction`. **`mode` is accepted as a deprecated alias** of `depth`
 (both the key `mode` and legacy values `file`/`brief`/`opportunity` are normalized), so
 existing clients keep working. Responses include both `depth` and `mode`.
 
 **Validation rules:**
 - the referenced signal must exist, otherwise `404`
-- `product_id` must exactly match the signal's stored `product_id`, otherwise `422`
-- when valid, the signal's stored `product_id` is treated as canonical for run creation and downstream context loading
+- **manual:** `product_id` must resolve to a product context directory, otherwise `422`.
+  It is no longer required to match the signal's origin — `original_product_id` is only a
+  hint under 1:N; the caller may name any existing product.
 
-**Response (202):** Run object with status `running`.
+**Response (202):**
+- **manual:** a single Run object with status `running` (back-compat — includes a new
+  `batch_id` field, `null` for a single run).
+- **fan-out:** `{ "batch_id": "...", "runs": [Run, ...], "triage": [{product_id,
+  relevance_score, reason, relevant}, ...] }`. `runs` is empty when no product clears the
+  threshold; `triage` always reports every product's verdict.
 
 ---
 
