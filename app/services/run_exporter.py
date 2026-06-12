@@ -48,7 +48,10 @@ def export_run(
         raise ValueError(f"Run {run_id} not found")
 
     product_id = run["product_id"]
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # Folder date = run terminal date (completed_at), else created_at, else now().
+    # Keeps backfilled exports on the run real date, not the export date.
+    _run_date = run.get("completed_at") or run.get("created_at")
+    date_str = _run_date[:10] if _run_date else datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     # Load all stage outputs
     s1 = _load_stage(store, run_id, "s1", S1OutputData)

@@ -8,9 +8,9 @@ This guarantees:
 
 Export policy
 -------------
-Only 'decide' mode runs are exported to DECISION_SYSTEM_ROOT.
-Modes archive/note/structure/evaluate produce no export artifact.
-Auto-triaged runs (completed as mode='file') are also excluded.
+Every completed run at depth note/structure/evaluate/decide is exported to the
+canonical run archive (browsable markdown trace). Only 'archive' depth
+(S1-only, set aside / not pursued) is excluded - it produces no artifact.
 
 Wiki sync is NOT owned by pm-engine. Hermes consumes terminal run events
 and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
@@ -22,8 +22,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
-# Only decide-mode runs export to the decision-system.
-_EXPORTABLE_MODES = {"decide"}
+# note depth and above export to the run archive; archive depth (set-aside) is excluded.
+_EXPORTABLE_MODES = {"note", "structure", "evaluate", "decide"}
 _TERMINAL_SIGNAL_STATUSES = {
     "completed": "done",
     "killed": "done",

@@ -3,8 +3,8 @@
 Covers:
   - await finalize_run() calls store.update_run with the right status
   - completed_at is stamped by the store for completed/killed (store-layer contract)
-  - export is triggered ONLY for completed + decide mode
-  - export is NOT triggered for completed + non-decide modes
+  - export is triggered for completed runs at exportable depth (note and above)
+  - export is NOT triggered for completed 'archive' depth (set-aside)
   - export is NOT triggered for killed or failed
   - event_action defaults to status when not provided
   - custom event_action is passed through
@@ -121,7 +121,7 @@ async def test_finalize_run_skips_signal_status_update_when_run_not_found():
 
 
 # ---------------------------------------------------------------------------
-# Export policy — only completed + decide triggers export
+# Export policy — completed runs at note depth and above trigger export
 # ---------------------------------------------------------------------------
 
 
@@ -138,10 +138,11 @@ async def test_export_triggered_for_completed_decide():
     mock_export.assert_called_once_with("run-abc", engine)
 
 
-@pytest.mark.parametrize("mode", ["file", "brief", "opportunity", "evaluate"])
+@pytest.mark.parametrize("mode", ["archive", "note", "structure", "evaluate", "decide"])
 @pytest.mark.asyncio
-async def test_export_not_triggered_for_non_decide_modes(mode: str):
-    """Export must NOT fire for completed runs with non-decide modes."""
+async def test_maybe_export_invoked_for_all_completed_runs(mode: str):
+    """finalize_run delegates to _maybe_export for every completed run,
+    regardless of depth; the depth guard lives inside _maybe_export."""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine(mode=mode)
@@ -149,9 +150,8 @@ async def test_export_not_triggered_for_non_decide_modes(mode: str):
         with patch("app.logging.emit_event"):
             await finalize_run("run-abc", "completed", engine)
 
-    # _maybe_export IS called — but it short-circuits on mode check inside
-    # We test the mode guard inside _maybe_export separately below.
-    # Here we confirm the completed path invokes _maybe_export at least:
+    # The depth guard lives inside _maybe_export (tested below); here we only
+    # confirm the completed path always delegates to it.
     mock_export.assert_called_once()
 
 
@@ -179,13 +179,27 @@ async def test_maybe_export_skips_when_mode_not_exportable():
     """_maybe_export must return early when run.mode is not in _EXPORTABLE_MODES."""
     from app.services.run_finalizer import _maybe_export
 
-    engine = _make_engine(mode="brief")
+    engine = _make_engine(mode="archive")
     # export_run is lazily imported inside _maybe_export; patch at its source module
     with patch("app.services.run_exporter.export_run") as mock_export_run:
         with patch("app.logging.emit_event"):
             _maybe_export("run-abc", engine)
 
     mock_export_run.assert_not_called()
+
+
+@pytest.mark.parametrize("mode", ["note", "structure", "evaluate", "decide"])
+@pytest.mark.asyncio
+async def test_maybe_export_runs_for_exportable_depths(mode: str):
+    """_maybe_export must call export_run for every exportable depth."""
+    from app.services.run_finalizer import _maybe_export
+
+    engine = _make_engine(mode=mode)
+    with patch("app.services.run_exporter.export_run") as mock_export_run:
+        with patch("app.logging.emit_event"):
+            _maybe_export("run-abc", engine)
+
+    mock_export_run.assert_called_once()
 
 
 @pytest.mark.asyncio
