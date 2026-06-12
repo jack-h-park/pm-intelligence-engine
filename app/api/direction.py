@@ -107,4 +107,4 @@ async def _execute_from_direction(run_id: str, mode: str, engine: PMEngine) -> N
         await _continue_after_direction(run_id, mode, context, engine)
 
     except Exception as exc:  # noqa: BLE001
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

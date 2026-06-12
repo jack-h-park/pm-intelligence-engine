@@ -112,3 +112,28 @@ def test_fanout_no_relevant_products_creates_no_runs(client, engine, monkeypatch
 def test_fanout_missing_signal_404(client):
     resp = client.post("/runs/start", json={"signal_id": "nope"})
     assert resp.status_code == 404
+
+
+def test_get_batch_returns_runs_and_synthesis(client, engine, monkeypatch):
+    signal_id = _seed_signal(engine)
+
+    async def fake_triage(**kwargs):
+        return _triage_returning("prod-a", "prod-b")
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", AsyncMock())
+
+    batch_id = client.post("/runs/start", json={"signal_id": signal_id}).json()["batch_id"]
+
+    resp = client.get(f"/runs/batch/{batch_id}")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["batch_id"] == batch_id
+    assert {r["product_id"] for r in body["runs"]} == {"prod-a", "prod-b"}
+    assert body["membership_closed"] is True
+    # runs never settled (execute is a no-op) -> no synthesis yet
+    assert body["synthesis"] is None
+
+
+def test_get_batch_unknown_404(client):
+    assert client.get("/runs/batch/nope").status_code == 404

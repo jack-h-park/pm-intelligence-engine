@@ -92,7 +92,7 @@ async def reject_run(
     engine.store.update_run(run_id, routing=None)  # clear routing before finalizing
 
     from app.services.run_finalizer import finalize_run
-    finalize_run(
+    await finalize_run(
         run_id, "killed", engine,
         event_action="rejected",
         event_detail={"reason": body.reason},
@@ -168,7 +168,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         )
 
     except Exception as exc:  # noqa: BLE001
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
 async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> None:
@@ -218,4 +218,4 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
         emit_event("run", "s4_retry_complete", run_id, {"version": next_version})
 
     except Exception as exc:  # noqa: BLE001
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})

@@ -105,6 +105,33 @@ class PortfolioTriageOutput(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Portfolio Synthesis (US-49, Variant 2) — post-hoc cross-product memo
+# ---------------------------------------------------------------------------
+
+
+class PortfolioPriorityItem(BaseModel):
+    """One product's place in the portfolio priority ranking."""
+
+    product_id: str
+    rank: int = Field(ge=1, description="1 = highest portfolio priority")
+    rationale: str
+
+
+class PortfolioSynthesisData(BaseModel):
+    """Structured cross-product reading produced by portfolio synthesis.
+
+    Visibility only — does not change any product's routing.
+    """
+
+    priority_ranking: list[PortfolioPriorityItem] = Field(default_factory=list)
+    shared_root_cause: str = Field(default="")
+    sequencing: str = Field(default="")
+    resource_conflicts: str = Field(default="")
+    synergies: str = Field(default="")
+    recommendation: str = Field(default="")
+
+
+# ---------------------------------------------------------------------------
 # Stage 2 — Insight Extraction
 # ---------------------------------------------------------------------------
 

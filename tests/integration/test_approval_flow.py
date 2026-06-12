@@ -414,7 +414,8 @@ def test_routing_review_override_invalid_routing_value(client, engine):
 # ---------------------------------------------------------------------------
 
 
-def test_failed_run_does_not_stamp_completed_at(engine):
+@pytest.mark.asyncio
+async def test_failed_run_does_not_stamp_completed_at(engine):
     """finalize_run with status='failed' must NOT stamp completed_at."""
     from app.services.run_finalizer import finalize_run
 
@@ -427,7 +428,7 @@ def test_failed_run_does_not_stamp_completed_at(engine):
     engine.store.update_run(run_id, status="running", mode="decide")
 
     with patch("app.logging.emit_event"):
-        finalize_run(run_id, "failed", engine, event_detail={"error": "timeout"})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": "timeout"})
 
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(signal_id)

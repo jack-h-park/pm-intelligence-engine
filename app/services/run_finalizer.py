@@ -31,7 +31,7 @@ _TERMINAL_SIGNAL_STATUSES = {
 }
 
 
-def finalize_run(
+async def finalize_run(
     run_id: str,
     status: str,
     engine: PMEngine,
@@ -71,6 +71,11 @@ def finalize_run(
     if status == "completed":
         _maybe_export(run_id, engine)
 
+    # Portfolio synthesis (US-49, Variant 2): if this run was the last to settle
+    # in a fan-out batch, produce the cross-product memo. Fires on any terminal
+    # status — a killed/failed sibling can be the one that completes the batch.
+    await _maybe_synthesize_portfolio(run_id, engine)
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -103,6 +108,29 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
             "reason": "decision_system_root not writable",
             "decision_system_root": settings.DECISION_SYSTEM_ROOT,
         })
+
+
+async def _maybe_synthesize_portfolio(run_id: str, engine: PMEngine) -> None:
+    """Trigger Variant 2 synthesis when the run's batch is complete.
+
+    Cheap guards run first (no batch / membership still open / already
+    synthesized / single run / a sibling still unsettled); only a genuinely
+    complete batch reaches the LLM call. The store's insert-or-skip guard makes a
+    near-simultaneous double-fire harmless.
+    """
+    run = engine.store.get_run(run_id)
+    if run is None or not run.get("batch_id"):
+        return
+
+    from app.services.portfolio_synthesis import (
+        batch_ready_for_synthesis,
+        synthesize_batch,
+    )
+
+    batch_id = run["batch_id"]
+    if not batch_ready_for_synthesis(batch_id, engine):
+        return
+    await synthesize_batch(batch_id, engine)
 
 
 def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:

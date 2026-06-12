@@ -242,6 +242,33 @@ async def _start_fanout_runs(
     )
 
 
+@router.get("/batch/{batch_id}", response_model=None)
+async def get_batch(
+    batch_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> dict:
+    """A fan-out batch: its sibling runs plus the portfolio synthesis (US-49).
+
+    ``synthesis`` is null until every run in the batch has settled.
+    """
+    batch = engine.store.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    runs = engine.store.list_runs(batch_id=batch_id, limit=1000)
+    synthesis = engine.store.get_portfolio_synthesis(batch_id)
+    if synthesis is not None:
+        synthesis = {**synthesis, "content": json.loads(synthesis["content_json"])}
+
+    return {
+        "batch_id": batch_id,
+        "signal_id": batch["signal_id"],
+        "membership_closed": batch["membership_closed"],
+        "runs": [RunResponse(**r).model_dump() for r in runs],
+        "synthesis": synthesis,
+    }
+
+
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,
@@ -461,7 +488,7 @@ async def _execute_s1_s2(
                 action="auto_triaged",
                 feedback_text=s2_out.output.suggestion_reasoning,
             )
-            finalize_run(
+            await finalize_run(
                 run_id, "completed", engine,
                 event_action="auto_triaged",
                 event_detail={
@@ -510,7 +537,7 @@ async def _execute_s1_s2(
 
     except Exception as exc:  # noqa: BLE001
         from app.services.run_finalizer import finalize_run
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
 async def _continue_after_direction(
@@ -534,13 +561,13 @@ async def _continue_after_direction(
         s2_output_data = S2OutputData(**_json.loads(s2_raw["output_json"])["output"])
 
         if mode == "archive":
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "archive"})
+            await finalize_run(run_id, "completed", engine, event_detail={"mode": "archive"})
             return
 
         if mode == "note":
             engine.store.update_run(run_id, current_stage="s7")
             await s7_summary.run(S7Input(mode="note"), context, engine.llm, engine.store)
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "note"})
+            await finalize_run(run_id, "completed", engine, event_detail={"mode": "note"})
             return
 
         # All remaining modes need Stage 3
@@ -558,7 +585,7 @@ async def _continue_after_direction(
         )
 
         if mode == "structure":
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "structure"})
+            await finalize_run(run_id, "completed", engine, event_detail={"mode": "structure"})
             return
 
         # evaluate + decide both need Stage 4
@@ -571,7 +598,7 @@ async def _continue_after_direction(
         )
 
         if mode == "evaluate":
-            finalize_run(run_id, "completed", engine, event_detail={"mode": "evaluate"})
+            await finalize_run(run_id, "completed", engine, event_detail={"mode": "evaluate"})
             return
 
         # decide mode: pause for human approval at Stage 4
@@ -602,7 +629,7 @@ async def _continue_after_direction(
         )
 
     except Exception as exc:  # noqa: BLE001
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
 def _archive_auto_triaged_if_enabled(

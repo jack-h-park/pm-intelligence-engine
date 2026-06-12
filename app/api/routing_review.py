@@ -94,7 +94,7 @@ async def _apply_routing(
     action_label = "routing_confirmed" if confirmed else "routing_overridden"
 
     if routing == "kill":
-        finalize_run(
+        await finalize_run(
             run_id, "killed", engine,
             event_action="kill_confirmed" if confirmed else "kill_overridden",
             event_detail={"reason": reason},
@@ -152,10 +152,10 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
         engine.store.update_run(run_id, current_stage="s7")
         await s7_summary.run(s7_in, context, engine.llm, engine.store)
 
-        finalize_run(
+        await finalize_run(
             run_id, "completed", engine,
             event_detail={"routing_override": routing},
         )
 
     except Exception as exc:  # noqa: BLE001
-        finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+        await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
