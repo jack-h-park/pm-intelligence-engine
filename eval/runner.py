@@ -72,7 +72,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
     start = time.monotonic()
     try:
         signal_id = engine.store.save_signal(
-            product_id=scenario["product_id"],
+            original_product_id=scenario["product_id"],
             title=scenario["title"],
             raw_content=scenario["signal_text"],
             source_url=scenario.get("source_url"),

@@ -130,16 +130,16 @@ async def start_run(
     signal = engine.store.get_signal(body.signal_id)
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
-    if body.product_id != signal["product_id"]:
+    if body.product_id != signal["original_product_id"]:
         raise HTTPException(
             status_code=422,
             detail=(
-                f"product_id '{body.product_id}' does not match signal.product_id "
-                f"'{signal['product_id']}'"
+                f"product_id '{body.product_id}' does not match "
+                f"signal.original_product_id '{signal['original_product_id']}'"
             ),
         )
 
-    canonical_product_id = signal["product_id"]
+    canonical_product_id = signal["original_product_id"]
 
     # `depth` (canonical) accepts the `mode` alias; legacy values are normalized (US-43)
     from app.modes import normalize_mode

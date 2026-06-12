@@ -2,7 +2,7 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -100,7 +100,10 @@ class Signal(Base):
     __tablename__ = "signals"
 
     signal_id = Column(String, primary_key=True, default=_new_uuid)
-    product_id = Column(String, nullable=False)
+    # Provenance/origin hint, not an authoritative binding (US-49). NULL for
+    # product-agnostic intake (RSS / file_watch) — Portfolio Triage routes those.
+    # Authority over product routing lives in the spawned runs' product_id.
+    original_product_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
     source_url = Column(String, nullable=True)
     raw_content = Column(Text, nullable=False)
@@ -118,6 +121,9 @@ class WorkflowRun(Base):
     run_id = Column(String, primary_key=True, default=_new_uuid)
     product_id = Column(String, nullable=False)
     signal_id = Column(String, ForeignKey("signals.signal_id"), nullable=False)
+    # Groups the runs created from one signal fan-out (US-49). NULL for legacy
+    # single runs — treated as a batch of one (no portfolio synthesis).
+    batch_id = Column(String, nullable=True)
     status = Column(SAEnum(RunStatus), nullable=False, default=RunStatus.pending)
     current_stage = Column(String, nullable=True)
     mode = Column(SAEnum(RunMode), nullable=True)
@@ -174,3 +180,37 @@ class Artifact(Base):
     created_at = Column(DateTime, nullable=False, default=_utc_now)
 
     run = relationship("WorkflowRun", back_populates="artifacts")
+
+
+class RunBatch(Base):
+    """A fan-out batch: the set of runs created from one signal (US-49).
+
+    `membership_closed` guards the portfolio-synthesis trigger. Membership is
+    dynamic — the manual Portfolio Scan gate can add runs after the first run
+    has started — so synthesis must not fire while more runs might still join.
+    """
+
+    __tablename__ = "run_batches"
+
+    batch_id = Column(String, primary_key=True, default=_new_uuid)
+    signal_id = Column(String, ForeignKey("signals.signal_id"), nullable=False)
+    membership_closed = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+
+
+class PortfolioSynthesis(Base):
+    """Post-hoc cross-product memo for one fan-out batch (US-49, Variant 2).
+
+    One synthesis per batch (batch_id is the PK — the insert-or-skip idempotency
+    guard). Batch/signal-scoped, so deliberately not an Artifact row (which is
+    run-scoped).
+    """
+
+    __tablename__ = "portfolio_syntheses"
+
+    batch_id = Column(String, primary_key=True)
+    signal_id = Column(String, ForeignKey("signals.signal_id"), nullable=False)
+    content_md = Column(Text, nullable=False)
+    content_json = Column(Text, nullable=False)
+    run_ids_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)

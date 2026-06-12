@@ -94,7 +94,7 @@ _S5_OUTPUT = {
 
 def _seed_run_with_s4_s5(engine: PMEngine) -> str:
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(
@@ -134,7 +134,7 @@ def test_gate3_review_present_after_s5(client, engine):
 
 def test_gate3_review_absent_before_s5(client, engine):
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     resp = client.get(f"/runs/{run_id}")

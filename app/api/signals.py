@@ -1,7 +1,7 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.factory import PMEngine
 from app.api.deps import get_engine
@@ -11,7 +11,13 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 
 
 class SignalCreate(BaseModel):
-    product_id: str
+    # `original_product_id` is the canonical field (US-49) — an optional origin
+    # hint, NULL for product-agnostic intake. `product_id` is still accepted as a
+    # deprecated alias so existing clients (Hermes) keep working.
+    model_config = ConfigDict(populate_by_name=True)
+    original_product_id: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("original_product_id", "product_id")
+    )
     title: str
     raw_content: str
     source_url: Optional[str] = None
@@ -21,7 +27,7 @@ class SignalCreate(BaseModel):
 
 class SignalResponse(BaseModel):
     signal_id: str
-    product_id: str
+    original_product_id: Optional[str]
     title: str
     source_url: Optional[str]
     category: str
@@ -36,7 +42,7 @@ async def create_signal(
     engine: PMEngine = Depends(get_engine),
 ) -> SignalResponse:
     signal_id = engine.store.save_signal(
-        product_id=body.product_id,
+        original_product_id=body.original_product_id,
         title=body.title,
         raw_content=body.raw_content,
         source_url=body.source_url,
@@ -51,12 +57,16 @@ async def create_signal(
 
 @router.get("", response_model=list[SignalResponse])
 async def list_signals(
+    # Query param kept as `product_id` for back-compat; filters on the signal's
+    # origin product (original_product_id).
     product_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[SignalResponse]:
-    signals = engine.store.list_signals(product_id=product_id, status=status, limit=limit)
+    signals = engine.store.list_signals(
+        original_product_id=product_id, status=status, limit=limit
+    )
     return [SignalResponse(**s) for s in signals]
 
 

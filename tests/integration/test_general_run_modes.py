@@ -60,7 +60,7 @@ def client(engine):
 
 def _seed_signal(engine: PMEngine) -> str:
     return engine.store.save_signal(
-        product_id="general",
+        original_product_id="general",
         title="NIST AI RMF update",
         raw_content="Full signal text.",
     )
@@ -154,7 +154,7 @@ def test_error_message_consistent_across_endpoints(client, engine):
 def test_start_run_rejects_mismatched_signal_product(client, engine):
     """Run start must reject caller-supplied product_id that disagrees with the signal."""
     signal_id = engine.store.save_signal(
-        product_id="general",
+        original_product_id="general",
         title="NIST AI RMF update",
         raw_content="Full signal text.",
     )

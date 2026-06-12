@@ -73,7 +73,7 @@ def client(engine):
 def _seed_run(engine: PMEngine, status: str, mode: str = "decide", routing: str = None) -> str:
     """Create a signal and run, then fast-forward the run to the given status."""
     signal_id = engine.store.save_signal(
-        product_id="example-security-product",
+        original_product_id="example-security-product",
         title="Android 16 NFC allowlist",
         raw_content="Full signal text.",
     )
@@ -419,7 +419,7 @@ def test_failed_run_does_not_stamp_completed_at(engine):
     from app.services.run_finalizer import finalize_run
 
     signal_id = engine.store.save_signal(
-        product_id="example-security-product",
+        original_product_id="example-security-product",
         title="Crash test signal",
         raw_content="text",
     )

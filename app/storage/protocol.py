@@ -7,9 +7,9 @@ class PMWorkflowStore(Protocol):
     # --- Signal ---
     def save_signal(
         self,
-        product_id: str,
         title: str,
         raw_content: str,
+        original_product_id: Optional[str] = None,
         source_url: Optional[str] = None,
         category: str = "other",
         source_type: str = "manual",
@@ -21,13 +21,18 @@ class PMWorkflowStore(Protocol):
 
     def list_signals(
         self,
-        product_id: Optional[str] = None,
+        original_product_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]: ...
 
     # --- WorkflowRun ---
-    def create_run(self, product_id: str, signal_id: str) -> str: ...
+    def create_run(
+        self,
+        product_id: str,
+        signal_id: str,
+        batch_id: Optional[str] = None,
+    ) -> str: ...
 
     def get_run(self, run_id: str) -> Optional[dict]: ...
 
@@ -40,8 +45,29 @@ class PMWorkflowStore(Protocol):
         routing: Optional[str] = None,
         event: Optional[str] = None,
         since: Optional[datetime] = None,
+        batch_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]: ...
+
+    # --- RunBatch (US-49) ---
+    def create_batch(self, signal_id: str) -> str: ...
+
+    def get_batch(self, batch_id: str) -> Optional[dict]: ...
+
+    def close_batch_membership(self, batch_id: str) -> None: ...
+
+    # --- PortfolioSynthesis (US-49, Variant 2) ---
+    def save_portfolio_synthesis(
+        self,
+        batch_id: str,
+        signal_id: str,
+        content_md: str,
+        content_json: str,
+        run_ids_json: str,
+    ) -> bool: ...
+
+    def get_portfolio_synthesis(self, batch_id: str) -> Optional[dict]: ...
 
     # --- StageOutput ---
     def save_stage_output(

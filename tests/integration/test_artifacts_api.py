@@ -48,7 +48,7 @@ def client(engine):
 
 def _seed_run(engine: PMEngine) -> str:
     signal_id = engine.store.save_signal(
-        product_id="example-security-product",
+        original_product_id="example-security-product",
         title="Android 16 NFC allowlist",
         raw_content="Full signal text.",
     )

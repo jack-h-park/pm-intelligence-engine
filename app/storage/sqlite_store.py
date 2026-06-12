@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from typing import Optional
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from app.models.workflow import (
@@ -10,7 +10,9 @@ from app.models.workflow import (
     ApprovalEvent,
     ArtifactType,
     Base,
+    PortfolioSynthesis,
     Routing,
+    RunBatch,
     RunMode,
     RunStatus,
     Signal,
@@ -26,22 +28,37 @@ class SQLiteStore:
     def __init__(self, database_url: str) -> None:
         self._engine = create_engine(database_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(self._engine)
+        self._migrate_schema()
         self._Session = sessionmaker(bind=self._engine)
+
+    def _migrate_schema(self) -> None:
+        """Idempotent in-place migration for existing local DBs (no Alembic).
+
+        ``create_all`` creates new tables but never alters existing ones, so
+        columns added to a model are missing from a pre-existing SQLite file.
+        Add them here, guarded by a column-existence check. New tables
+        (run_batches, portfolio_syntheses) are handled by ``create_all``.
+        """
+        inspector = inspect(self._engine)
+        run_columns = {c["name"] for c in inspector.get_columns("workflow_runs")}
+        if "batch_id" not in run_columns:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN batch_id VARCHAR"))
 
     # --- Signal ---
 
     def save_signal(
         self,
-        product_id: str,
         title: str,
         raw_content: str,
+        original_product_id: Optional[str] = None,
         source_url: Optional[str] = None,
         category: str = "other",
         source_type: str = "manual",
     ) -> str:
         with self._Session() as session:
             signal = Signal(
-                product_id=product_id,
+                original_product_id=original_product_id,
                 title=title,
                 raw_content=raw_content,
                 source_url=source_url,
@@ -66,14 +83,14 @@ class SQLiteStore:
 
     def list_signals(
         self,
-        product_id: Optional[str] = None,
+        original_product_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
             q = session.query(Signal)
-            if product_id:
-                q = q.filter(Signal.product_id == product_id)
+            if original_product_id:
+                q = q.filter(Signal.original_product_id == original_product_id)
             if status:
                 q = q.filter(Signal.status == SignalStatus(status))
             q = q.order_by(Signal.ingested_at.desc()).limit(limit)
@@ -81,9 +98,18 @@ class SQLiteStore:
 
     # --- WorkflowRun ---
 
-    def create_run(self, product_id: str, signal_id: str) -> str:
+    def create_run(
+        self,
+        product_id: str,
+        signal_id: str,
+        batch_id: Optional[str] = None,
+    ) -> str:
         with self._Session() as session:
-            run = WorkflowRun(product_id=product_id, signal_id=signal_id)
+            run = WorkflowRun(
+                product_id=product_id,
+                signal_id=signal_id,
+                batch_id=batch_id,
+            )
             session.add(run)
             session.commit()
             return run.run_id
@@ -120,6 +146,8 @@ class SQLiteStore:
         routing: Optional[str] = None,
         event: Optional[str] = None,
         since: Optional[datetime] = None,
+        batch_id: Optional[str] = None,
+        signal_id: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -130,6 +158,10 @@ class SQLiteStore:
                 q = q.filter(WorkflowRun.status == RunStatus(status))
             if routing:
                 q = q.filter(WorkflowRun.routing == Routing(routing))
+            if batch_id:
+                q = q.filter(WorkflowRun.batch_id == batch_id)
+            if signal_id:
+                q = q.filter(WorkflowRun.signal_id == signal_id)
             if event:
                 q = q.join(ApprovalEvent).filter(
                     ApprovalEvent.action == ApprovalAction(event)
@@ -257,13 +289,86 @@ class SQLiteStore:
             q = q.order_by(Artifact.created_at.desc()).limit(limit)
             return [self._artifact_to_dict(a) for a in q.all()]
 
+    # --- RunBatch (US-49) ---
+
+    def create_batch(self, signal_id: str) -> str:
+        with self._Session() as session:
+            batch = RunBatch(signal_id=signal_id)
+            session.add(batch)
+            session.commit()
+            return batch.batch_id
+
+    def get_batch(self, batch_id: str) -> Optional[dict]:
+        with self._Session() as session:
+            b = session.get(RunBatch, batch_id)
+            if b is None:
+                return None
+            return {
+                "batch_id": b.batch_id,
+                "signal_id": b.signal_id,
+                "membership_closed": b.membership_closed,
+                "created_at": b.created_at.isoformat(),
+            }
+
+    def close_batch_membership(self, batch_id: str) -> None:
+        """Mark a batch's membership final so the synthesis trigger may fire."""
+        with self._Session() as session:
+            b = session.get(RunBatch, batch_id)
+            if b:
+                b.membership_closed = True
+                session.commit()
+
+    # --- PortfolioSynthesis (US-49, Variant 2) ---
+
+    def save_portfolio_synthesis(
+        self,
+        batch_id: str,
+        signal_id: str,
+        content_md: str,
+        content_json: str,
+        run_ids_json: str,
+    ) -> bool:
+        """Insert one synthesis per batch; skip if one already exists.
+
+        Returns True if inserted, False if a row was already present — the
+        insert-or-skip idempotency guard for near-simultaneous batch completion.
+        """
+        with self._Session() as session:
+            if session.get(PortfolioSynthesis, batch_id) is not None:
+                return False
+            session.add(
+                PortfolioSynthesis(
+                    batch_id=batch_id,
+                    signal_id=signal_id,
+                    content_md=content_md,
+                    content_json=content_json,
+                    run_ids_json=run_ids_json,
+                )
+            )
+            session.commit()
+            return True
+
+    def get_portfolio_synthesis(self, batch_id: str) -> Optional[dict]:
+        with self._Session() as session:
+            p = session.get(PortfolioSynthesis, batch_id)
+            if p is None:
+                return None
+            return {
+                "batch_id": p.batch_id,
+                "signal_id": p.signal_id,
+                "content_md": p.content_md,
+                "content_json": p.content_json,
+                "run_ids_json": p.run_ids_json,
+                "created_at": p.created_at.isoformat(),
+            }
+
     # --- Serializers ---
 
     @staticmethod
     def _signal_to_dict(s: Signal) -> dict:
         return {
             "signal_id": s.signal_id,
-            "product_id": s.product_id,
+            "original_product_id": s.original_product_id,
             "title": s.title,
             "source_url": s.source_url,
             "raw_content": s.raw_content,
@@ -279,6 +384,7 @@ class SQLiteStore:
             "run_id": r.run_id,
             "product_id": r.product_id,
             "signal_id": r.signal_id,
+            "batch_id": r.batch_id,
             "status": r.status.value,
             "current_stage": r.current_stage,
             "mode": r.mode.value if r.mode else None,

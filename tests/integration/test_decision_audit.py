@@ -56,7 +56,7 @@ def _feedback(engine, run_id, action):
 
 def test_gate1_direction_decision_recorded(client, engine):
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(
@@ -75,7 +75,7 @@ def test_gate1_direction_decision_recorded(client, engine):
 
 def test_gate3_confirm_decision_recorded(client, engine):
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(
@@ -92,7 +92,7 @@ def test_gate3_confirm_decision_recorded(client, engine):
 
 def test_gate3_override_decision_recorded(client, engine):
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(
@@ -115,7 +115,7 @@ def test_gate3_override_decision_recorded(client, engine):
 def test_decisions_queryable_by_event_filter(client, engine):
     """GET /runs?event=override surfaces runs where the PM overrode routing (US-44)."""
     signal_id = engine.store.save_signal(
-        product_id="example-security-product", title="Sig", raw_content="Text."
+        original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(run_id, status="waiting_routing_review", routing="kill", mode="decide")
@@ -133,7 +133,7 @@ def test_decisions_queryable_by_event_filter(client, engine):
 
 
 def _seed_awaiting(engine):
-    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
     engine.store.update_run(rid, status="awaiting_direction", current_stage="s2",
                             recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
@@ -158,7 +158,7 @@ def test_direction_accepts_legacy_mode_alias(client, engine):
 
 
 def test_run_response_mirrors_depth_and_mode(client, engine):
-    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
     engine.store.update_run(rid, status="completed", mode="decide")
     r = client.get(f"/runs/{rid}").json()
@@ -170,7 +170,7 @@ def test_run_response_mirrors_depth_and_mode(client, engine):
 # ---------------------------------------------------------------------------
 
 def test_gate1_review_payload_surfaces_s2_insight(client, engine):
-    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
     engine.store.update_run(rid, status="awaiting_direction", current_stage="s2")
     engine.store.save_stage_output(run_id=rid, stage="s1", output_json=json.dumps(
@@ -193,6 +193,6 @@ def test_gate1_review_payload_surfaces_s2_insight(client, engine):
 
 
 def test_gate1_review_absent_before_s2(client, engine):
-    sid = engine.store.save_signal(product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
     assert client.get(f"/runs/{rid}").json()["gate1_review"] is None

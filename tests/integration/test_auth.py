@@ -26,7 +26,7 @@ def engine():
     eng.store.save_signal.return_value = "sig-1"
     eng.store.get_signal.return_value = {
         "signal_id": "sig-1",
-        "product_id": "example-security-product",
+        "original_product_id": "example-security-product",
         "title": "Test signal",
         "source_url": None,
         "category": "other",

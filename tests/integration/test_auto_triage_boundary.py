@@ -66,7 +66,7 @@ def client(engine):
 
 def _seed_signal(engine: PMEngine) -> str:
     return engine.store.save_signal(
-        product_id="example-security-product",
+        original_product_id="example-security-product",
         title="Marginal consumer-app signal",
         raw_content="Full signal text.",
     )
