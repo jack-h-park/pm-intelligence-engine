@@ -73,6 +73,20 @@ class BatchStartResponse(BaseModel):
     triage: list[dict]  # per-product verdicts (product_id, relevance_score, reason, relevant)
 
 
+class ScanResponse(BaseModel):
+    """Response for a manual Portfolio Scan (US-49, C-3).
+
+    ``batch_id`` is null when no other product cleared the threshold (the origin
+    run is left untouched, not pulled into a batch). ``runs`` are the newly
+    spawned sibling runs (the origin run is not repeated here).
+    """
+
+    scanned_run_id: str
+    batch_id: str | None
+    runs: list[RunResponse]
+    triage: list[dict]
+
+
 def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
     """Assemble the Gate 3 review payload from stored S4/S5 outputs.
 
@@ -213,22 +227,15 @@ async def _start_fanout_runs(
     )
 
     batch_id = engine.store.create_batch(signal_id)
-    runs: list[RunResponse] = []
-    for product_id in triage.relevant_product_ids:
-        run_id = engine.store.create_run(
-            product_id=product_id, signal_id=signal_id, batch_id=batch_id
-        )
-        engine.store.update_run(run_id, status="running", current_stage="s1")
-        background_tasks.add_task(
-            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
-        )
-        runs.append(RunResponse(**engine.store.get_run(run_id)))  # type: ignore[arg-type]
-
+    runs = _spawn_runs_in_batch(
+        triage.relevant_product_ids, signal_id, batch_id, requested_mode,
+        background_tasks, engine,
+    )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
-    # Membership is final immediately for product-agnostic fan-out (no manual
-    # scan gate here — that arrives with Increment C-2 scan). Closing it lets the
-    # Variant 2 synthesis trigger fire once all runs settle.
+    # Membership is final immediately for product-agnostic fan-out (all relevant
+    # products are known upfront). Closing it lets the Variant 2 synthesis trigger
+    # fire once all runs settle.
     engine.store.close_batch_membership(batch_id)
 
     emit_event(
@@ -240,6 +247,28 @@ async def _start_fanout_runs(
         runs=runs,
         triage=[p.model_dump() for p in triage.products],
     )
+
+
+def _spawn_runs_in_batch(
+    product_ids: list[str],
+    signal_id: str,
+    batch_id: str,
+    requested_mode: str | None,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine,
+) -> list[RunResponse]:
+    """Create one run per product in the batch and start each pipeline."""
+    runs: list[RunResponse] = []
+    for product_id in product_ids:
+        run_id = engine.store.create_run(
+            product_id=product_id, signal_id=signal_id, batch_id=batch_id
+        )
+        engine.store.update_run(run_id, status="running", current_stage="s1")
+        background_tasks.add_task(
+            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
+        )
+        runs.append(RunResponse(**engine.store.get_run(run_id)))  # type: ignore[arg-type]
+    return runs
 
 
 @router.get("/batch/{batch_id}", response_model=None)
@@ -267,6 +296,79 @@ async def get_batch(
         "runs": [RunResponse(**r).model_dump() for r in runs],
         "synthesis": synthesis,
     }
+
+
+@router.post("/{run_id}/scan", response_model=None, status_code=202)
+async def scan_portfolio(
+    run_id: str,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine = Depends(get_engine),
+) -> ScanResponse:
+    """Manual Portfolio Scan (US-49, C-3) — human-in-the-loop fan-out.
+
+    For a run started manually for one product, check whether the same signal is
+    relevant to *other* products and fan out to those. This is a deliberate PM
+    action (surfaced as a button on the Gate 1 review), not automatic — and it
+    works whether the origin run is paused at Gate 1 or already auto-triaged.
+
+    Portfolio Triage runs over the portfolio minus the origin product. If any
+    other product is relevant, the origin run is pulled into a new batch
+    alongside the new sibling runs; membership is closed so Variant 2 synthesis
+    fires once they all settle. If nothing else is relevant, the origin run is
+    left untouched.
+    """
+    from config import settings
+    from app.logging import emit_event
+    from app.stages import portfolio_triage
+
+    run = engine.store.get_run(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if run.get("batch_id"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Run is already part of batch '{run['batch_id']}'",
+        )
+    signal = engine.store.get_signal(run["signal_id"])
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    origin_product = run["product_id"]
+    triage = await portfolio_triage.run(
+        signal_id=run["signal_id"],
+        title=signal["title"],
+        summary=signal["raw_content"],
+        profiles=engine.context_loader.load_portfolio_profiles(exclude=(origin_product,)),
+        llm=engine.llm,
+        threshold=settings.TRIAGE_RELEVANCE_THRESHOLD,
+        pm_identity=engine.context_loader.load_pm_identity(),
+    )
+
+    if not triage.relevant_product_ids:
+        emit_event("run", "scan_no_match", run_id, {"product_id": origin_product})
+        return ScanResponse(
+            scanned_run_id=run_id, batch_id=None, runs=[],
+            triage=[p.model_dump() for p in triage.products],
+        )
+
+    batch_id = engine.store.create_batch(run["signal_id"])
+    engine.store.update_run(run_id, batch_id=batch_id)  # pull the origin run in
+    runs = _spawn_runs_in_batch(
+        triage.relevant_product_ids, run["signal_id"], batch_id, None,
+        background_tasks, engine,
+    )
+    # Membership closes now: the scan decision is resolved, so the synthesis
+    # trigger may fire once the origin run and all siblings settle.
+    engine.store.close_batch_membership(batch_id)
+
+    emit_event(
+        "run", "scan_fanout", run_id,
+        {"batch_id": batch_id, "relevant": triage.relevant_product_ids},
+    )
+    return ScanResponse(
+        scanned_run_id=run_id, batch_id=batch_id, runs=runs,
+        triage=[p.model_dump() for p in triage.products],
+    )
 
 
 @router.get("/{run_id}", response_model=RunResponse)

@@ -266,6 +266,40 @@ existing clients keep working. Responses include both `depth` and `mode`.
 
 ---
 
+### `POST /runs/{id}/scan`
+Manual Portfolio Scan (US-49) — human-in-the-loop fan-out for a run started for a single
+product. Checks whether the same signal is relevant to **other** products and fans out to
+them. A deliberate PM action (surfaced as a button on the Gate 1 review), not automatic;
+works whether the origin run is paused at Gate 1 or already auto-triaged.
+
+No request body.
+
+**Behaviour:** Portfolio Triage runs over the portfolio **minus the origin product**. If
+any other product clears `TRIAGE_RELEVANCE_THRESHOLD`, the origin run is pulled into a new
+batch alongside the new sibling runs and membership is closed (so Variant 2 synthesis fires
+once they all settle). If nothing else is relevant, the origin run is left untouched.
+
+**Validation rules:**
+- the run must exist, otherwise `404`
+- the run must not already belong to a batch, otherwise `409`
+
+**Response (202):** `{ "scanned_run_id": "...", "batch_id": "..."|null, "runs": [Run, ...],
+"triage": [...] }`. `batch_id` is `null` (and `runs` empty) when no other product is
+relevant; the spawned siblings do not repeat the origin run.
+
+---
+
+### `GET /runs/batch/{batch_id}`
+A fan-out batch (US-49) — its sibling runs plus the post-hoc portfolio synthesis.
+
+**Response (200):** `{ "batch_id": "...", "signal_id": "...", "membership_closed": bool,
+"runs": [Run, ...], "synthesis": {...}|null }`. `synthesis` is `null` until every run in
+the batch has settled; once present it carries the rendered memo (`content_md`) and the
+structured `content` (priority ranking, root cause, sequencing, conflicts, synergies).
+`404` if the batch does not exist.
+
+---
+
 ### `POST /runs/{id}/direction`
 Gate 1 response — confirm or override the suggested processing depth.
 

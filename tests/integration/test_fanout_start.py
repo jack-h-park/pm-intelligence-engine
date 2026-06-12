@@ -137,3 +137,91 @@ def test_get_batch_returns_runs_and_synthesis(client, engine, monkeypatch):
 
 def test_get_batch_unknown_404(client):
     assert client.get("/runs/batch/nope").status_code == 404
+
+
+# --- C-3: manual Portfolio Scan ------------------------------------------------
+
+def _manual_run(engine, product_id="example-mobile-product", status="awaiting_direction") -> str:
+    """A manually-started single run (no batch), as if it reached Gate 1."""
+    signal_id = engine.store.save_signal(
+        original_product_id=product_id,
+        title="Android 16 background API deprecation",
+        raw_content="Some MDM background-monitoring APIs are deprecated.",
+    )
+    run_id = engine.store.create_run(product_id, signal_id)
+    engine.store.update_run(run_id, status=status, current_stage="s2")
+    return run_id
+
+
+def test_scan_fans_out_and_pulls_origin_into_batch(client, engine, monkeypatch):
+    run_id = _manual_run(engine)
+
+    async def fake_triage(**kwargs):
+        return _triage_returning("prod-b", "prod-c", all_products=("prod-b", "prod-c"))
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", AsyncMock())
+
+    resp = client.post(f"/runs/{run_id}/scan")
+    assert resp.status_code == 202, resp.text
+    body = resp.json()
+
+    assert body["scanned_run_id"] == run_id
+    assert body["batch_id"]
+    # new siblings spawned (origin not repeated in runs)
+    assert {r["product_id"] for r in body["runs"]} == {"prod-b", "prod-c"}
+    # origin run is pulled into the same batch
+    assert engine.store.get_run(run_id)["batch_id"] == body["batch_id"]
+    # membership closed -> synthesis may fire once all settle
+    assert engine.store.get_batch(body["batch_id"])["membership_closed"] is True
+
+
+def test_scan_no_other_relevant_leaves_run_untouched(client, engine, monkeypatch):
+    run_id = _manual_run(engine)
+
+    async def fake_triage(**kwargs):
+        return _triage_returning(all_products=("prod-b", "prod-c"))  # none relevant
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", AsyncMock())
+
+    resp = client.post(f"/runs/{run_id}/scan")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["batch_id"] is None
+    assert body["runs"] == []
+    # origin run untouched — no batch created
+    assert engine.store.get_run(run_id)["batch_id"] is None
+
+
+def test_scan_on_already_batched_run_409(client, engine, monkeypatch):
+    # a run already in a batch (e.g. product-agnostic fan-out) cannot be re-scanned
+    signal_id = engine.store.save_signal(title="S", raw_content="…")
+    batch_id = engine.store.create_batch(signal_id)
+    run_id = engine.store.create_run("prod-a", signal_id, batch_id=batch_id)
+
+    resp = client.post(f"/runs/{run_id}/scan")
+    assert resp.status_code == 409
+    assert "already part of" in resp.json()["detail"]
+
+
+def test_scan_unknown_run_404(client):
+    assert client.post("/runs/nope/scan").status_code == 404
+
+
+def test_scan_works_on_auto_triaged_completed_run(client, engine, monkeypatch):
+    # edge case: origin auto-triaged (already completed, never hit Gate 1) —
+    # scanning the rest of the portfolio must still work.
+    run_id = _manual_run(engine, status="completed")
+
+    async def fake_triage(**kwargs):
+        return _triage_returning("prod-b", all_products=("prod-b",))
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", AsyncMock())
+
+    resp = client.post(f"/runs/{run_id}/scan")
+    assert resp.status_code == 202
+    body = resp.json()
+    assert {r["product_id"] for r in body["runs"]} == {"prod-b"}
+    assert engine.store.get_run(run_id)["batch_id"] == body["batch_id"]

@@ -26,7 +26,11 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 - `company-context.md` — company strategy context
 - `products/<name>/context.md` — product-specific context
 - `products/<name>/signal-sources.md` — RSS/URL sources for signal collection
-- `prompts/s1/` through `prompts/s7/` — stage prompt templates
+- `prompts/s1/` through `prompts/s7/` — per-product stage prompt templates
+- `prompts/portfolio/` — **product-agnostic** cross-product prompts (US-49):
+  `triage.md` (fan-out routing) and `synthesis.md` (Variant 2 memo). The
+  "workflow lives in decision-context" rule is now product- *and*
+  portfolio-scoped — cross-product judgment belongs to no single product folder.
 
 **product-management-wiki-repo** — used by Hermes (not pm-engine directly):
 - `raw/from-web/sensing/` — Hermes watches for new signal files
