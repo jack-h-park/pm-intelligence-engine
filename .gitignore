@@ -15,5 +15,3 @@ dist/
 .pid
 logs/server.log
 
-# Runtime export artifacts (written by run_exporter at run completion)
-archive/
