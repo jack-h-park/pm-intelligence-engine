@@ -45,6 +45,26 @@ class SQLiteStore:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN batch_id VARCHAR"))
 
+        # US-49 renamed signals.product_id (NOT NULL) -> original_product_id
+        # (nullable). A plain ADD COLUMN can't express either change, and SQLite's
+        # RENAME COLUMN keeps the NOT NULL constraint, so rebuild the table to
+        # match the model. Guarded by the column check → idempotent.
+        signal_columns = {c["name"] for c in inspector.get_columns("signals")}
+        if "original_product_id" not in signal_columns and "product_id" in signal_columns:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE signals RENAME TO signals__legacy_us49"))
+            Signal.__table__.create(self._engine)
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "INSERT INTO signals (signal_id, original_product_id, title, "
+                        "source_url, raw_content, category, status, source_type, ingested_at) "
+                        "SELECT signal_id, product_id, title, source_url, raw_content, "
+                        "category, status, source_type, ingested_at FROM signals__legacy_us49"
+                    )
+                )
+                conn.execute(text("DROP TABLE signals__legacy_us49"))
+
     # --- Signal ---
 
     def save_signal(
