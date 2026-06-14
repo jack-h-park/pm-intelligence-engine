@@ -227,16 +227,16 @@ title           str
 source_url      str | null
 raw_content     text
 category        enum: competitor | platform | regulation | technology | other
-status          enum: pending | in_run | done
+status          enum: new | in_run | done
 source_type     enum: manual | rss | file_watch
 ingested_at     datetime
 ```
 
 Signal lifecycle is runtime-maintained by pm-engine:
-- `pending` immediately after intake
+- `new` immediately after intake
 - `in_run` once a run starts successfully
 - `done` when the run ends in `completed` or `killed`
-- `pending` again when the run ends in `failed`, so the signal returns to the retryable pool
+- `new` again when the run ends in `failed`, so the signal returns to the retryable pool
 
 ### StageOutput
 ```
@@ -292,7 +292,7 @@ the run is paused or killed before S7 completes.
           [relevance OK, no mode set]
                   │
                   ▼
-        awaiting_direction   ←── Gate 1: POST /runs/{id}/direction
+        waiting_direction   ←── Gate 1: POST /runs/{id}/direction
                   │
           [direction given]
                   ▼

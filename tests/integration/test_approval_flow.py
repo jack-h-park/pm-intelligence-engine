@@ -437,4 +437,4 @@ async def test_failed_run_does_not_stamp_completed_at(engine):
         "failed runs must NOT have completed_at stamped — they did not reach a meaningful endpoint"
     )
     assert signal is not None
-    assert signal["status"] == "pending"
+    assert signal["status"] == "new"

@@ -13,12 +13,22 @@ class Base(DeclarativeBase):
 class RunStatus(str, enum.Enum):
     pending = "pending"
     running = "running"
-    awaiting_direction = "awaiting_direction"
+    waiting_direction = "waiting_direction"
     waiting_approval = "waiting_approval"
     waiting_routing_review = "waiting_routing_review"
     completed = "completed"
     killed = "killed"
     failed = "failed"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Accept the legacy 'awaiting_direction' value (renamed → 'waiting_direction'
+        # for prefix consistency; state glossary 2026-06-14) so old in-code calls
+        # and pre-migration DB reads resolve. DB rows are migrated in
+        # SQLiteStore._migrate_schema.
+        if value == "awaiting_direction":
+            return cls.waiting_direction
+        return None
 
 
 class RunMode(str, enum.Enum):
@@ -54,9 +64,18 @@ class SignalCategory(str, enum.Enum):
 
 
 class SignalStatus(str, enum.Enum):
-    pending = "pending"
+    new = "new"
     in_run = "in_run"
     done = "done"
+
+    @classmethod
+    def _missing_(cls, value):
+        # Accept the legacy 'pending' value (renamed → 'new'; state glossary
+        # 2026-06-14) so old in-code calls and pre-migration DB reads resolve.
+        # `pending` collided with RunStatus.pending and the Gate 0 intake state.
+        if value == "pending":
+            return cls.new
+        return None
 
 
 class SourceType(str, enum.Enum):
@@ -108,7 +127,7 @@ class Signal(Base):
     source_url = Column(String, nullable=True)
     raw_content = Column(Text, nullable=False)
     category = Column(SAEnum(SignalCategory), nullable=False, default=SignalCategory.other)
-    status = Column(SAEnum(SignalStatus), nullable=False, default=SignalStatus.pending)
+    status = Column(SAEnum(SignalStatus), nullable=False, default=SignalStatus.new)
     source_type = Column(SAEnum(SourceType), nullable=False, default=SourceType.manual)
     ingested_at = Column(DateTime, nullable=False, default=_utc_now)
 

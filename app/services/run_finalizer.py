@@ -27,7 +27,7 @@ _EXPORTABLE_MODES = {"note", "structure", "evaluate", "decide"}
 _TERMINAL_SIGNAL_STATUSES = {
     "completed": "done",
     "killed": "done",
-    "failed": "pending",
+    "failed": "new",  # failed run returns the signal to the retryable pool (was "pending")
 }
 
 

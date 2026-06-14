@@ -87,7 +87,7 @@ async def test_finalize_run_failed_calls_store_update():
     [
         ("completed", "done"),
         ("killed", "done"),
-        ("failed", "pending"),
+        ("failed", "new"),
     ],
 )
 @pytest.mark.asyncio

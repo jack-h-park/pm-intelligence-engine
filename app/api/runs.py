@@ -24,7 +24,7 @@ class RunStartRequest(BaseModel):
     product_id: str | None = None
     depth: str | None = Field(
         default=None, validation_alias=AliasChoices("depth", "mode")
-    )  # If provided, skip awaiting_direction and run immediately
+    )  # If provided, skip waiting_direction and run immediately
 
 
 class RunResponse(BaseModel):
@@ -439,7 +439,7 @@ async def reopen_run(
     run_id: str,
     engine: PMEngine = Depends(get_engine),
 ) -> RunResponse:
-    """Revive an auto-triaged run to awaiting_direction (US-31).
+    """Revive an auto-triaged run to waiting_direction (US-31).
 
     Only runs that were silently filed by the relevance gate are revivable —
     a deliberate PM decision (file at Gate 1, reject at Gate 2, kill at Gate 3)
@@ -467,7 +467,7 @@ async def reopen_run(
     engine.store.record_approval(run_id=run_id, stage="s2", action="reopen")
     engine.store.update_run(
         run_id,
-        status="awaiting_direction",
+        status="waiting_direction",
         current_stage="s2",
         mode=None,
         completed_at=None,
@@ -609,16 +609,16 @@ async def _execute_s1_s2(
             return
 
         if requested_mode is not None:
-            # Mode was specified upfront — skip the awaiting_direction pause
+            # Mode was specified upfront — skip the waiting_direction pause
             chosen_mode = requested_mode
         else:
             # Pause and wait for the PM to confirm or override the suggested mode
             engine.store.update_run(
                 run_id,
-                status="awaiting_direction",
+                status="waiting_direction",
                 current_stage="s2",
             )
-            emit_event("run", "awaiting_direction", run_id, recommendation)
+            emit_event("run", "waiting_direction", run_id, recommendation)
             await engine.notifier.send_gate1(
                 run_id=run_id,
                 product_id=product_id,

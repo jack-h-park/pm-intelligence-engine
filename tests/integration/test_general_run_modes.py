@@ -77,10 +77,10 @@ def _seed_signal(engine: PMEngine) -> str:
     )
 
 
-def _seed_awaiting_direction_run(engine: PMEngine) -> str:
+def _seed_waiting_direction_run(engine: PMEngine) -> str:
     signal_id = _seed_signal(engine)
     run_id = engine.store.create_run("general", signal_id)
-    engine.store.update_run(run_id, status="awaiting_direction", current_stage="s2")
+    engine.store.update_run(run_id, status="waiting_direction", current_stage="s2")
     return run_id
 
 
@@ -121,14 +121,14 @@ def test_start_run_general_blocked_modes(client, engine, mode):
 
 @pytest.mark.parametrize("mode", _ALLOWED_MODES)
 def test_direction_general_allowed_modes(client, engine, mode):
-    run_id = _seed_awaiting_direction_run(engine)
+    run_id = _seed_waiting_direction_run(engine)
     resp = client.post(f"/runs/{run_id}/direction", json={"mode": mode})
     assert resp.status_code == 202, resp.text
 
 
 @pytest.mark.parametrize("mode", _BLOCKED_MODES)
 def test_direction_general_blocked_modes(client, engine, mode):
-    run_id = _seed_awaiting_direction_run(engine)
+    run_id = _seed_waiting_direction_run(engine)
     resp = client.post(f"/runs/{run_id}/direction", json={"mode": mode})
     assert resp.status_code == 422
     detail = resp.json()["detail"]
@@ -144,7 +144,7 @@ def test_direction_general_blocked_modes(client, engine, mode):
 def test_error_message_consistent_across_endpoints(client, engine):
     """Both endpoints should reference 'general' and hint at reassignment."""
     signal_id = _seed_signal(engine)
-    run_id = _seed_awaiting_direction_run(engine)
+    run_id = _seed_waiting_direction_run(engine)
 
     start_resp = client.post("/runs/start", json={
         "signal_id": signal_id,
@@ -229,7 +229,7 @@ def test_start_run_marks_signal_in_run(client, engine):
 
 def test_direction_failure_marks_run_failed_and_signal_pending(client, engine):
     """Direction-path exceptions must use terminal failure semantics."""
-    run_id = _seed_awaiting_direction_run(engine)
+    run_id = _seed_waiting_direction_run(engine)
     signal_id = engine.store.get_run(run_id)["signal_id"]
     engine.store.update_signal_status(signal_id, "in_run")
 
@@ -248,4 +248,4 @@ def test_direction_failure_marks_run_failed_and_signal_pending(client, engine):
     assert signal is not None
     assert run["status"] == "failed"
     assert run["completed_at"] is None
-    assert signal["status"] == "pending"
+    assert signal["status"] == "new"

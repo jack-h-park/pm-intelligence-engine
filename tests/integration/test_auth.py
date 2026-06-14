@@ -30,7 +30,7 @@ def engine():
         "title": "Test signal",
         "source_url": None,
         "category": "other",
-        "status": "pending",
+        "status": "new",
         "source_type": "manual",
         "ingested_at": "2026-06-05T00:00:00",
     }

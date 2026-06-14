@@ -106,7 +106,7 @@ def test_fanout_no_relevant_products_creates_no_runs(client, engine, monkeypatch
     assert body["runs"] == []
     assert len(body["triage"]) == 3  # verdicts still reported
     # no runs spawned -> signal not moved to in_run
-    assert engine.store.get_signal(signal_id)["status"] == "pending"
+    assert engine.store.get_signal(signal_id)["status"] == "new"
 
 
 def test_fanout_missing_signal_404(client):
@@ -141,7 +141,7 @@ def test_get_batch_unknown_404(client):
 
 # --- C-3: manual Portfolio Scan ------------------------------------------------
 
-def _manual_run(engine, product_id="example-mobile-product", status="awaiting_direction") -> str:
+def _manual_run(engine, product_id="example-mobile-product", status="waiting_direction") -> str:
     """A manually-started single run (no batch), as if it reached Gate 1."""
     signal_id = engine.store.save_signal(
         original_product_id=product_id,
