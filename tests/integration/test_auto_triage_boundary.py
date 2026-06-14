@@ -5,7 +5,7 @@ below AUTO_TRIAGE_THRESHOLD (default 3) completes silently as mode=file without
 pausing at Gate 1. These tests pin the boundary on both sides:
 
   relevance_score = threshold - 1 (2)  -> completed, mode=file, no Gate 1
-  relevance_score = threshold     (3)  -> awaiting_direction, Gate 1 notified
+  relevance_score = threshold     (3)  -> waiting_direction, Gate 1 notified
 
 S2 is patched at the stage boundary (app.stages.s2_insight.run) so no LLM is
 involved; S1 runs for real (it makes no LLM call).
@@ -123,7 +123,7 @@ def test_relevance_at_threshold_pauses_at_gate1(client, engine):
     run_id = _start_run_with_s2_score(client, engine, relevance_score=3, suggested_mode="brief")
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "awaiting_direction"
+    assert run["status"] == "waiting_direction"
     assert run["mode"] is None
     assert run["completed_at"] is None
     engine.notifier.send_gate1.assert_awaited_once()
@@ -177,7 +177,7 @@ def test_reopen_revives_auto_triaged_run(client, engine):
     resp = client.post(f"/runs/{run_id}/reopen")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["status"] == "awaiting_direction"
+    assert body["status"] == "waiting_direction"
     assert body["mode"] is None
     assert body["completed_at"] is None
 

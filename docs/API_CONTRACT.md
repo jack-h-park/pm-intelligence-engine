@@ -73,7 +73,7 @@ version bump.
 
 | Status | Gate | Action endpoint | Poll query |
 |--------|------|----------------|------------|
-| `awaiting_direction` | Gate 1 | `POST /runs/{id}/direction` | `GET /runs?status=awaiting_direction` |
+| `waiting_direction` | Gate 1 | `POST /runs/{id}/direction` | `GET /runs?status=waiting_direction` |
 | `waiting_approval` | Gate 2 | `POST /runs/{id}/approve\|revise\|reject` | `GET /runs?status=waiting_approval` |
 | `waiting_routing_review` | Gate 3 | `POST /runs/{id}/routing-review` | `GET /runs?status=waiting_routing_review` |
 
@@ -117,14 +117,14 @@ working. `source_type`: `"manual"` | `"rss"` | `"file_watch"`
 
 **Response (201):**
 ```json
-{ "signal_id": "uuid", "original_product_id": "...", "title": "...", "status": "pending" }
+{ "signal_id": "uuid", "original_product_id": "...", "title": "...", "status": "new" }
 ```
 
 **Signal lifecycle:**
-- new signals are created with `status="pending"`
+- new signals are created with `status="new"`
 - a successful `POST /runs/start` moves the signal to `status="in_run"`
 - terminal `completed` and `killed` runs move the signal to `status="done"`
-- terminal `failed` runs move the signal back to `status="pending"` so they remain retryable
+- terminal `failed` runs move the signal back to `status="new"` so they remain retryable
 
 ---
 
@@ -133,7 +133,7 @@ List runs. Hermes uses this for polling actionable queues.
 
 **Query parameters:**
 - `product_id` — filter by product
-- `status` — filter by status (e.g. `awaiting_direction`, `completed`)
+- `status` — filter by status (e.g. `waiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
 - `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
   `revise`, `reject`, `direction`, `confirm`, `override`). Every human gate decision is
@@ -247,7 +247,7 @@ run is started for each product whose relevance is at or above
 `depth` is the processing depth — one of `archive | note | structure | evaluate | decide`
 (the depth ladder; canonical definition in
 `pm-decision-context/core/02-workflow.md`). Optional; if omitted, runs pause after
-Stage 2 in `awaiting_direction`. **`mode` is accepted as a deprecated alias** of `depth`
+Stage 2 in `waiting_direction`. **`mode` is accepted as a deprecated alias** of `depth`
 (both the key `mode` and legacy values `file`/`brief`/`opportunity` are normalized), so
 existing clients keep working. Responses include both `depth` and `mode`.
 
@@ -374,11 +374,11 @@ Gate 3 — confirm a kill decision or override to poc/prd.
 ---
 
 ### `POST /runs/{id}/reopen`
-Revive an auto-triaged run to `awaiting_direction` (US-31). Only runs that were
+Revive an auto-triaged run to `waiting_direction` (US-31). Only runs that were
 silently filed by the relevance gate are revivable — deliberate PM decisions
 (file at Gate 1, reject at Gate 2, kill at Gate 3) return `409`.
 
-**Response (200):** updated run object (`status=awaiting_direction`, `mode=null`,
+**Response (200):** updated run object (`status=waiting_direction`, `mode=null`,
 `completed_at=null`); the signal returns to `status="in_run"`.
 
 **Errors:** `404` unknown run · `409` not auto-triaged, or not in `completed` state.
@@ -395,7 +395,7 @@ Hermes should poll the following queues at a cadence suited to PM availability:
 
 ```
 # Every N minutes (Hermes decision):
-GET /runs?status=awaiting_direction    → notify PM, await direction input
+GET /runs?status=waiting_direction    → notify PM, await direction input
 GET /runs?status=waiting_approval      → send Gate 2 notification with review link
 GET /runs?status=waiting_routing_review → send Gate 3 notification
 

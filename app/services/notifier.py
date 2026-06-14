@@ -15,7 +15,7 @@ a PRD from being generated. Each provider failure is logged and swallowed.
 
 Gate messages
 -------------
-Gate 1 (awaiting_direction): fired after Stage 2; tells PM what mode S2
+Gate 1 (waiting_direction): fired after Stage 2; tells PM what mode S2
     recommends and how to proceed via the API.
 Gate 2 (waiting_approval): fired after Stage 4; shows the 4-persona scores,
     the Skeptic's key concern, and the three approval endpoints.

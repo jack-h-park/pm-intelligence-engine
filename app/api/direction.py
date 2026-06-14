@@ -4,7 +4,7 @@ The PM receives Stage 2's suggested_mode and reasoning, then calls this endpoint
 to confirm or pick a different mode. This triggers the appropriate downstream stages.
 
 State transition:
-  awaiting_direction + POST /direction { mode } → running (stages for chosen mode)
+  waiting_direction + POST /direction { mode } → running (stages for chosen mode)
 """
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
@@ -46,12 +46,12 @@ async def set_direction(
 
     validate_mode_for_product(body.depth, run["product_id"])
 
-    if run["status"] != "awaiting_direction":
+    if run["status"] != "waiting_direction":
         if run.get("mode") == body.depth:
             return {"run_id": run_id, "depth": body.depth, "mode": body.depth, "action": "already_set"}
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'awaiting_direction'",
+            detail=f"Run is '{run['status']}', expected 'waiting_direction'",
         )
 
     # Record the Gate 1 decision as a labeled calibration datapoint (US-44):

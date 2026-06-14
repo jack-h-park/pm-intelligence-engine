@@ -65,6 +65,21 @@ class SQLiteStore:
                 )
                 conn.execute(text("DROP TABLE signals__legacy_us49"))
 
+        # State-vocabulary renames (state glossary, 2026-06-14). Idempotent —
+        # the WHERE clauses match only legacy values, so re-running is a no-op.
+        # The enum `_missing_` hooks accept the legacy strings in-code; these
+        # UPDATEs migrate the stored rows so SQLAlchemy reads resolve directly.
+        with self._engine.begin() as conn:
+            conn.execute(
+                text("UPDATE signals SET status = 'new' WHERE status = 'pending'")
+            )
+            conn.execute(
+                text(
+                    "UPDATE workflow_runs SET status = 'waiting_direction' "
+                    "WHERE status = 'awaiting_direction'"
+                )
+            )
+
     # --- Signal ---
 
     def save_signal(

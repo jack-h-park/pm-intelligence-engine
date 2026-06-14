@@ -60,7 +60,7 @@ def test_gate1_direction_decision_recorded(client, engine):
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.update_run(
-        run_id, status="awaiting_direction", current_stage="s2",
+        run_id, status="waiting_direction", current_stage="s2",
         recommendation_json=json.dumps({"suggested_mode": "evaluate", "relevance_score": 5}),
     )
 
@@ -135,7 +135,7 @@ def test_decisions_queryable_by_event_filter(client, engine):
 def _seed_awaiting(engine):
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
-    engine.store.update_run(rid, status="awaiting_direction", current_stage="s2",
+    engine.store.update_run(rid, status="waiting_direction", current_stage="s2",
                             recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
     return rid
 
@@ -172,7 +172,7 @@ def test_run_response_mirrors_depth_and_mode(client, engine):
 def test_gate1_review_payload_surfaces_s2_insight(client, engine):
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
-    engine.store.update_run(rid, status="awaiting_direction", current_stage="s2")
+    engine.store.update_run(rid, status="waiting_direction", current_stage="s2")
     engine.store.save_stage_output(run_id=rid, stage="s1", output_json=json.dumps(
         {"output": {"summary": "Android 16 enables MTE via APM."}}))
     engine.store.save_stage_output(run_id=rid, stage="s2", output_json=json.dumps({"output": {
