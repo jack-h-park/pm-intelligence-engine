@@ -44,6 +44,12 @@ class SQLiteStore:
         if "batch_id" not in run_columns:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN batch_id VARCHAR"))
+        # Phase 2: per-run LLM token totals. Nullable ADD COLUMN — existing runs
+        # stay NULL; no rewrite, safe on the always-on DB.
+        if "prompt_tokens_total" not in run_columns:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN prompt_tokens_total INTEGER"))
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN completion_tokens_total INTEGER"))
 
         # US-49 renamed signals.product_id (NOT NULL) -> original_product_id
         # (nullable). A plain ADD COLUMN can't express either change, and SQLite's
@@ -429,6 +435,8 @@ class SQLiteStore:
             "created_at": r.created_at.isoformat(),
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
+            "prompt_tokens_total": r.prompt_tokens_total,
+            "completion_tokens_total": r.completion_tokens_total,
         }
 
     @staticmethod

@@ -225,6 +225,7 @@ Rules:
   decision (e.g. ["#7", "#14"]); use [] if none clearly apply.
 - Limit to 5 assumptions maximum."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -233,6 +234,7 @@ Rules:
         ],
         stage="s5",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=1024,
         temperature=0,  # deterministic — blocking classification must be consistent
     )
@@ -245,7 +247,7 @@ Rules:
     blocking = [a for a in assumptions if a.severity == "Blocking"]
     if settings.BLOCKING_VERIFIER_ENABLED and blocking:
         downgrades = await _verify_blocking_assumptions(
-            blocking, persona_summary, system_message, llm, context.run_id
+            blocking, persona_summary, system_message, llm, context.run_id, usage_sink=usage_sink
         )
         for a in assumptions:
             if a.severity == "Blocking" and a.statement in downgrades:
@@ -297,7 +299,7 @@ Rules:
     output = S5Output(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(
@@ -426,6 +428,7 @@ async def _verify_blocking_assumptions(
     system_message: str,
     llm: LLMProvider,
     run_id: str,
+    usage_sink: list | None = None,
 ) -> dict:
     """Adversarially audit Blocking classifications (US-42).
 
@@ -465,6 +468,7 @@ Respond with a single JSON object — no markdown, no commentary:
         ],
         stage="s5",
         run_id=run_id,
+        usage_sink=usage_sink,
         max_tokens=1024,
         temperature=0,
     )

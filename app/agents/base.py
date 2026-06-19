@@ -34,6 +34,7 @@ class PersonaAgent:
         llm: LLMProvider,
         prompt: dict,
         feedback: Optional[str] = None,
+        usage_sink: Optional[list] = None,
     ) -> PersonaOutput:
         system = (
             f"You are the {self.persona.capitalize()} persona in a PM evaluation framework.\n\n"
@@ -82,6 +83,7 @@ Rules:
             ],
             stage="s4",
             run_id=context.run_id,
+            usage_sink=usage_sink,
             max_tokens=512,
             temperature=0,  # deterministic — persona scores must be reproducible run-to-run
         )

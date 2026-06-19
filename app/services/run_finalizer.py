@@ -60,8 +60,10 @@ async def finalize_run(
     """
     from app.logging import emit_event
 
-    # Apply terminal state (store layer handles completed_at stamping).
-    engine.store.update_run(run_id, status=status, current_stage=None)
+    # Apply terminal state (store layer handles completed_at stamping). Roll up
+    # per-stage token usage into run-level totals at the same time (Phase 2).
+    token_totals = _sum_run_tokens(run_id, engine)
+    engine.store.update_run(run_id, status=status, current_stage=None, **token_totals)
     _sync_signal_status(run_id, status, engine)
 
     action = event_action if event_action is not None else status
@@ -80,6 +82,38 @@ async def finalize_run(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
+
+def _sum_run_tokens(run_id: str, engine: PMEngine) -> dict:
+    """Sum per-stage token usage from stage_outputs metadata (Phase 2).
+
+    Reads every stage output's ``metadata.input_tokens`` / ``output_tokens`` and
+    sums them — all versions included, since each version's tokens were really
+    spent (a revise re-runs S4, etc.). Returns an empty dict when no stage recorded
+    tokens, so older runs / no-LLM runs leave the columns NULL.
+    """
+    import json
+
+    inp = out = 0
+    seen = False
+    for so in engine.store.get_all_stage_outputs(run_id):
+        raw = so.get("output_json")
+        if not raw:
+            continue
+        try:
+            meta = json.loads(raw).get("metadata", {})
+        except (ValueError, TypeError):
+            continue
+        it, ot = meta.get("input_tokens"), meta.get("output_tokens")
+        if it is not None:
+            inp += it
+            seen = True
+        if ot is not None:
+            out += ot
+            seen = True
+    if not seen:
+        return {}
+    return {"prompt_tokens_total": inp, "completion_tokens_total": out}
 
 
 def _maybe_export(run_id: str, engine: PMEngine) -> None:

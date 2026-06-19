@@ -105,6 +105,7 @@ Rules:
 - "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide.
 - Do not hallucinate facts not present in the signal or product context."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -113,6 +114,7 @@ Rules:
         ],
         stage="s2",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=1024,
         temperature=0,  # deterministic — relevance scoring must be reproducible run-to-run
     )
@@ -121,7 +123,7 @@ Rules:
     output = S2Output(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(
