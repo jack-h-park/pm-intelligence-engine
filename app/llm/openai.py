@@ -1,6 +1,6 @@
 import asyncio
 
-from app.llm.protocol import Message
+from app.llm.protocol import Message, Usage
 
 _RETRY_DELAYS = [5, 15, 30]  # seconds between retries on rate limit
 
@@ -20,6 +20,7 @@ class OpenAIProvider:
         model: str | None = None,
         max_tokens: int = 2048,
         temperature: float | None = None,
+        usage_sink: list[Usage] | None = None,
     ) -> str:
         from openai import RateLimitError
 
@@ -41,6 +42,13 @@ class OpenAIProvider:
                 content = response.choices[0].message.content
                 if content is None:
                     raise ValueError("OpenAI returned an empty response")
+                if usage_sink is not None and response.usage is not None:
+                    usage_sink.append(
+                        {
+                            "input_tokens": response.usage.prompt_tokens or 0,
+                            "output_tokens": response.usage.completion_tokens or 0,
+                        }
+                    )
                 return content
             except RateLimitError as exc:
                 last_exc = exc

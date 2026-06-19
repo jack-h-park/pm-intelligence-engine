@@ -30,6 +30,29 @@ class StageMetadata(BaseModel):
     model_used: Optional[str] = Field(
         default=None, description="LLM model identifier, or null if no LLM was called"
     )
+    input_tokens: Optional[int] = Field(
+        default=None,
+        description="Prompt tokens for this stage (sum across all LLM calls incl. JSON-repair retries), or null if no LLM was called",
+    )
+    output_tokens: Optional[int] = Field(
+        default=None,
+        description="Completion tokens for this stage (sum across all LLM calls), or null if no LLM was called",
+    )
+
+    @classmethod
+    def with_usage(cls, model: Optional[str], usage_sink: Optional[list]) -> "StageMetadata":
+        """Build metadata from a model id and a usage_sink (list of {input_tokens, output_tokens}).
+
+        Sums the sink so multiple calls in one stage (e.g. JSON-repair retries, or
+        S4's parallel persona calls aggregated upstream) roll into the stage total.
+        An empty/None sink leaves the token fields null.
+        """
+        if usage_sink:
+            inp = sum(u.get("input_tokens", 0) for u in usage_sink)
+            out = sum(u.get("output_tokens", 0) for u in usage_sink)
+        else:
+            inp = out = None
+        return cls(model_used=model, input_tokens=inp, output_tokens=out)
 
 
 # ---------------------------------------------------------------------------

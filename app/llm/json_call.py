@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from app.llm.protocol import LLMProvider, Message
+from app.llm.protocol import LLMProvider, Message, Usage
 from app.logging import emit_event
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -38,6 +38,7 @@ async def complete_json(
     stage: str,
     run_id: str,
     max_repair_attempts: int = MAX_REPAIR_ATTEMPTS,
+    usage_sink: list[Usage] | None = None,
     **llm_kwargs,
 ) -> dict:
     """Call the LLM and parse its response as JSON, repairing on parse failure.
@@ -45,8 +46,12 @@ async def complete_json(
     On json.JSONDecodeError, re-prompts with the prior raw output and the parse
     error appended to the conversation. After max_repair_attempts failed
     repairs, the final error propagates (same failure semantics as before).
+
+    If ``usage_sink`` is provided, every underlying LLM call (including each
+    JSON-repair retry) appends its token usage — so the caller sees the true total
+    cost of producing this stage's JSON, not just the final attempt.
     """
-    raw = await llm.complete(messages=messages, **llm_kwargs)
+    raw = await llm.complete(messages=messages, usage_sink=usage_sink, **llm_kwargs)
     for attempt in range(1, max_repair_attempts + 1):
         try:
             return parse_json(raw)
@@ -62,7 +67,7 @@ async def complete_json(
                 {"role": "assistant", "content": raw},
                 {"role": "user", "content": _REPAIR_INSTRUCTION.format(error=exc)},
             ]
-            raw = await llm.complete(messages=repair_messages, **llm_kwargs)
+            raw = await llm.complete(messages=repair_messages, usage_sink=usage_sink, **llm_kwargs)
     try:
         return parse_json(raw)
     except json.JSONDecodeError as exc:

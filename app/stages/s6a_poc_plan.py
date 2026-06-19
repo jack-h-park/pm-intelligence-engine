@@ -91,6 +91,7 @@ Rules:
 - timeline_weeks should be realistic given the resources described — typically 2–6 weeks.
 - success_criteria must be binary (pass/fail) — not "learn more about"."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -99,6 +100,7 @@ Rules:
         ],
         stage="s6a",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=1024,
     )
     output_data = S6AOutputData(**data)
@@ -106,7 +108,7 @@ Rules:
     output = S6AOutput(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(

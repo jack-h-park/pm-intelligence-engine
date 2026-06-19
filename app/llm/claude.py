@@ -1,4 +1,4 @@
-from app.llm.protocol import Message
+from app.llm.protocol import Message, Usage
 
 
 class ClaudeProvider:
@@ -16,6 +16,7 @@ class ClaudeProvider:
         model: str | None = None,
         max_tokens: int = 2048,
         temperature: float | None = None,
+        usage_sink: list[Usage] | None = None,
     ) -> str:
         system_parts = [m["content"] for m in messages if m["role"] == "system"]
         non_system = [m for m in messages if m["role"] != "system"]
@@ -31,4 +32,11 @@ class ClaudeProvider:
             kwargs["temperature"] = temperature
 
         response = await self._client.messages.create(**kwargs)
+        if usage_sink is not None and response.usage is not None:
+            usage_sink.append(
+                {
+                    "input_tokens": response.usage.input_tokens or 0,
+                    "output_tokens": response.usage.output_tokens or 0,
+                }
+            )
         return response.content[0].text

@@ -154,6 +154,10 @@ class WorkflowRun(Base):
     # re-entering a gate state, e.g. waiting_approval after a Gate 2 revise).
     updated_at = Column(DateTime, nullable=False, default=_utc_now, onupdate=_utc_now)
     completed_at = Column(DateTime, nullable=True)
+    # Per-run LLM token totals (Phase 2), summed across all stage outputs at
+    # finalize. NULL for runs that predate this column or never called an LLM.
+    prompt_tokens_total = Column(Integer, nullable=True)
+    completion_tokens_total = Column(Integer, nullable=True)
 
     signal = relationship("Signal", back_populates="runs")
     stage_outputs = relationship("StageOutput", back_populates="run")

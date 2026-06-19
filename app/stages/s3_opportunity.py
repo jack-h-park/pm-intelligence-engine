@@ -74,6 +74,7 @@ Rules:
   may erase the value, e.g. by shipping a native capability)? Choose "transient"
   only when there is a concrete reason the window may close; otherwise "durable"."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -82,6 +83,7 @@ Rules:
         ],
         stage="s3",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=1024,
         temperature=0,  # deterministic — opportunity framing must be reproducible run-to-run
     )
@@ -90,7 +92,7 @@ Rules:
     output = S3Output(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(

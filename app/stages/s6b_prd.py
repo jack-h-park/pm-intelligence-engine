@@ -91,6 +91,7 @@ Rules:
 - success_metrics must have at least 2 entries, each with a measurement method.
 - open_questions must name a suggested owner role in parentheses."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -99,6 +100,7 @@ Rules:
         ],
         stage="s6b",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=2048,
     )
     completeness = _compute_completeness(data)
@@ -107,7 +109,7 @@ Rules:
     output = S6BOutput(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(

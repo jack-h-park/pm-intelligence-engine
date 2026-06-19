@@ -42,7 +42,10 @@ async def run(
     template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
     prompts = {agent.persona: template_service.load_persona_prompt(agent.persona) for agent in agents}
 
-    # Parallel execution — agents cannot see each other's outputs
+    # Parallel execution — agents cannot see each other's outputs. All four share
+    # one usage_sink; each appends its call's tokens (asyncio.gather on a single
+    # event loop, so list.append between awaits is safe) → S4 stage total.
+    usage_sink: list = []
     personas: list[PersonaOutput] = list(
         await asyncio.gather(
             *[
@@ -52,6 +55,7 @@ async def run(
                     llm,
                     prompt=prompts[agent.persona],
                     feedback=stage_input.feedback,
+                    usage_sink=usage_sink,
                 )
                 for agent in agents
             ]
@@ -74,7 +78,7 @@ async def run(
         run_id=context.run_id,
         version=stage_input.version,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(

@@ -135,6 +135,7 @@ Rules:
 - "markdown" must include a Run Summary table filled with actual data from the stages that ran.
 - A stakeholder who reads only the markdown should understand what was done and why."""
 
+    usage_sink: list = []
     data = await complete_json(
         llm,
         messages=[
@@ -143,6 +144,7 @@ Rules:
         ],
         stage="s7",
         run_id=context.run_id,
+        usage_sink=usage_sink,
         max_tokens=2048,
     )
     output_data = S7OutputData(**data)
@@ -150,7 +152,7 @@ Rules:
     output = S7Output(
         run_id=context.run_id,
         output=output_data,
-        metadata=StageMetadata(model_used=_resolve_model()),
+        metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
     store.save_stage_output(
