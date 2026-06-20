@@ -13,6 +13,7 @@ class PMWorkflowStore(Protocol):
         source_url: Optional[str] = None,
         category: str = "other",
         source_type: str = "manual",
+        source_ref: Optional[str] = None,
     ) -> str: ...
 
     def get_signal(self, signal_id: str) -> Optional[dict]: ...
