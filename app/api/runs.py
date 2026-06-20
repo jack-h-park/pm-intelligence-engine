@@ -576,11 +576,15 @@ async def _execute_s1_s2(
         }
         engine.store.update_run(run_id, recommendation_json=json.dumps(recommendation))
 
-        # Auto-triage: if relevance score is below threshold, skip Gate 1 entirely.
-        # The signal is archived to the wiki kills folder and the run completes silently.
         from app.services.run_finalizer import finalize_run
         from config import settings as _cfg
-        if s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
+
+        if requested_mode is not None:
+            # PM explicitly specified a depth at run-start — always honor it.
+            # Skip auto-triage: PM's stated intent overrides the S2 relevance score.
+            chosen_mode = requested_mode
+        elif s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
+            # No depth specified and relevance is below threshold — auto-triage.
             engine.store.update_run(run_id, mode="archive")  # set mode before finalize
             # Durable marker so auto-triaged runs stay queryable and revivable
             # (GET /runs?event=auto_triaged, POST /runs/{id}/reopen — US-31)
@@ -607,12 +611,8 @@ async def _execute_s1_s2(
                 settings_obj=_cfg,
             )
             return
-
-        if requested_mode is not None:
-            # Mode was specified upfront — skip the waiting_direction pause
-            chosen_mode = requested_mode
         else:
-            # Pause and wait for the PM to confirm or override the suggested mode
+            # No depth specified and relevance is acceptable — pause at Gate 1.
             engine.store.update_run(
                 run_id,
                 status="waiting_direction",
