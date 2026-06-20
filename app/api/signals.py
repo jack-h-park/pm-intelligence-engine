@@ -21,6 +21,10 @@ class SignalCreate(BaseModel):
     title: str
     raw_content: str
     source_url: Optional[str] = None
+    # Optional provenance back-link to the originating intake artifact — the
+    # Hermes sensing filename. Gate 0 submit passes it so the engine signal can
+    # be paired with its sensing file deterministically (no fuzzy title match).
+    source_ref: Optional[str] = None
     category: str = "other"
     source_type: SourceType = SourceType.manual
 
@@ -30,6 +34,7 @@ class SignalResponse(BaseModel):
     original_product_id: Optional[str]
     title: str
     source_url: Optional[str]
+    source_ref: Optional[str] = None
     category: str
     status: str
     source_type: str
@@ -48,6 +53,7 @@ async def create_signal(
         source_url=body.source_url,
         category=body.category,
         source_type=body.source_type,
+        source_ref=body.source_ref,
     )
     signal = engine.store.get_signal(signal_id)
     if signal is None:

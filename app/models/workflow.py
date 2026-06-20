@@ -125,6 +125,13 @@ class Signal(Base):
     original_product_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
     source_url = Column(String, nullable=True)
+    # Authoritative back-link to the originating intake artifact (the Hermes
+    # sensing filename, e.g. "2026-05-28-anthropic-glasswing-initial-update.md").
+    # NULL for signals not submitted through Gate 0 (manual POST, replays). When
+    # present it is the deterministic join key the observatory uses to pair a
+    # sensing file with its run — replacing the fragile fuzzy title match. See
+    # gate0-state.json `submitted[].signal_id` for the reverse direction.
+    source_ref = Column(String, nullable=True)
     raw_content = Column(Text, nullable=False)
     category = Column(SAEnum(SignalCategory), nullable=False, default=SignalCategory.other)
     status = Column(SAEnum(SignalStatus), nullable=False, default=SignalStatus.new)

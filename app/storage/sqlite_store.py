@@ -51,6 +51,13 @@ class SQLiteStore:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN prompt_tokens_total INTEGER"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN completion_tokens_total INTEGER"))
 
+        # Provenance back-link to the originating sensing file (nullable). A plain
+        # ADD COLUMN suffices since it carries no constraint. Guarded → idempotent.
+        if "source_ref" not in {c["name"] for c in inspector.get_columns("signals")}:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE signals ADD COLUMN source_ref VARCHAR"))
+            inspector = inspect(self._engine)  # refresh before the US-49 check below
+
         # US-49 renamed signals.product_id (NOT NULL) -> original_product_id
         # (nullable). A plain ADD COLUMN can't express either change, and SQLite's
         # RENAME COLUMN keeps the NOT NULL constraint, so rebuild the table to
@@ -96,6 +103,7 @@ class SQLiteStore:
         source_url: Optional[str] = None,
         category: str = "other",
         source_type: str = "manual",
+        source_ref: Optional[str] = None,
     ) -> str:
         with self._Session() as session:
             signal = Signal(
@@ -105,6 +113,7 @@ class SQLiteStore:
                 source_url=source_url,
                 category=SignalCategory(category),
                 source_type=SourceType(source_type),
+                source_ref=source_ref,
             )
             session.add(signal)
             session.commit()
@@ -412,6 +421,7 @@ class SQLiteStore:
             "original_product_id": s.original_product_id,
             "title": s.title,
             "source_url": s.source_url,
+            "source_ref": s.source_ref,
             "raw_content": s.raw_content,
             "category": s.category.value,
             "status": s.status.value,
