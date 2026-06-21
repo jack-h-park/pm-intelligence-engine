@@ -41,10 +41,42 @@ S2 (per-product relevance) **duplicate the same judgement**, both *before* the c
 5. **Closing the batch** (PM declines further promotion) re-enables the existing Variant 2
    synthesis trigger — now meaningful only when ≥2 products were actually promoted.
 
+### Batch membership — what it is and when it closes
+
+A **batch** is the set of sibling runs spawned from one signal (`run_batches`, keyed by
+`batch_id`). The `run_batches.membership_closed` flag answers a single question: **"can more
+runs still join this batch?"**
+
+- `membership_closed = false` (**open**) — more runs may still be promoted in.
+- `membership_closed = true` (**closed**) — the run set is final; no more will join.
+
+The flag exists to **guard the Variant 2 synthesis trigger**. The cross-product memo must fire
+exactly once, *after* every run in the batch has settled — but "all settled" is only meaningful
+once the membership is final. If a promotion could still add a run a moment later, an early
+synthesis would be computed over an incomplete set. So `batch_ready_for_synthesis` requires
+`membership_closed == true` **and** all runs settled **and** > 1 run **and** no synthesis yet
+(§6). The flag is the seal that says *"the set is final — now you may count."*
+
+**Lifecycle under the conservative default:**
+
+| Moment | Membership | Why |
+|--------|-----------|-----|
+| Fan-out, **deferred candidates exist** | left **open** | a promotion may still join — keep the seal off so synthesis waits |
+| Fan-out, **no deferred candidate** (only the primary is relevant) | **closed immediately** | nothing can ever be promoted, so leaving it open would strand the batch *open forever* (no event ever closes it), accumulating dead single-run batches. Closing now also matches the legacy "no other relevant product → closed batch" behaviour. (A single-run batch never synthesizes anyway — the `> 1 run` guard — but the seal should still reflect reality.) |
+| PM promotes a candidate | stays **open** | further promotions may still follow |
+| PM declines further promotion (`POST /batch/{id}/close`) | **closed** | the set is now final; re-checks the synthesis trigger |
+
 This inverts the default from **auto opt-out** (eager spray) to **human opt-in** (pull). It is
 deliberately **reversible and engine-local**: `original_product_id`, `batch_id`, `run_batches`,
 `portfolio_syntheses`, and the synthesis pass all stand unchanged. Decision-context, the
 observatory schema, and the eval golden set are untouched.
+
+**No migration for already-fanned batches.** Batches created under the eager default are all
+`membership_closed = true` (the old code closed them on creation) and their runs are terminal, so
+the new code treats them as inert: `promote` returns 409 on a closed batch (correct — they are
+legacy), and retro-selecting a "primary" for already-settled runs would be meaningless. The only
+cleanup is operational, not a schema migration: drain any run still parked at a gate via a normal
+gate decision.
 
 **Product families** (a `product_id → family` map in engine config; routing/grouping only — it
 is *not* the workflow unit, and does not restructure per-product decision-context):
