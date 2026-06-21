@@ -101,3 +101,48 @@ def test_migration_adds_lineage_columns_to_legacy_db(tmp_path):
     # Idempotent: a second open must not raise.
     reopened = SQLiteStore(url)
     assert reopened.get_run("old-run")["attempt_no"] == 1
+
+
+def test_migration_backfills_existing_lineage(tmp_path):
+    """The migration reconstructs lineage for pre-existing runs so the fix is
+    retroactive: three runs of one signal+product become attempts 1/2/3 sharing
+    a root, while a different product's run stays its own attempt 1."""
+    url = f"sqlite:///{tmp_path}/legacy.db"
+    e = sa.create_engine(url)
+    with e.begin() as c:
+        c.execute(
+            sa.text(
+                "CREATE TABLE workflow_runs (run_id VARCHAR PRIMARY KEY, "
+                "product_id VARCHAR, signal_id VARCHAR, status VARCHAR, "
+                "current_stage VARCHAR, mode VARCHAR, recommendation_json TEXT, "
+                "routing VARCHAR, composite_score FLOAT, created_at DATETIME, "
+                "updated_at DATETIME, completed_at DATETIME, batch_id VARCHAR, "
+                "prompt_tokens_total INTEGER, completion_tokens_total INTEGER)"
+            )
+        )
+        rows = [
+            ("r1", "p1", "sigA", "failed", "2026-01-01 00:00:00"),
+            ("r2", "p1", "sigA", "failed", "2026-01-01 01:00:00"),
+            ("r3", "p1", "sigA", "completed", "2026-01-01 02:00:00"),
+            ("r4", "p2", "sigA", "completed", "2026-01-01 03:00:00"),
+        ]
+        for run_id, pid, sid, status, created in rows:
+            c.execute(
+                sa.text(
+                    "INSERT INTO workflow_runs (run_id, product_id, signal_id, "
+                    "status, created_at) VALUES (:r, :p, :s, :st, :c)"
+                ),
+                {"r": run_id, "p": pid, "s": sid, "st": status, "c": created},
+            )
+    e.dispose()
+
+    store = SQLiteStore(url)
+    assert (store.get_run("r1")["attempt_no"], store.get_run("r1")["root_run_id"]) == (1, None)
+    assert (store.get_run("r2")["attempt_no"], store.get_run("r2")["root_run_id"]) == (2, "r1")
+    assert (store.get_run("r3")["attempt_no"], store.get_run("r3")["root_run_id"]) == (3, "r1")
+    # Different product → separate lineage, untouched.
+    assert (store.get_run("r4")["attempt_no"], store.get_run("r4")["root_run_id"]) == (1, None)
+
+    # A new retry continues the backfilled lineage.
+    r5 = store.create_run(product_id="p1", signal_id="sigA")
+    assert (store.get_run(r5)["attempt_no"], store.get_run(r5)["root_run_id"]) == (4, "r1")

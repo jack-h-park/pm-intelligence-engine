@@ -62,6 +62,34 @@ class SQLiteStore:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN root_run_id VARCHAR"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN failed_stage VARCHAR"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN error TEXT"))
+                # One-time backfill so the fix is retroactive: reconstruct the
+                # lineage of pre-existing runs (numbered per signal+product by
+                # creation order) instead of leaving every historical run as a
+                # lone attempt 1. Without this, past retries stay scattered.
+                # Window functions require SQLite >= 3.25 (modern Python and
+                # better-sqlite3 both ship newer).
+                conn.execute(
+                    text(
+                        """
+                        WITH ranked AS (
+                            SELECT run_id,
+                                   ROW_NUMBER() OVER w AS rn,
+                                   FIRST_VALUE(run_id) OVER w AS root
+                            FROM workflow_runs
+                            WINDOW w AS (
+                                PARTITION BY signal_id, product_id
+                                ORDER BY created_at ASC, run_id ASC
+                            )
+                        )
+                        UPDATE workflow_runs
+                        SET attempt_no = (SELECT rn FROM ranked WHERE ranked.run_id = workflow_runs.run_id),
+                            root_run_id = (
+                                SELECT CASE WHEN rn = 1 THEN NULL ELSE root END
+                                FROM ranked WHERE ranked.run_id = workflow_runs.run_id
+                            )
+                        """
+                    )
+                )
 
         # Provenance back-link to the originating sensing file (nullable). A plain
         # ADD COLUMN suffices since it carries no constraint. Guarded → idempotent.
