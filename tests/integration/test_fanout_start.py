@@ -96,6 +96,26 @@ def test_fanout_spawns_only_primary_and_defers_rest(client, engine, monkeypatch)
     assert engine.store.get_signal(signal_id)["status"] == "in_run"
 
 
+def test_fanout_single_relevant_closes_membership_immediately(client, engine, monkeypatch):
+    """No deferred candidate -> nothing to promote -> batch closes now, so it does
+    not linger open forever (US-49 §0)."""
+    signal_id = _seed_signal(engine)
+
+    async def fake_triage(**kwargs):
+        return _triage_returning("prod-a")  # only the primary is relevant
+
+    async def _noop(*a, **k):
+        return None
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", _noop)
+
+    body = client.post("/runs/start", json={"signal_id": signal_id}).json()
+    assert {r["product_id"] for r in body["runs"]} == {"prod-a"}
+    # no deferred candidate -> membership closed immediately
+    assert engine.store.get_batch(body["batch_id"])["membership_closed"] is True
+
+
 def test_fanout_no_relevant_products_creates_no_runs(client, engine, monkeypatch):
     signal_id = _seed_signal(engine)
 

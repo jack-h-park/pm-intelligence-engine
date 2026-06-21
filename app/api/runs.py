@@ -267,6 +267,14 @@ async def _start_fanout_runs(
         for p in triage.products
         if p.relevant and p.product_id != primary_id
     ]
+    # Keep membership OPEN only when there is something to promote. If Triage found
+    # no other relevant product, there is provably nothing to defer, so close the
+    # batch now — otherwise it would linger open forever (nothing ever triggers the
+    # close), accumulating dead single-run batches. Closing also matches the legacy
+    # "no other relevant product -> closed batch" behaviour.
+    if not deferred:
+        engine.store.close_batch_membership(batch_id)
+
     emit_event(
         "run", "fanout_started", signal_id,
         {"batch_id": batch_id, "primary": primary_id, "deferred": deferred},
