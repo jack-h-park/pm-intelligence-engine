@@ -24,11 +24,6 @@ if TYPE_CHECKING:
 
 # note depth and above export to the run archive; archive depth (set-aside) is excluded.
 _EXPORTABLE_MODES = {"note", "structure", "evaluate", "decide"}
-_TERMINAL_SIGNAL_STATUSES = {
-    "completed": "done",
-    "killed": "done",
-    "failed": "new",  # failed run returns the signal to the retryable pool (was "pending")
-}
 
 
 async def finalize_run(
@@ -180,17 +175,18 @@ async def _maybe_synthesize_portfolio(run_id: str, engine: PMEngine) -> None:
 
 
 def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
-    """Keep the source signal lifecycle aligned with terminal run outcomes.
+    """Re-derive the source signal's lifecycle status from *all* of its runs.
 
-    A failed run normally returns its signal to the retryable ``new`` pool. To
-    stop a deterministically-failing signal from re-running forever, once the
-    lineage reaches ``MAX_RUN_ATTEMPTS`` the signal is parked as ``blocked``
-    instead — out of the auto-retry loop until a human investigates.
+    The signal status is a deterministic function of its runs (see
+    ``app.services.signal_status``), not a value pushed from the single finalizing
+    run — that older approach diverged whenever a run was created outside this
+    path (synthetic/backfilled ``completed`` rows) or a fan-out left siblings in
+    different states. Reconciling from the full run set is correct in both cases.
+
+    The retry-exhaustion *event* still fires here: it is about *this* run's
+    lineage hitting the cap, which the status derivation (a set-level view)
+    cannot express on its own.
     """
-    target_status = _TERMINAL_SIGNAL_STATUSES.get(status)
-    if target_status is None:
-        return
-
     run = engine.store.get_run(run_id)
     if run is None:
         return
@@ -204,7 +200,6 @@ def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
 
         attempt_no = run.get("attempt_no") or 1
         if attempt_no >= settings.MAX_RUN_ATTEMPTS:
-            target_status = "blocked"
             from app.logging import emit_event
 
             emit_event(
@@ -214,4 +209,6 @@ def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
                 {"attempt_no": attempt_no, "max_attempts": settings.MAX_RUN_ATTEMPTS},
             )
 
-    engine.store.update_signal_status(signal_id, target_status)
+    from app.services.signal_status import reconcile_signal_status
+
+    reconcile_signal_status(signal_id, engine)
