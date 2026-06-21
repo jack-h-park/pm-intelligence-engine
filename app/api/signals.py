@@ -1,3 +1,5 @@
+import json
+import os
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -41,11 +43,45 @@ class SignalResponse(BaseModel):
     ingested_at: str
 
 
+def _check_gate0_skip(source_ref: str) -> None:
+    """Raise 409 if source_ref is in the gate0-state.json `skipped` bucket.
+
+    Called only when GATE0_STATE_FILE is configured. Any I/O or parse error is
+    treated permissively — the check must never block a legitimate submission
+    because of a transient read failure.
+    """
+    from config import settings
+
+    state_path = settings.GATE0_STATE_FILE
+    if not state_path:
+        return
+    try:
+        with open(state_path) as fh:
+            state = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return  # missing or malformed → permissive
+    if not isinstance(state, dict):
+        return
+    skipped = state.get("skipped")
+    if not isinstance(skipped, dict):
+        return
+    entry = skipped.get(source_ref)
+    if entry is None:
+        return
+    reason = entry.get("reason", "") if isinstance(entry, dict) else ""
+    detail = f"Signal source '{source_ref}' is in the Gate 0 skipped bucket and cannot be re-ingested."
+    if reason:
+        detail += f" Reason: {reason}"
+    raise HTTPException(status_code=409, detail=detail)
+
+
 @router.post("", response_model=SignalResponse, status_code=201)
 async def create_signal(
     body: SignalCreate,
     engine: PMEngine = Depends(get_engine),
 ) -> SignalResponse:
+    if body.source_ref:
+        _check_gate0_skip(body.source_ref)
     signal_id = engine.store.save_signal(
         original_product_id=body.original_product_id,
         title=body.title,
