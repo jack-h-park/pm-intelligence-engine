@@ -27,6 +27,18 @@ class RunStartRequest(BaseModel):
     )  # If provided, skip waiting_direction and run immediately
 
 
+class PromoteRequest(BaseModel):
+    """Promote a deferred candidate into a real sibling run (US-49 §0).
+
+    ``depth`` is optional; omitted, the promotion inherits the primary run's depth
+    (or, if the primary has none yet, the promoted run takes its own Gate 1)."""
+    model_config = ConfigDict(populate_by_name=True)
+    product_id: str
+    depth: str | None = Field(
+        default=None, validation_alias=AliasChoices("depth", "mode")
+    )
+
+
 class RunResponse(BaseModel):
     run_id: str
     product_id: str
@@ -234,26 +246,68 @@ async def _start_fanout_runs(
     )
 
     batch_id = engine.store.create_batch(signal_id)
+
+    # Conservative fan-out (US-49 §0): spawn ONLY the primary product — the
+    # highest-relevance product (within the most-relevant family). Other relevant
+    # products are returned as deferred candidates for human-pull promotion, not
+    # run; eager fan-out (a run per relevant product) was measured net-negative in
+    # production. Membership is intentionally left OPEN (no close_batch_membership
+    # here) so promotions can join this batch later; closing happens on
+    # POST /batch/{id}/close, which re-enables the Variant 2 synthesis trigger.
+    primary_id = _select_primary(triage)
     runs = _spawn_runs_in_batch(
-        triage.relevant_product_ids, signal_id, batch_id, requested_mode,
-        background_tasks, engine,
+        [primary_id] if primary_id else [],
+        signal_id, batch_id, requested_mode, background_tasks, engine,
     )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
-    # Membership is final immediately for product-agnostic fan-out (all relevant
-    # products are known upfront). Closing it lets the Variant 2 synthesis trigger
-    # fire once all runs settle.
-    engine.store.close_batch_membership(batch_id)
 
+    deferred = [
+        p.product_id
+        for p in triage.products
+        if p.relevant and p.product_id != primary_id
+    ]
     emit_event(
         "run", "fanout_started", signal_id,
-        {"batch_id": batch_id, "relevant": triage.relevant_product_ids},
+        {"batch_id": batch_id, "primary": primary_id, "deferred": deferred},
     )
     return BatchStartResponse(
         batch_id=batch_id,
         runs=runs,
-        triage=[p.model_dump() for p in triage.products],
+        triage=[_triage_dict_with_family(p) for p in triage.products],
     )
+
+
+def _select_primary(triage) -> str | None:
+    """The fan-out primary: highest-relevance product among the relevant set.
+
+    Returns None when Triage found nothing relevant (no run is spawned). ``max``
+    is stable, so ties break by Triage's product order.
+    """
+    relevant = [p for p in triage.products if p.relevant]
+    if not relevant:
+        return None
+    return max(relevant, key=lambda p: p.relevance_score).product_id
+
+
+def _triage_dict_with_family(product_relevance) -> dict:
+    """Triage verdict enriched with its product family, so ops can group the
+    deferred candidates it offers for promotion ("also relevant, same family")."""
+    from config import family_of
+
+    d = product_relevance.model_dump()
+    d["family"] = family_of(product_relevance.product_id)
+    return d
+
+
+def _inherited_depth(siblings: list[dict]) -> str | None:
+    """The depth a promotion inherits when none is stated: the primary run's
+    chosen depth (the first sibling with a depth set), else None (the promoted
+    run then takes its own Gate 1 — there is no depth to carry yet)."""
+    for r in siblings:
+        if r.get("mode"):
+            return r["mode"]
+    return None
 
 
 def _spawn_runs_in_batch(
@@ -305,6 +359,92 @@ async def get_batch(
     }
 
 
+@router.post("/batch/{batch_id}/promote", response_model=None, status_code=202)
+async def promote_product(
+    batch_id: str,
+    body: PromoteRequest,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine = Depends(get_engine),
+) -> RunResponse:
+    """Promote a deferred candidate into a sibling run (US-49 §0, human-pull).
+
+    The promoted run re-enters mid-pipeline: **not** at Gate 0 (the signal is
+    already admitted) and **not** at Gate 2 (Gate 2 approves *that product's* S4
+    output, which does not exist yet). It starts at **S2** with the promoted
+    product's context — S1 is product-agnostic and free to re-run (no LLM call),
+    so it is effectively reused. Gate 1 is skipped: the promotion carries the
+    depth (explicit ``depth``, else the primary's depth).
+    """
+    from app.modes import normalize_mode
+    from app.logging import emit_event
+
+    batch = engine.store.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    if batch["membership_closed"]:
+        raise HTTPException(
+            status_code=409, detail="Batch membership is closed; cannot promote"
+        )
+    _validate_product_exists(body.product_id, engine)
+
+    siblings = engine.store.list_runs(batch_id=batch_id, limit=1000)
+    if any(r["product_id"] == body.product_id for r in siblings):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Product '{body.product_id}' is already in this batch",
+        )
+
+    depth = normalize_mode(body.depth) if body.depth else _inherited_depth(siblings)
+    if depth is not None:
+        _validate_mode(depth)
+        validate_mode_for_product(depth, body.product_id)
+
+    signal_id = batch["signal_id"]
+    run_id = engine.store.create_run(
+        product_id=body.product_id, signal_id=signal_id, batch_id=batch_id
+    )
+    engine.store.update_run(run_id, status="running", current_stage="s1")
+    engine.store.update_signal_status(signal_id, "in_run")
+    background_tasks.add_task(
+        _execute_s1_s2, run_id, signal_id, body.product_id, depth, engine
+    )
+    emit_event(
+        "run", "promoted", run_id,
+        {"batch_id": batch_id, "product_id": body.product_id, "depth": depth},
+    )
+    return RunResponse(**engine.store.get_run(run_id))  # type: ignore[arg-type]
+
+
+@router.post("/batch/{batch_id}/close", response_model=None)
+async def close_batch(
+    batch_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> dict:
+    """Close a batch for further promotion (US-49 §0).
+
+    Idempotent. Closing re-enables the Variant 2 synthesis trigger; if every run
+    already settled before the close, the finalizer's trigger never fired for the
+    now-closed batch, so re-check it here.
+    """
+    from app.logging import emit_event
+    from app.services.portfolio_synthesis import (
+        batch_ready_for_synthesis,
+        synthesize_batch,
+    )
+
+    batch = engine.store.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Batch not found")
+
+    engine.store.close_batch_membership(batch_id)
+    emit_event("run", "batch_closed", batch_id, {"signal_id": batch["signal_id"]})
+
+    if batch_ready_for_synthesis(batch_id, engine):
+        await synthesize_batch(batch_id, engine)
+
+    return await get_batch(batch_id, engine)
+
+
 @router.post("/{run_id}/scan", response_model=None, status_code=202)
 async def scan_portfolio(
     run_id: str,
@@ -317,6 +457,10 @@ async def scan_portfolio(
     relevant to *other* products and fan out to those. This is a deliberate PM
     action (surfaced as a button on the Gate 1 review), not automatic — and it
     works whether the origin run is paused at Gate 1 or already auto-triaged.
+
+    Note (US-49 §0): this is the bulk "fan to all relevant" action and still spawns
+    a run per relevant product. For granular human-pull, prefer per-product
+    promotion (POST /runs/batch/{id}/promote), which adds one sibling at a time.
 
     Portfolio Triage runs over the portfolio minus the origin product. If any
     other product is relevant, the origin run is pulled into a new batch
