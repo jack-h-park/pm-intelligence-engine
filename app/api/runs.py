@@ -53,7 +53,6 @@ class RunResponse(BaseModel):
     status: str
     current_stage: str | None
     depth: str | None = None  # processing depth (canonical, US-43)
-    mode: str | None = None   # deprecated alias of `depth` (kept for existing clients)
     recommendation_json: str | None
     routing: str | None
     composite_score: float | None
@@ -73,15 +72,16 @@ class RunResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _mirror_depth_mode(cls, data):
-        # The store dict uses "mode"; mirror it to "depth" (and vice-versa) so
-        # responses always carry both during the transition.
+    def _depth_from_store_mode(cls, data):
+        # The store dict still uses the legacy "mode" key; surface it as the
+        # canonical `depth`. `mode` is no longer returned in the response (US-43
+        # deprecation complete) — clients read `depth`. Input still accepts `mode`
+        # as an alias (see RunStartRequest/PromoteRequest). The leftover "mode" key
+        # here is ignored (RunResponse has no such field).
         if isinstance(data, dict):
             d = dict(data)
             if d.get("depth") is None and d.get("mode") is not None:
                 d["depth"] = d["mode"]
-            elif d.get("mode") is None and d.get("depth") is not None:
-                d["mode"] = d["depth"]
             return d
         return data
 
