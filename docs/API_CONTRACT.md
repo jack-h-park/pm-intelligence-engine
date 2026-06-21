@@ -61,6 +61,7 @@ version bump.
 | `POST` | `/runs/{id}/revise` | Gate 2 revise | Bridge PM revision |
 | `POST` | `/runs/{id}/reject` | Gate 2 reject | Bridge PM rejection |
 | `POST` | `/runs/{id}/routing-review` | Gate 3 confirm/override | Bridge PM routing decision |
+| `POST` | `/runs/{id}/void` | Cancel an improperly-started run (→ killed) | Bridge PM void at any gate |
 | `POST` | `/runs/{id}/reopen` | Revive an auto-triaged run | Auto-triage digest follow-up |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
@@ -136,7 +137,7 @@ List runs. Hermes uses this for polling actionable queues.
 - `status` — filter by status (e.g. `waiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
 - `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
-  `revise`, `reject`, `direction`, `confirm`, `override`). Every human gate decision is
+  `revise`, `reject`, `direction`, `confirm`, `override`, `void`). Every human gate decision is
   now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
   `reject`), Gate 3 routing (`confirm`/`override`) — each records the system suggestion
   vs the PM's choice in `feedback_text`, forming the labeled human-decision dataset.
@@ -345,6 +346,30 @@ Gate 2 — kill the run at evaluation stage.
 ```
 
 **Response (200):** `{ "run_id": "uuid", "action": "rejected" }`
+
+---
+
+### `POST /runs/{id}/void`
+Administratively cancel an **improperly-started** run from any non-terminal state
+— the kill path that `waiting_direction` otherwise lacks. Ends the run as `killed`
+with a reason. **Distinct from `archive`** (which runs S2 and lands as `completed`
+evaluated work), from Gate 2 `reject` (decide-mode evaluation rejection), and from
+S5 routing `kill` (a substantive decision). Records a `void` decision event.
+
+**Request body:**
+```json
+{ "reason": "Started for the wrong product — Gate 0 mis-classification." }
+```
+
+**Response (200):**
+```json
+{ "run_id": "uuid", "action": "voided", "voided_from": "waiting_direction", "reason": "..." }
+```
+
+**Errors:** `404` unknown run · `409` run already terminal (`completed`/`killed`/`failed`).
+
+Usable from `pending`, `running`, `waiting_direction`, `waiting_approval`, and
+`waiting_routing_review`.
 
 ---
 

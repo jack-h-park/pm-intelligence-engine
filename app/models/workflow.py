@@ -99,6 +99,7 @@ class ApprovalAction(str, enum.Enum):
     direction = "direction"        # PM mode choice at Gate 1 (US-44)
     confirm = "confirm"            # PM confirms S5 routing at Gate 3 (US-44)
     override = "override"          # PM overrides S5 routing at Gate 3 (US-44)
+    void = "void"                  # PM voids an improperly-started run (any non-terminal state)
 
 
 class ArtifactType(str, enum.Enum):
