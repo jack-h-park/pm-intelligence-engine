@@ -146,7 +146,7 @@ def test_direction_accepts_depth_field(client, engine):
         resp = client.post(f"/runs/{rid}/direction", json={"depth": "decide"})
     assert resp.status_code == 202, resp.text
     body = resp.json()
-    assert body["depth"] == "decide" and body["mode"] == "decide"  # both returned
+    assert body["depth"] == "decide" and "mode" not in body  # depth only; mode dropped from response (US-43)
 
 
 def test_direction_accepts_legacy_mode_alias(client, engine):
@@ -157,12 +157,14 @@ def test_direction_accepts_legacy_mode_alias(client, engine):
     assert resp.json()["depth"] == "structure"  # alias + value both normalized
 
 
-def test_run_response_mirrors_depth_and_mode(client, engine):
+def test_run_response_surfaces_depth_not_mode(client, engine):
+    # Store still uses the legacy "mode" column; the response surfaces it as the
+    # canonical `depth` and no longer returns `mode` (US-43 deprecation complete).
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
     engine.store.update_run(rid, status="completed", mode="decide")
     r = client.get(f"/runs/{rid}").json()
-    assert r["depth"] == "decide" and r["mode"] == "decide"
+    assert r["depth"] == "decide" and "mode" not in r
 
 
 # ---------------------------------------------------------------------------

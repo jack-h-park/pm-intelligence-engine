@@ -48,7 +48,7 @@ async def set_direction(
 
     if run["status"] != "waiting_direction":
         if run.get("mode") == body.depth:
-            return {"run_id": run_id, "depth": body.depth, "mode": body.depth, "action": "already_set"}
+            return {"run_id": run_id, "depth": body.depth, "action": "already_set"}
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run['status']}', expected 'waiting_direction'",
@@ -77,7 +77,6 @@ async def set_direction(
     return {
         "run_id": run_id,
         "depth": body.depth,
-        "mode": body.depth,  # deprecated alias
         "action": "direction_set",
     }
 

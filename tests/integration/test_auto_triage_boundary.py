@@ -244,7 +244,7 @@ def test_reopen_revives_auto_triaged_run(client, engine):
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "waiting_direction"
-    assert body["mode"] is None
+    assert body.get("depth") is None  # depth cleared; mode no longer in response (US-43)
     assert body["completed_at"] is None
 
     run = engine.store.get_run(run_id)
