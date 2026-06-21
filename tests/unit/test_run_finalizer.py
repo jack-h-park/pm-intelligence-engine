@@ -70,16 +70,80 @@ async def test_finalize_run_killed_calls_store_update():
 
 @pytest.mark.asyncio
 async def test_finalize_run_failed_calls_store_update():
-    """finalize_run with 'failed' must call store.update_run(status='failed')."""
+    """finalize_run with 'failed' records failed_stage + error alongside status."""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine()
     with patch("app.logging.emit_event"):
         await finalize_run("run-abc", "failed", engine)
 
+    # No current_stage on the mock run and no error in event_detail -> both None.
     engine.store.update_run.assert_called_once_with(
-        "run-abc", status="failed", current_stage=None
+        "run-abc", status="failed", current_stage=None, failed_stage=None, error=None
     )
+
+
+@pytest.mark.asyncio
+async def test_finalize_run_failed_persists_stage_and_error():
+    """The executing stage and the exception string are persisted on failure."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine()
+    engine.store.get_run.return_value = {
+        "run_id": "run-abc",
+        "signal_id": "signal-abc",
+        "current_stage": "s2",
+        "attempt_no": 1,
+    }
+    with patch("app.logging.emit_event"):
+        await finalize_run(
+            "run-abc", "failed", engine, event_detail={"error": "boom 400"}
+        )
+
+    engine.store.update_run.assert_called_once_with(
+        "run-abc", status="failed", current_stage=None, failed_stage="s2", error="boom 400"
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalize_run_failed_blocks_signal_after_max_attempts():
+    """A failure on the final allowed attempt parks the signal as 'blocked'."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine()
+    engine.store.get_run.return_value = {
+        "run_id": "run-abc",
+        "signal_id": "signal-abc",
+        "current_stage": "s1",
+        "attempt_no": 3,  # == default MAX_RUN_ATTEMPTS
+    }
+    with patch("config.settings") as mock_settings:
+        mock_settings.MAX_RUN_ATTEMPTS = 3
+        with patch("app.logging.emit_event") as mock_emit:
+            await finalize_run("run-abc", "failed", engine)
+
+    engine.store.update_signal_status.assert_called_once_with("signal-abc", "blocked")
+    assert any(c.args[1] == "retry_exhausted" for c in mock_emit.call_args_list)
+
+
+@pytest.mark.asyncio
+async def test_finalize_run_failed_retries_below_max():
+    """A failure below the cap returns the signal to the retryable 'new' pool."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine()
+    engine.store.get_run.return_value = {
+        "run_id": "run-abc",
+        "signal_id": "signal-abc",
+        "current_stage": "s1",
+        "attempt_no": 1,
+    }
+    with patch("config.settings") as mock_settings:
+        mock_settings.MAX_RUN_ATTEMPTS = 3
+        with patch("app.logging.emit_event"):
+            await finalize_run("run-abc", "failed", engine)
+
+    engine.store.update_signal_status.assert_called_once_with("signal-abc", "new")
 
 
 @pytest.mark.parametrize(
