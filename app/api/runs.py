@@ -25,6 +25,12 @@ class RunStartRequest(BaseModel):
     depth: str | None = Field(
         default=None, validation_alias=AliasChoices("depth", "mode")
     )  # If provided, skip waiting_direction and run immediately
+    # When true AND no depth is given, the run ALWAYS pauses at Gate 1 even if S2
+    # relevance is below AUTO_TRIAGE_THRESHOLD — i.e. S2 auto-triage to archive is
+    # suppressed for this run, so the PM always makes the direction decision. Set
+    # by Hermes ops when the PM starts a run interactively; defaults False so the
+    # autonomous/auto-triage path is unchanged. No effect when depth is provided.
+    force_gate1: bool = False
 
 
 class PromoteRequest(BaseModel):
@@ -197,10 +203,12 @@ async def start_run(
 
     if body.product_id is not None:
         return _start_manual_run(
-            body.signal_id, body.product_id, requested_mode, background_tasks, engine
+            body.signal_id, body.product_id, requested_mode,
+            body.force_gate1, background_tasks, engine,
         )
     return await _start_fanout_runs(
-        body.signal_id, signal, requested_mode, background_tasks, engine
+        body.signal_id, signal, requested_mode,
+        body.force_gate1, background_tasks, engine,
     )
 
 
@@ -208,6 +216,7 @@ def _start_manual_run(
     signal_id: str,
     product_id: str,
     requested_mode: str | None,
+    force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
 ) -> RunResponse:
@@ -219,7 +228,8 @@ def _start_manual_run(
     engine.store.update_run(run_id, status="running", current_stage="s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
-        _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
+        _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
+        force_gate1,
     )
     return RunResponse(**engine.store.get_run(run_id))  # type: ignore[arg-type]
 
@@ -228,6 +238,7 @@ async def _start_fanout_runs(
     signal_id: str,
     signal: dict,
     requested_mode: str | None,
+    force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
 ) -> BatchStartResponse:
@@ -257,7 +268,7 @@ async def _start_fanout_runs(
     primary_id = _select_primary(triage)
     runs = _spawn_runs_in_batch(
         [primary_id] if primary_id else [],
-        signal_id, batch_id, requested_mode, background_tasks, engine,
+        signal_id, batch_id, requested_mode, force_gate1, background_tasks, engine,
     )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
@@ -323,6 +334,7 @@ def _spawn_runs_in_batch(
     signal_id: str,
     batch_id: str,
     requested_mode: str | None,
+    force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
 ) -> list[RunResponse]:
@@ -334,7 +346,8 @@ def _spawn_runs_in_batch(
         )
         engine.store.update_run(run_id, status="running", current_stage="s1")
         background_tasks.add_task(
-            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine
+            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
+            force_gate1,
         )
         runs.append(RunResponse(**engine.store.get_run(run_id)))  # type: ignore[arg-type]
     return runs
@@ -514,7 +527,7 @@ async def scan_portfolio(
     engine.store.update_run(run_id, batch_id=batch_id)  # pull the origin run in
     runs = _spawn_runs_in_batch(
         triage.relevant_product_ids, run["signal_id"], batch_id, None,
-        background_tasks, engine,
+        False, background_tasks, engine,
     )
     # Membership closes now: the scan decision is resolved, so the synthesis
     # trigger may fire once the origin run and all siblings settle.
@@ -681,8 +694,15 @@ async def _execute_s1_s2(
     product_id: str,
     requested_mode: str | None,
     engine: PMEngine,
+    force_gate1: bool = False,
 ) -> None:
-    """Run Stage 1 + Stage 2, then either pause for direction or continue immediately."""
+    """Run Stage 1 + Stage 2, then either pause for direction or continue immediately.
+
+    ``force_gate1`` (PM-initiated interactive starts) suppresses S2 auto-triage:
+    a no-depth run always pauses at Gate 1 instead of auto-archiving on low
+    relevance, so the PM always makes the direction decision. Defaults False so the
+    auto-triage path (used by any non-interactive caller) is unchanged.
+    """
     from app.logging import emit_event
     from app.models.stages import RunContext, S1Input, S2Input
     from app.stages import s1_signal, s2_insight
@@ -742,8 +762,10 @@ async def _execute_s1_s2(
             # PM explicitly specified a depth at run-start — always honor it.
             # Skip auto-triage: PM's stated intent overrides the S2 relevance score.
             chosen_mode = requested_mode
-        elif s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
-            # No depth specified and relevance is below threshold — auto-triage.
+        elif not force_gate1 and s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
+            # No depth specified, not force_gate1, and relevance is below threshold —
+            # auto-triage. (force_gate1 from a PM-initiated interactive start
+            # suppresses this so the run always pauses at Gate 1 below.)
             engine.store.update_run(run_id, mode="archive")  # set mode before finalize
             # Durable marker so auto-triaged runs stay queryable and revivable
             # (GET /runs?event=auto_triaged, POST /runs/{id}/reopen — US-31)

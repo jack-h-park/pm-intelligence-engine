@@ -88,19 +88,30 @@ def _s2_output(run_id: str, relevance_score: int, suggested_mode: str) -> S2Outp
     )
 
 
-def _start_run_with_s2_score(client, engine, relevance_score: int, suggested_mode: str) -> str:
+def _start_run_with_s2_score(
+    client,
+    engine,
+    relevance_score: int,
+    suggested_mode: str,
+    *,
+    force_gate1: bool = False,
+    depth: str | None = None,
+) -> str:
     signal_id = _seed_signal(engine)
 
     async def fake_s2(input, context, llm, store):  # noqa: A002 - matches stage signature
         return _s2_output(context.run_id, relevance_score, suggested_mode)
 
+    body = {"signal_id": signal_id, "product_id": "example-security-product"}
+    if force_gate1:
+        body["force_gate1"] = True
+    if depth is not None:
+        body["depth"] = depth
+
     with patch("app.stages.s2_insight.run", side_effect=fake_s2), patch(
         "config.settings.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED", False
     ):
-        resp = client.post(
-            "/runs/start",
-            json={"signal_id": signal_id, "product_id": "example-security-product"},
-        )
+        resp = client.post("/runs/start", json=body)
     assert resp.status_code == 202, resp.text
     return resp.json()["run_id"]
 
@@ -135,6 +146,61 @@ def test_auto_triage_syncs_signal_status_done(client, engine):
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(run["signal_id"])
     assert signal["status"] == "done"
+
+
+# ---------------------------------------------------------------------------
+# force_gate1 — PM-initiated interactive starts suppress S2 auto-triage
+# ---------------------------------------------------------------------------
+
+
+def test_force_gate1_below_threshold_pauses_at_gate1(client, engine):
+    """A below-threshold relevance that would auto-triage instead pauses at Gate 1
+    when force_gate1 is set, so the PM always makes the direction decision."""
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=2, suggested_mode="file", force_gate1=True
+    )
+
+    run = engine.store.get_run(run_id)
+    assert run["status"] == "waiting_direction"
+    assert run["mode"] is None
+    assert run["completed_at"] is None
+    engine.notifier.send_gate1.assert_awaited_once()
+    # Not recorded as auto-triaged → not reopen-eligible (it was never archived)
+    actions = [e["action"] for e in engine.store.get_approval_events(run_id)]
+    assert "auto_triaged" not in actions
+
+
+def test_force_gate1_does_not_affect_above_threshold(client, engine):
+    """force_gate1 is a no-op when relevance already clears the threshold — the run
+    pauses at Gate 1 exactly as it would without the flag."""
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=3, suggested_mode="brief", force_gate1=True
+    )
+    run = engine.store.get_run(run_id)
+    assert run["status"] == "waiting_direction"
+    engine.notifier.send_gate1.assert_awaited_once()
+
+
+def test_force_gate1_with_explicit_depth_still_skips_gate1(client, engine):
+    """An explicit depth always wins: force_gate1 has no effect when the PM stated a
+    depth, so the run processes immediately rather than pausing at Gate 1."""
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=2, suggested_mode="file",
+        force_gate1=True, depth="evaluate",
+    )
+    run = engine.store.get_run(run_id)
+    assert run["status"] != "waiting_direction"
+    engine.notifier.send_gate1.assert_not_awaited()
+
+
+def test_no_force_gate1_below_threshold_still_auto_triages(client, engine):
+    """Regression guard: without force_gate1, below-threshold still auto-archives
+    (the default autonomous path is unchanged)."""
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
+    run = engine.store.get_run(run_id)
+    assert run["status"] == "completed"
+    assert run["mode"] == "archive"
+    engine.notifier.send_gate1.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
