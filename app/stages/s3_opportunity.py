@@ -143,6 +143,8 @@ _{s2.relevance_explanation}_
 
 
 def _build_opportunity_memo(data: S3OutputData) -> str:
+    from app.models.stages import render_value_horizon
+
     return f"""# Opportunity Memo
 
 ## Problem Statement
@@ -157,6 +159,9 @@ def _build_opportunity_memo(data: S3OutputData) -> str:
 ## Value
 - **User:** {data.assumed_value_user}
 - **Business:** {data.assumed_value_business}
+
+## Value Horizon
+{render_value_horizon(data.value_horizon)}
 """
 
 

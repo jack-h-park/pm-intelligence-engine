@@ -14,6 +14,35 @@ Canonical definition: pm-decision-context/core/02-workflow.md
 Renamed 2026-06-11: file→archive, brief→note, opportunity→structure. Legacy
 values are normalized on input/read so stored data and existing clients (Hermes)
 keep working without changes.
+
+NAMING NOTE — "archive" is overloaded across THREE unrelated concepts. They do
+not refer to each other; do not infer the behavior of one from the name of
+another:
+
+  1. depth `archive` (THIS module)
+       Gate 1's shallowest choice: signal acknowledged but NOT pursued (noise /
+       low relevance). S1 only. Produces NO artifact and is the one depth that is
+       deliberately EXCLUDED from the run-archive export (see run_finalizer
+       `_EXPORTABLE_MODES`). "archive" here means *set aside*, NOT *store*.
+
+  2. folder `archive/runs/<product>/<date>-<slug>/`
+       The canonical run *repository of record* — browsable markdown trace of a
+       completed run. Every depth note/structure/evaluate/decide is WRITTEN here.
+       "archive" here means *store / keep*. This is why a `structure` run lands
+       under `archive/` even though it is NOT depth `archive` — same word,
+       opposite sense.
+       This folder lives INSIDE THIS REPO (pm-intelligence-engine) —
+       it is NOT WIKI_ROOT and NOT the wiki repo. pm-engine writes here directly;
+       the wiki (a separate repo) is synced independently by Hermes, never by
+       pm-engine. `archive/runs/` ≠ WIKI_ROOT.
+
+  3. "auto-triage archive" (Hermes / wiki_sync)
+       Writing auto-killed signals to WIKI_ROOT/.../kills/auto-triaged/. Unrelated
+       to both of the above. See docs/EXPORT_AND_SYNC_CONTRACT.md.
+
+Decision (2026-06-20): keep the names as-is; disambiguate by documentation rather
+than rename, to avoid a 3-repo migration (Hermes watch paths, observatory, on-disk
+data). This block is that documentation.
 """
 
 MODES = ("archive", "note", "structure", "evaluate", "decide")
