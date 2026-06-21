@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     # (e.g. R06) while correcting over-flags. See ROADMAP US-42.
     BLOCKING_VERIFIER_ENABLED: bool = False
 
+    # Retry cap. A failed run returns its signal to the `new` pool, where the
+    # external poller picks it up and starts a fresh run. Without a cap, a
+    # deterministically-failing signal (bad data, a code bug) would re-run
+    # forever. Once a lineage reaches this many attempts, the signal is parked
+    # as `blocked` instead of `new` so the loop stops until a human intervenes.
+    # Counts total attempts, so 3 == original + 2 retries.
+    MAX_RUN_ATTEMPTS: int = 3
+
     # Base URL used to generate review page links sent in notifications.
     # Set to your server's public URL when deployed; default is local dev.
     BASE_URL: str = "http://localhost:8000"

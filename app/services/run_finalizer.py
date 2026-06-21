@@ -60,10 +60,22 @@ async def finalize_run(
     """
     from app.logging import emit_event
 
+    # Capture the stage that was executing *before* we clear current_stage, so a
+    # failure records where it died. The run row still holds the live stage here.
+    failure_fields: dict = {}
+    if status == "failed":
+        run_before = engine.store.get_run(run_id)
+        failure_fields = {
+            "failed_stage": (run_before or {}).get("current_stage"),
+            "error": (event_detail or {}).get("error"),
+        }
+
     # Apply terminal state (store layer handles completed_at stamping). Roll up
     # per-stage token usage into run-level totals at the same time (Phase 2).
     token_totals = _sum_run_tokens(run_id, engine)
-    engine.store.update_run(run_id, status=status, current_stage=None, **token_totals)
+    engine.store.update_run(
+        run_id, status=status, current_stage=None, **token_totals, **failure_fields
+    )
     _sync_signal_status(run_id, status, engine)
 
     action = event_action if event_action is not None else status
@@ -168,7 +180,13 @@ async def _maybe_synthesize_portfolio(run_id: str, engine: PMEngine) -> None:
 
 
 def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
-    """Keep the source signal lifecycle aligned with terminal run outcomes."""
+    """Keep the source signal lifecycle aligned with terminal run outcomes.
+
+    A failed run normally returns its signal to the retryable ``new`` pool. To
+    stop a deterministically-failing signal from re-running forever, once the
+    lineage reaches ``MAX_RUN_ATTEMPTS`` the signal is parked as ``blocked``
+    instead — out of the auto-retry loop until a human investigates.
+    """
     target_status = _TERMINAL_SIGNAL_STATUSES.get(status)
     if target_status is None:
         return
@@ -180,5 +198,20 @@ def _sync_signal_status(run_id: str, status: str, engine: PMEngine) -> None:
     signal_id = run.get("signal_id")
     if signal_id is None:
         return
+
+    if status == "failed":
+        from config import settings
+
+        attempt_no = run.get("attempt_no") or 1
+        if attempt_no >= settings.MAX_RUN_ATTEMPTS:
+            target_status = "blocked"
+            from app.logging import emit_event
+
+            emit_event(
+                "run",
+                "retry_exhausted",
+                run_id,
+                {"attempt_no": attempt_no, "max_attempts": settings.MAX_RUN_ATTEMPTS},
+            )
 
     engine.store.update_signal_status(signal_id, target_status)

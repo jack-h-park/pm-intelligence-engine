@@ -67,6 +67,11 @@ class SignalStatus(str, enum.Enum):
     new = "new"
     in_run = "in_run"
     done = "done"
+    # A signal whose runs failed repeatedly (attempt_no reached MAX_RUN_ATTEMPTS).
+    # Deliberately NOT returned to the retryable `new` pool — it stays out of the
+    # auto-retry loop until a human investigates. Distinct from `done` (which
+    # means a run reached a real decision). 7 chars — fits signals.status VARCHAR(7).
+    blocked = "blocked"
 
     @classmethod
     def _missing_(cls, value):
@@ -165,6 +170,25 @@ class WorkflowRun(Base):
     # finalize. NULL for runs that predate this column or never called an LLM.
     prompt_tokens_total = Column(Integer, nullable=True)
     completion_tokens_total = Column(Integer, nullable=True)
+
+    # --- Retry lineage & failure diagnostics ---
+    # A failed run returns its signal to the retryable pool, and the next pickup
+    # creates a *brand new* run rather than resuming this one (by design — runs
+    # are immutable attempts). These columns make that lineage explicit so the
+    # observatory can collapse retries to one logical run, and so the DB (not
+    # just server.log) can answer "why / where did it fail, and is it looping?".
+    #
+    # attempt_no: 1 for the first run of a (signal_id, product_id) lineage,
+    #   incremented for each subsequent re-run. Computed in create_run.
+    # root_run_id: run_id of attempt 1 in the lineage. NULL on attempt 1 itself
+    #   (it *is* the root) — consumers use COALESCE(root_run_id, run_id) as the
+    #   stable lineage key.
+    attempt_no = Column(Integer, nullable=False, default=1)
+    root_run_id = Column(String, nullable=True)
+    # Set only on failure: the stage that was executing when the run died, and
+    # the exception string. Both NULL for non-failed runs.
+    failed_stage = Column(String, nullable=True)
+    error = Column(Text, nullable=True)
 
     signal = relationship("Signal", back_populates="runs")
     stage_outputs = relationship("StageOutput", back_populates="run")

@@ -51,6 +51,46 @@ class SQLiteStore:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN prompt_tokens_total INTEGER"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN completion_tokens_total INTEGER"))
 
+        # Retry lineage & failure diagnostics. Nullable/defaulted ADD COLUMNs —
+        # existing runs become attempt 1 with no lineage parent and no error,
+        # which is the correct interpretation for pre-migration rows. Guarded →
+        # idempotent. attempt_no carries a DEFAULT so the NOT NULL model column
+        # is satisfied for existing rows.
+        if "attempt_no" not in run_columns:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1"))
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN root_run_id VARCHAR"))
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN failed_stage VARCHAR"))
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN error TEXT"))
+                # One-time backfill so the fix is retroactive: reconstruct the
+                # lineage of pre-existing runs (numbered per signal+product by
+                # creation order) instead of leaving every historical run as a
+                # lone attempt 1. Without this, past retries stay scattered.
+                # Window functions require SQLite >= 3.25 (modern Python and
+                # better-sqlite3 both ship newer).
+                conn.execute(
+                    text(
+                        """
+                        WITH ranked AS (
+                            SELECT run_id,
+                                   ROW_NUMBER() OVER w AS rn,
+                                   FIRST_VALUE(run_id) OVER w AS root
+                            FROM workflow_runs
+                            WINDOW w AS (
+                                PARTITION BY signal_id, product_id
+                                ORDER BY created_at ASC, run_id ASC
+                            )
+                        )
+                        UPDATE workflow_runs
+                        SET attempt_no = (SELECT rn FROM ranked WHERE ranked.run_id = workflow_runs.run_id),
+                            root_run_id = (
+                                SELECT CASE WHEN rn = 1 THEN NULL ELSE root END
+                                FROM ranked WHERE ranked.run_id = workflow_runs.run_id
+                            )
+                        """
+                    )
+                )
+
         # Provenance back-link to the originating sensing file (nullable). A plain
         # ADD COLUMN suffices since it carries no constraint. Guarded → idempotent.
         if "source_ref" not in {c["name"] for c in inspector.get_columns("signals")}:
@@ -155,10 +195,33 @@ class SQLiteStore:
         batch_id: Optional[str] = None,
     ) -> str:
         with self._Session() as session:
+            # Derive retry lineage from prior runs of the same (signal_id,
+            # product_id). A fan-out spawns one run per *product* from a single
+            # signal — those are independent lineages (attempt 1 each), so the
+            # product_id is part of the key. A failure-retry re-runs the same
+            # signal+product, which is what increments attempt_no here.
+            prior = (
+                session.query(WorkflowRun)
+                .filter(
+                    WorkflowRun.signal_id == signal_id,
+                    WorkflowRun.product_id == product_id,
+                )
+                .order_by(WorkflowRun.created_at.asc())
+                .all()
+            )
+            attempt_no = len(prior) + 1
+            root_run_id = None
+            if prior:
+                first = prior[0]
+                # COALESCE semantics: attempt 1's root_run_id is NULL (it is the
+                # root), so fall back to its own run_id for later attempts.
+                root_run_id = first.root_run_id or first.run_id
             run = WorkflowRun(
                 product_id=product_id,
                 signal_id=signal_id,
                 batch_id=batch_id,
+                attempt_no=attempt_no,
+                root_run_id=root_run_id,
             )
             session.add(run)
             session.commit()
@@ -447,6 +510,10 @@ class SQLiteStore:
             "completed_at": r.completed_at.isoformat() if r.completed_at else None,
             "prompt_tokens_total": r.prompt_tokens_total,
             "completion_tokens_total": r.completion_tokens_total,
+            "attempt_no": r.attempt_no,
+            "root_run_id": r.root_run_id,
+            "failed_stage": r.failed_stage,
+            "error": r.error,
         }
 
     @staticmethod

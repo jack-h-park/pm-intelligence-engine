@@ -42,6 +42,13 @@ class RunResponse(BaseModel):
     created_at: str
     updated_at: str | None = None  # bumped on every change — gate-watcher dedup
     completed_at: str | None
+    # Retry lineage & failure diagnostics. attempt_no/root_run_id let clients
+    # group retries of the same signal; failed_stage/error explain a failure
+    # without grepping server.log.
+    attempt_no: int | None = None
+    root_run_id: str | None = None
+    failed_stage: str | None = None
+    error: str | None = None
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
     gate3_review: dict | None = None
