@@ -264,6 +264,23 @@ class S3Output(BaseModel):
     metadata: StageMetadata
 
 
+def render_value_horizon(value_horizon: str) -> str:
+    """Human-readable Value Horizon block, shared by the in-app opportunity memo
+    and the archive markdown export so the two never drift.
+
+    The bare ``durable``/``transient`` label is meaningless to a reader, so each
+    is paired with the reason it matters — this is the only place a ``structure``-
+    depth run (which never reaches S5) surfaces the S3 horizon judgment to a human.
+    """
+    vh = (value_horizon or "durable").lower()
+    if vh == "transient":
+        return (
+            "**Transient** — a closing window; a platform vendor or competitor "
+            "may erase this value (e.g. by shipping a native capability)."
+        )
+    return "**Durable** — value compounds and is defensible over time."
+
+
 # ---------------------------------------------------------------------------
 # Stage 4 — Persona Evaluation (4 parallel agents)
 # ---------------------------------------------------------------------------

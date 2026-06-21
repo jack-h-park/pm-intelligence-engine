@@ -30,6 +30,7 @@ from app.models.stages import (
     S6AOutputData,
     S6BOutputData,
     S7OutputData,
+    render_value_horizon,
 )
 from app.storage.protocol import PMWorkflowStore
 
@@ -162,6 +163,10 @@ def _render_s3(s3: S3OutputData, date_str: str) -> str:
 
 **For Samsung:**
 {s3.assumed_value_business}
+
+## Value Horizon
+
+{render_value_horizon(getattr(s3, "value_horizon", "durable"))}
 """
 
 

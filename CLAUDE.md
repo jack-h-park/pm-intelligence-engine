@@ -39,6 +39,18 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 **pm-engine repository output**:
 - `archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/` — canonical run archive written by pm-engine
 
+> **"archive" is overloaded — do not conflate these (see `app/modes.py` for the
+> authoritative note):**
+> - **depth `archive`** = Gate 1's shallowest choice = signal *set aside, not
+>   pursued* (S1 only, **no artifact**, excluded from export).
+> - **folder `archive/runs/`** = *repository of record* — every depth
+>   note/structure/evaluate/decide is stored here. This is why a `structure` run
+>   lands under `archive/` despite not being depth `archive` — same word, opposite
+>   sense (*store* vs *set aside*). **This folder lives inside THIS repo
+>   (pm-intelligence-engine) — it is NOT WIKI_ROOT / the wiki repo.**
+>   `archive/runs/` ≠ WIKI_ROOT.
+> - **"auto-triage archive"** = Hermes writing auto-kills to `WIKI_ROOT/.../kills/`.
+
 **pm-engine does not write to WIKI_ROOT from completion paths.** Wiki sync is Hermes-owned.
 See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
 

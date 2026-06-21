@@ -45,12 +45,24 @@ Companion documents:
 
 ### What triggers it
 `run_finalizer.finalize_run()` is called with `status="completed"`. If the run's `mode`
-is in `{"decide"}`, `_maybe_export()` is invoked.
+is in `_EXPORTABLE_MODES` = `{"note", "structure", "evaluate", "decide"}`,
+`_maybe_export()` is invoked. Depth `archive` is the only mode excluded — it is "set
+aside, not pursued" and produces no artifact.
 
 ### Where it writes
 ```
 archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/
 ```
+
+> **Naming caution:** the `archive/` *folder* is the repository of record (where
+> note/structure/evaluate/decide runs are **stored**). Depth `archive` means the
+> **opposite** — set aside, not stored. Same word, opposite sense. Authoritative
+> note in `app/modes.py`.
+>
+> **Repo caution:** `archive/runs/` lives **inside the pm-engine repo itself** —
+> it is **not** WIKI_ROOT and **not** the wiki repo. pm-engine writes here
+> directly; the wiki is a separate repo synced independently by Hermes.
+> `archive/runs/` ≠ WIKI_ROOT.
 
 ### What it writes
 - `s1-signal.md`
