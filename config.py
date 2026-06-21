@@ -74,6 +74,13 @@ class Settings(BaseSettings):
     # so all send_gate1/2/3 calls are no-ops. Reversible — flip + restart.
     GATE_NOTIFICATIONS_ENABLED: bool = True
 
+    # Path to gate0-state.json owned by the Hermes ops profile. When set, POST
+    # /signals rejects any request whose source_ref matches a filename already in
+    # the `skipped` bucket — preventing file_watch or other callers from creating
+    # a live signal record for a file that PM has explicitly triaged out. Empty
+    # string (default) disables the check; the engine is permissive.
+    GATE0_STATE_FILE: str = ""
+
     @model_validator(mode="after")
     def _resolve_decision_root_aliases(self) -> "Settings":
         if self.DECISION_CONTEXT_ROOT != DEFAULT_DECISION_CONTEXT_ROOT:
