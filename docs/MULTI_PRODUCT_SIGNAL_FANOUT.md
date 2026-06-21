@@ -3,7 +3,68 @@
 Design for supporting **one signal → many products** (1:N), replacing the current
 strict 1:1 signal-to-product binding.
 
-Status: **Design finalized — all decisions resolved (§8). Pending implementation.**
+Status: **Implemented (Phase 1a–1d), then revised — see §0. The 1:N *plumbing* stands;
+the eager fan-out *policy* is superseded by a conservative default.**
+
+---
+
+## 0. Revision — conservative fan-out (supersedes the eager default)
+
+The original design (§2–§6 below) fans a product-agnostic signal out to **every** product
+that clears the Triage threshold, each running the full S2→S7 pipeline with its own gates.
+Production data showed this is **net-negative**:
+
+> Live engine DB (9 signals / 22 runs / 5 batches): **2.44× run amplification**, 67% of
+> signals fanned out (half to the max width of 4). The funnel then collapsed at the S2→S3
+> boundary — **S2 reached by 19 runs, S3 by 2, S5 (routing) by 0**. Nine runs sat stuck at
+> `waiting_direction` (Gate 1); one batch had **4/4** siblings stuck. **Zero** routing
+> decisions and **zero** portfolio syntheses were ever produced — batches never settled
+> because siblings stalled at the gate.
+
+So the fan-out paid full cost (S1/S2 + Gate 1 load ×2.4) for none of its benefit (per-product
+decisions, the synthesis memo). The cause is **fanning out *before* Gate 1**: it mass-produces
+runs that do S1/S2 then stall. Note too that Triage (one cheap all-product relevance call) and
+S2 (per-product relevance) **duplicate the same judgement**, both *before* the cliff.
+
+**New default — one primary product, human-pull promotion:**
+
+1. **Triage is unchanged** — one cheap call scoring the signal against all product profiles.
+2. **Spawn only the primary product** — the highest-relevance product (within the most-relevant
+   **product family**, below). Other above-threshold products are recorded as **deferred
+   candidates** on the batch; they are *not* run.
+3. **Batch membership stays open.** Synthesis cannot fire on a single-run batch anyway.
+4. **Promotion is the only way to add a product.** `POST /runs/batch/{batch_id}/promote
+   {product_id, depth?}` creates a sibling run that **reuses the primary's S1 output, starts at
+   S2** (S2–S4 are product-specific; S1 is not), and **skips Gate 1** (the promotion act carries
+   the depth). It does *not* re-enter at Gate 0 (signal already admitted) nor at Gate 2 (no S4
+   for that product yet).
+5. **Closing the batch** (PM declines further promotion) re-enables the existing Variant 2
+   synthesis trigger — now meaningful only when ≥2 products were actually promoted.
+
+This inverts the default from **auto opt-out** (eager spray) to **human opt-in** (pull). It is
+deliberately **reversible and engine-local**: `original_product_id`, `batch_id`, `run_batches`,
+`portfolio_syntheses`, and the synthesis pass all stand unchanged. Decision-context, the
+observatory schema, and the eval golden set are untouched.
+
+**Product families** (a `product_id → family` map in engine config; routing/grouping only — it
+is *not* the workflow unit, and does not restructure per-product decision-context):
+
+| Family | Products |
+|--------|----------|
+| Knox Enterprise Security | `example-security-product`, `example-mobile-product`, `example-governance-product`, `example-enterprise-ai-product` |
+| Knox IAM | `example-identity-product` |
+| Consumer GenAI | `example-consumer-product`, `example-agent-product` |
+
+> **Promoting "product as the workflow unit → product-*family* as the unit"** was considered and
+> deferred. It would merge per-product decision-context (which is genuinely differentiated —
+> MTD's malware/phishing material vs AI-governance's pillar/threat-taxonomy framework), invalidate
+> the per-product eval golden set, and bake today's product similarity into the architecture as a
+> one-way door. Family stays a **routing layer** here; promotion to the workflow unit is a separate,
+> later content project gated on living with this default first.
+
+The sections below (§1–§8) document the original eager design and remain accurate for the 1:N
+**plumbing**; read §5's "create one run per relevant product" as **"create the primary run; defer
+the rest to promotion"** per this section.
 
 ---
 
@@ -139,6 +200,9 @@ not run-scoped, and should not be forced onto a single run's `run_id` FK.
     `NULL`): run S1 once → Portfolio Triage → create one run per relevant
     product, sharing a `batch_id`. Close batch membership once the fan-out set is
     created.
+    > **Superseded by §0:** spawn only the **primary** product and keep membership
+    > **open**; the other relevant products become deferred candidates added via
+    > promotion, not eager fan-out.
   - **Manual intake naming a product P**: create the run for P only. Triage is
     **not** run automatically. Whether to scan the rest of the portfolio is an
     **interactive human decision** (the Portfolio Scan gate, below) — not a

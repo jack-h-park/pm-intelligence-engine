@@ -93,3 +93,24 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+# Product families (US-49 conservative fan-out). A routing/grouping layer only —
+# NOT the workflow unit: per-product decision-context, the eval golden set, and the
+# observatory schema are unchanged. Used to (1) pick the fan-out primary within the
+# most-relevant family and (2) group deferred candidates so ops can offer "same
+# family" promotions. See docs/MULTI_PRODUCT_SIGNAL_FANOUT.md §0.
+PRODUCT_FAMILIES: dict[str, str] = {
+    "example-security-product": "security-products",
+    "example-mobile-product": "security-products",
+    "example-governance-product": "security-products",
+    "example-enterprise-ai-product": "security-products",
+    "example-identity-product": "identity-products",
+    "example-consumer-product": "consumer-products",
+    "example-agent-product": "consumer-products",
+}
+
+
+def family_of(product_id: str) -> str:
+    """The product's family, or "unassigned" for products not yet mapped."""
+    return PRODUCT_FAMILIES.get(product_id, "unassigned")
