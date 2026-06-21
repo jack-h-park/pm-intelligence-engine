@@ -117,6 +117,10 @@ async def test_finalize_run_failed_blocks_signal_after_max_attempts():
         "current_stage": "s1",
         "attempt_no": 3,  # == default MAX_RUN_ATTEMPTS
     }
+    # Signal status now derives from ALL the signal's runs: the lone run failed on
+    # its final attempt, so the signal is parked as 'blocked'.
+    engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
+    engine.store.list_runs.return_value = [{"status": "failed", "attempt_no": 3}]
     with patch("config.settings") as mock_settings:
         mock_settings.MAX_RUN_ATTEMPTS = 3
         with patch("app.logging.emit_event") as mock_emit:
@@ -138,6 +142,9 @@ async def test_finalize_run_failed_retries_below_max():
         "current_stage": "s1",
         "attempt_no": 1,
     }
+    # Lone run failed below the cap → signal returns to the retryable 'new' pool.
+    engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
+    engine.store.list_runs.return_value = [{"status": "failed", "attempt_no": 1}]
     with patch("config.settings") as mock_settings:
         mock_settings.MAX_RUN_ATTEMPTS = 3
         with patch("app.logging.emit_event"):
@@ -156,10 +163,16 @@ async def test_finalize_run_failed_retries_below_max():
 )
 @pytest.mark.asyncio
 async def test_finalize_run_updates_signal_status(status: str, expected_signal_status: str):
-    """finalize_run must keep Signal.status aligned with terminal run outcomes."""
+    """finalize_run re-derives Signal.status from the signal's runs.
+
+    With a single run carrying the just-finalized outcome: completed/killed →
+    done; a sole failed run (attempt 1, below the cap) → retryable new.
+    """
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine()
+    engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
+    engine.store.list_runs.return_value = [{"status": status, "attempt_no": 1}]
     with patch("app.logging.emit_event"):
         with patch("app.services.run_finalizer._maybe_export"):
             await finalize_run("run-abc", status, engine)

@@ -52,6 +52,7 @@ version bump.
 | `POST` | `/signals` | Submit a new signal | Harvest submission |
 | `GET` | `/signals` | List signals with filters | Inventory check |
 | `GET` | `/signals/{id}` | Get a single signal | Detail fetch |
+| `POST` | `/signals/reconcile` | Re-derive every signal's status from its runs | Maintenance / drift repair |
 | `POST` | `/runs/start` | Start a pipeline run | Optional (manual start) |
 | `GET` | `/runs` | List runs with filters | Polling actionable queues |
 | `GET` | `/runs/{id}` | Get run state + outputs | Completion artifact fetch |
@@ -120,11 +121,35 @@ working. `source_type`: `"manual"` | `"rss"` | `"file_watch"`
 { "signal_id": "uuid", "original_product_id": "...", "title": "...", "status": "new" }
 ```
 
-**Signal lifecycle:**
-- new signals are created with `status="new"`
-- a successful `POST /runs/start` moves the signal to `status="in_run"`
-- terminal `completed` and `killed` runs move the signal to `status="done"`
-- terminal `failed` runs move the signal back to `status="new"` so they remain retryable
+**Signal lifecycle:** `signals.status` is **derived** from the signal's runs, not
+pushed independently — so it stays correct under fan-out (multiple runs per signal)
+and is repairable if a run is ever created outside the normal finalize path:
+- no runs yet → `new`; a successful `POST /runs/start` moves the signal to `in_run`
+- **any** run still non-terminal → `in_run` (a completed sibling does not flip it early)
+- all runs terminal, at least one `completed`/`killed` → `done`
+- all runs `failed`, a retry lineage hit `MAX_RUN_ATTEMPTS` → `blocked`; otherwise → `new` (retryable)
+
+The derivation lives in `app/services/signal_status.py`; `finalize_run` reconciles
+on every terminal transition.
+
+---
+
+### `POST /signals/reconcile`
+Re-derive **every** signal's status from its runs and persist any divergence.
+Idempotent and safe to re-run. Use it to repair rows that drifted before the
+derived-status invariant existed — e.g. a signal left at `in_run` by a
+synthetic/backfilled `completed` run that bypassed `finalize_run`.
+
+**Response (200):**
+```json
+{
+  "checked": 142,
+  "corrected": 1,
+  "changes": [
+    { "signal_id": "uuid", "title": "...", "old": "in_run", "new": "done" }
+  ]
+}
+```
 
 ---
 

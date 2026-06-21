@@ -97,6 +97,34 @@ async def create_signal(
     return SignalResponse(**signal)
 
 
+class ReconcileResponse(BaseModel):
+    """Result of a signal-status reconciliation sweep."""
+    checked: int          # signals examined
+    corrected: int        # signals whose status was changed
+    changes: list[dict]   # [{signal_id, title, old, new}] per corrected signal
+
+
+@router.post("/reconcile", response_model=ReconcileResponse)
+async def reconcile_signal_statuses(
+    engine: PMEngine = Depends(get_engine),
+) -> ReconcileResponse:
+    """Re-derive every signal's status from its runs, fixing any divergence.
+
+    A signal's status (``new`` · ``in_run`` · ``done`` · ``blocked``) is a
+    deterministic function of its runs. Rows can drift when a run is created
+    outside ``finalize_run`` (e.g. a synthetic/backfilled ``completed`` row),
+    leaving a signal stuck at ``in_run`` despite a completed run. This endpoint
+    recomputes and repairs them — idempotent, so it is safe to re-run.
+    """
+    from app.services.signal_status import reconcile_all_signals
+
+    changes = reconcile_all_signals(engine)
+    checked = len(engine.store.list_signals(limit=100000))
+    return ReconcileResponse(
+        checked=checked, corrected=len(changes), changes=changes
+    )
+
+
 @router.get("", response_model=list[SignalResponse])
 async def list_signals(
     # Query param kept as `product_id` for back-compat; filters on the signal's
