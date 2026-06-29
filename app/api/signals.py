@@ -1,5 +1,7 @@
 import json
 import os
+import re
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -75,6 +77,45 @@ def _check_gate0_skip(source_ref: str) -> None:
     raise HTTPException(status_code=409, detail=detail)
 
 
+_FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+_URL_RE = re.compile(r"^\s*url:\s*(.+?)\s*$", re.MULTILINE)
+
+
+def _sensing_source_url(source_ref: str) -> Optional[str]:
+    """Recover source_url from a sensing file's YAML frontmatter ``url:`` field.
+
+    Gate 0's ``POST /signals`` body is composed by an LLM (the gate0-signal-intake
+    skill), which is instructed to copy the sensing file's frontmatter ``url`` into
+    ``source_url`` — but being LLM-driven it occasionally omits it, and signals
+    ingested before that instruction landed carry no source_url at all. The URL is
+    always present on disk in the sensing file, so when a caller supplies
+    ``source_ref`` (the deterministic sensing filename) but no ``source_url``,
+    recover it here so the provenance link is never silently lost.
+
+    Best-effort by design: a traversal-looking ref, a missing/unreadable file, or
+    absent frontmatter all degrade to None rather than failing the submission.
+    """
+    from config import settings
+
+    if not source_ref or "/" in source_ref or "\\" in source_ref or ".." in source_ref:
+        return None
+    path = Path(settings.WIKI_ROOT) / "raw" / "from-web" / "sensing" / source_ref
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    fm = _FRONTMATTER_RE.match(text)
+    if not fm:
+        return None
+    m = _URL_RE.search(fm.group(1))
+    if not m:
+        return None
+    url = m.group(1).strip().strip('"').strip("'")
+    if not url or url.lower() in ("null", "none", "~"):
+        return None
+    return url
+
+
 @router.post("", response_model=SignalResponse, status_code=201)
 async def create_signal(
     body: SignalCreate,
@@ -82,11 +123,16 @@ async def create_signal(
 ) -> SignalResponse:
     if body.source_ref:
         _check_gate0_skip(body.source_ref)
+    # Backfill the live source URL from the sensing file when the (LLM-composed)
+    # submit omitted it but gave us the deterministic source_ref to find it by.
+    source_url = body.source_url
+    if not source_url and body.source_ref:
+        source_url = _sensing_source_url(body.source_ref)
     signal_id = engine.store.save_signal(
         original_product_id=body.original_product_id,
         title=body.title,
         raw_content=body.raw_content,
-        source_url=body.source_url,
+        source_url=source_url,
         category=body.category,
         source_type=body.source_type,
         source_ref=body.source_ref,
