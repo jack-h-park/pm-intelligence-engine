@@ -152,14 +152,20 @@ def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
     if s2_raw is None:
         return None
     from app.modes import normalize_mode
+    from app.models.stages import flatten_claims
     s2 = json.loads(s2_raw["output_json"])["output"]
+    # Provenance claims (US-?) replaced the free-text relevance_explanation.
+    # Keep the flattened string for back-compat consumers and pass `claims`
+    # through so the review surface can show signal/context/inference tags.
+    claims = s2.get("claims")
     review: dict = {
         "relevance_score": s2.get("relevance_score"),
         "suggested_depth": normalize_mode(s2.get("suggested_mode")),
         "reasoning": s2.get("suggestion_reasoning"),
         "what_changed": s2.get("what_changed"),
         "reframing": s2.get("reframing"),
-        "relevance_explanation": s2.get("relevance_explanation"),
+        "relevance_explanation": s2.get("relevance_explanation") or flatten_claims(claims),
+        "claims": claims,
         "pillar_references": s2.get("pillar_references", []),
     }
     s1_raw = engine.store.get_stage_output(run_id, "s1")
