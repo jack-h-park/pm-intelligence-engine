@@ -49,6 +49,10 @@ async def review_page(
     signal = engine.store.get_signal(run["signal_id"]) if run.get("signal_id") else None
     signal_title = signal["title"] if signal else run_id
 
+    # S2 insight (provenance-tagged "why it matters")
+    s2_raw = engine.store.get_stage_output(run_id, "s2")
+    s2_output = json.loads(s2_raw["output_json"]).get("output", {}) if s2_raw else {}
+
     # S4 personas
     s4_raw = engine.store.get_stage_output(run_id, "s4")
     personas: list[dict] = []
@@ -60,6 +64,7 @@ async def review_page(
     status_label, status_class = _STATUS_LABELS.get(status, (status, "running"))
     is_actionable = status == "waiting_approval"
 
+    insight_html = _render_insight(s2_output)
     persona_cards_html = _render_persona_cards(personas)
     actions_html = _render_actions(run_id, is_actionable, status_label)
 
@@ -70,6 +75,7 @@ async def review_page(
         signal_title=_esc(signal_title),
         status_label=status_label,
         status_class=status_class,
+        insight_html=insight_html,
         persona_cards=persona_cards_html,
         actions_html=actions_html,
     )
@@ -107,6 +113,56 @@ def _render_persona_cards(personas: list[dict]) -> str:
         </div>""")
 
     return "\n".join(cards)
+
+
+# Provenance tag → (label, CSS class) for the "why it matters" claims.
+_CLAIM_TAG = {
+    "signal":          ("signal",   "tag-signal"),
+    "product_context": ("context",  "tag-context"),
+    "inference":       ("inferred", "tag-inferred"),
+}
+
+
+def _render_insight(s2: dict) -> str:
+    """Render the S2 insight with provenance-tagged 'why it matters' claims.
+
+    Each claim shows its source (signal / context / inferred) so the reviewer
+    can tell reported facts from the engine's reasoning at a glance; inference
+    claims trace back (← n) to the claims they rest on. Falls back gracefully
+    for pre-claims runs that only carry the legacy free-text explanation.
+    """
+    if not s2:
+        return ""
+
+    what_changed = _esc(s2.get("what_changed", "") or "")
+    reframing = _esc(s2.get("reframing", "") or "")
+    claims = s2.get("claims")
+
+    if isinstance(claims, list) and claims:
+        items = []
+        for i, c in enumerate(claims, start=1):
+            label, css = _CLAIM_TAG.get(c.get("source", ""), (c.get("source", ""), "tag-inferred"))
+            grounds = c.get("grounds") or []
+            trace = f" ← {', '.join(str(g) for g in grounds)}" if css == "tag-inferred" and grounds else ""
+            items.append(
+                f'<li><span class="tag {css}">{label}{trace}</span> {_esc(c.get("text", ""))}</li>'
+            )
+        why_html = f'<ol class="claims">{"".join(items)}</ol>'
+    else:
+        # Legacy run — no provenance available; show the flat explanation.
+        legacy = _esc(s2.get("relevance_explanation", "") or "")
+        why_html = f'<p class="insight-body">{legacy}</p>' if legacy else ""
+
+    blocks = []
+    if what_changed:
+        blocks.append(f'<div class="insight-label">What changed</div><p class="insight-body">{what_changed}</p>')
+    if why_html:
+        blocks.append(f'<div class="insight-label">Why it matters</div>{why_html}')
+    if reframing:
+        blocks.append(f'<div class="insight-label">Reframing</div><p class="insight-body">{reframing}</p>')
+    if not blocks:
+        return ""
+    return f'<div class="insight">{"".join(blocks)}</div>'
 
 
 def _render_actions(run_id: str, is_actionable: bool, status_label: str) -> str:
@@ -194,6 +250,16 @@ textarea{{width:100%;min-height:90px;padding:10px;border:1px solid #d2d2d7;borde
 #result.success{{background:#d1e7dd;color:#0f5132}}
 #result.error{{background:#f8d7da;color:#842029}}
 .already-actioned{{background:#e9ecef;border-radius:10px;padding:20px;text-align:center;color:#6e6e73;line-height:1.8}}
+.insight{{background:#fff;border-radius:10px;padding:14px 16px;margin-bottom:1.5rem}}
+.insight-label{{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#6e6e73;margin:10px 0 4px}}
+.insight-label:first-child{{margin-top:0}}
+.insight-body{{font-size:14px;color:#3d3d3f}}
+.claims{{list-style:none;display:grid;gap:7px;margin:2px 0 0}}
+.claims li{{font-size:14px;color:#3d3d3f;line-height:1.45}}
+.tag{{display:inline-block;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:600;margin-right:6px;vertical-align:1px;white-space:nowrap}}
+.tag-signal{{background:#cfe2ff;color:#084298}}
+.tag-context{{background:#e2e3e5;color:#41464b}}
+.tag-inferred{{background:#fff3cd;color:#664d03}}
 </style>
 </head>
 <body>
@@ -205,6 +271,8 @@ textarea{{width:100%;min-height:90px;padding:10px;border:1px solid #d2d2d7;borde
 </div>
 
 <div class="signal-title">{signal_title}</div>
+
+{insight_html}
 
 <div class="personas">
 {persona_cards}

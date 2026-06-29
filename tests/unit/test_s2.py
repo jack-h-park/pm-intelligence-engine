@@ -123,6 +123,64 @@ async def test_s2_includes_relevance_score():
     assert 1 <= out.output.relevance_score <= 5
 
 
+_CLAIMS_S2_RESPONSE = {
+    "what_changed": "Android 16 introduces APM but without admin enforcement.",
+    "reframing": "Market frames this as consumer feature; for KPE Ultra it is a compliance gap.",
+    "pillar_references": ["Reduce attack surface (Ingress & Egress)"],
+    "claims": [
+        {"text": "APM ships with no admin enforcement API.", "source": "signal", "grounds": []},
+        {"text": "KPE Ultra's Pillar 1 is attack-surface reduction.", "source": "product_context", "grounds": []},
+        {"text": "The missing API blocks enforcing Pillar 1 on managed fleets.", "source": "inference", "grounds": [1, 2]},
+    ],
+    "relevance_score": 4,
+    "suggested_mode": "evaluate",
+    "suggestion_reasoning": "Directly relevant to a named pillar; warrants full evaluation.",
+}
+
+
+@pytest.mark.asyncio
+async def test_s2_claims_flow_through_and_flatten():
+    """New-shape claims survive the round-trip and the back-compat property flattens them."""
+    with patch("app.stages.s2_insight.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        out = await s2_insight.run(
+            input=S2Input(signal_id="sig-001", s1_output=_make_s1_output(), product_id="test"),
+            context=_make_context(),
+            llm=_make_llm_returning(_CLAIMS_S2_RESPONSE),
+            store=_make_store(),
+        )
+    claims = out.output.claims
+    assert [c.source for c in claims] == ["signal", "product_context", "inference"]
+    assert claims[2].grounds == [1, 2]
+    # back-compat: relevance_explanation property joins claim texts for downstream readers
+    assert "blocks enforcing Pillar 1" in out.output.relevance_explanation
+    # claims field serializes; legacy field does not
+    dumped = json.loads(out.model_dump_json())["output"]
+    assert "claims" in dumped and "relevance_explanation" not in dumped
+
+
+@pytest.mark.asyncio
+async def test_s2_insight_memo_renders_provenance_tags():
+    """The Insight Memo tags each claim with its source and traces inference grounds."""
+    store = _make_store()
+    with patch("app.stages.s2_insight.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        await s2_insight.run(
+            input=S2Input(signal_id="sig-001", s1_output=_make_s1_output(), product_id="test"),
+            context=_make_context(),
+            llm=_make_llm_returning(_CLAIMS_S2_RESPONSE),
+            store=store,
+        )
+    memo = next(
+        c.kwargs["content_md"]
+        for c in store.save_artifact.call_args_list
+        if c.kwargs.get("artifact_type") == "insight_memo"
+    )
+    assert "1. [signal]" in memo
+    assert "2. [context]" in memo
+    assert "3. [inferred ← 1, 2]" in memo
+
+
 @pytest.mark.asyncio
 async def test_s2_low_relevance_score_sets_archive_mode():
     """relevance 1 → suggested_mode == 'archive' (legacy 'file' normalized — US-43)."""

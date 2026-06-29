@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +167,48 @@ class S2Input(BaseModel):
     product_id: str
 
 
+class ProvenancedClaim(BaseModel):
+    """One claim in the insight, tagged with where it came from.
+
+    Makes the Insight Memo auditable: a reader can tell, at a glance, a fact
+    stated in the signal from a fact drawn from product context from the
+    engine's own inference — and trace each inference back to the claims it
+    rests on. Replaces the old free-text ``relevance_explanation`` (which
+    blended all three provenances into one ungated paragraph).
+    """
+
+    text: str = Field(description="A single claim — one provenance only")
+    source: Literal["signal", "product_context", "inference"] = Field(
+        description=(
+            "signal = stated in the signal itself; "
+            "product_context = drawn from the product context (context.md); "
+            "inference = derived by the engine's own reasoning"
+        )
+    )
+    grounds: list[int] = Field(
+        default_factory=list,
+        description=(
+            "Only for source=inference: 1-based positions of the claims in this "
+            "list that this inference is derived from. Non-empty for inference "
+            "claims; empty for signal/product_context claims."
+        ),
+    )
+
+
+def flatten_claims(claims: object) -> str:
+    """Join provenance-claim texts into one block.
+
+    For raw-JSON (dict) readers that bypass the ``S2OutputData`` model and so
+    cannot use the back-compat ``relevance_explanation`` property — e.g. the
+    Gate 1 review payload assembled directly from stored ``output_json``.
+    """
+    if not isinstance(claims, list):
+        return ""
+    return "\n".join(
+        c.get("text", "") for c in claims if isinstance(c, dict) and c.get("text")
+    )
+
+
 class S2OutputData(BaseModel):
     """Insights extracted by Stage 2."""
 
@@ -179,8 +221,12 @@ class S2OutputData(BaseModel):
     pillar_references: list[str] = Field(
         description="Strategy pillars from context.md that this signal is relevant to"
     )
-    relevance_explanation: str = Field(
-        description="Why this signal matters for the specific product"
+    claims: list[ProvenancedClaim] = Field(
+        description=(
+            "Why this signal matters for the specific product, broken into "
+            "provenance-tagged claims so signal facts, product context, and "
+            "engine inference stay distinguishable. Replaces relevance_explanation."
+        )
     )
     relevance_score: int = Field(
         ge=1,
@@ -204,6 +250,29 @@ class S2OutputData(BaseModel):
         # coerce legacy values from stored S2 outputs / stray LLM output.
         from app.modes import normalize_mode
         return normalize_mode(v) if isinstance(v, str) else v
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_legacy_relevance_explanation(cls, data: object) -> object:
+        # Pre-claims runs (and older mocked LLM output / test fixtures) carry a
+        # free-text `relevance_explanation` instead of `claims`. Fold it into a
+        # single inference claim so old stored S2 outputs stay constructible
+        # without a destructive migration. New output supplies `claims` directly.
+        if isinstance(data, dict) and not data.get("claims"):
+            legacy = data.get("relevance_explanation")
+            if isinstance(legacy, str) and legacy.strip():
+                return {**data, "claims": [{"text": legacy, "source": "inference"}]}
+        return data
+
+    @property
+    def relevance_explanation(self) -> str:
+        """Back-compat flattening: the claim texts joined as one block.
+
+        Downstream stages, exporters, and notifiers still read a single
+        "why it matters" string; the provenance tags live in `claims` and in
+        the rendered Insight Memo. New code should prefer `claims`.
+        """
+        return "\n".join(c.text for c in self.claims)
 
 
 class S2Output(BaseModel):

@@ -12,10 +12,12 @@ from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
 _JSON_SCHEMA = """{
-  "what_changed": "<concrete external change — what is different now vs before>",
+  "what_changed": "<concrete external change — what is different now vs before. Facts from the signal ONLY; do not name the product or make product-specific claims here>",
   "reframing": "<common market framing> vs <correct framing for this product's segment>",
   "pillar_references": ["<pillar name or number from context>", "..."],
-  "relevance_explanation": "<why this matters for this specific product — name a pillar, user segment, or pain point>",
+  "claims": [
+    {"text": "<one claim, single provenance>", "source": "signal | product_context | inference", "grounds": [<1-based positions of the claims this is derived from; required & non-empty when source is inference, else []>]}
+  ],
   "relevance_score": <integer 1–5>,
   "suggested_mode": "<one of: archive | note | structure | evaluate | decide>",
   "suggestion_reasoning": "<one sentence explaining why this depth is appropriate>"
@@ -101,7 +103,12 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
 
 Rules:
 - "pillar_references" must contain at least one pillar name drawn from the Strategy Pillars section of the product context.
-- "what_changed" must describe a concrete, specific external change — not a trend or feeling.
+- "what_changed" must describe a concrete, specific external change drawn ONLY from the signal — not a trend, a feeling, or a product-specific claim. Do not name the product here.
+- "claims" explains why the signal matters, as a list of single-provenance claims. Each claim carries exactly one "source":
+  - "signal": a fact stated in the Stage 1 Signal Output above.
+  - "product_context": a fact drawn from the Product Context above.
+  - "inference": a conclusion you derive — it MUST list in "grounds" the 1-based positions of the signal/product_context claims it rests on.
+  - Include at least one "inference" claim. Never mix provenances within a single claim — split them into separate claims instead.
 - "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide.
 - Do not hallucinate facts not present in the signal or product context."""
 
@@ -152,6 +159,27 @@ Rules:
     return output
 
 
+_SOURCE_TAG = {"signal": "signal", "product_context": "context", "inference": "inferred"}
+
+
+def _render_claims(data: S2OutputData) -> str:
+    """Render the provenance-tagged 'why it matters' claims.
+
+    Each line is numbered and prefixed with its source so a reviewer can tell
+    signal facts from product context from engine inference at a glance;
+    inference lines show `← n, m` tracing back to the claims they rest on.
+    """
+    if not data.claims:
+        return "—"
+    lines = []
+    for i, claim in enumerate(data.claims, start=1):
+        tag = _SOURCE_TAG.get(claim.source, claim.source)
+        if claim.source == "inference" and claim.grounds:
+            tag = f"{tag} ← {', '.join(str(g) for g in claim.grounds)}"
+        lines.append(f"{i}. [{tag}] {claim.text}")
+    return "\n".join(lines)
+
+
 def _build_checkpoint(title: str, category: str, data: S2OutputData) -> str:
     pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
     mode_next = {
@@ -171,7 +199,7 @@ def _build_checkpoint(title: str, category: str, data: S2OutputData) -> str:
 {data.what_changed}
 
 ## Why It Matters
-{data.relevance_explanation}
+{_render_claims(data)}
 
 ## Reframing
 {data.reframing}
@@ -197,7 +225,7 @@ def _build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
 {data.what_changed}
 
 ## Why It Matters
-{data.relevance_explanation}
+{_render_claims(data)}
 
 ## Reframing
 {data.reframing}
