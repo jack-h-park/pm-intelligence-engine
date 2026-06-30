@@ -3,12 +3,32 @@
 No LLM call. Normalizes and structures the raw signal into a typed S1Output.
 """
 
-from app.logging import emit_event
+import re
+
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import RunContext, S1Input, S1Output, S1OutputData, StageMetadata
 from app.storage.protocol import PMWorkflowStore
 
 _VALID_CATEGORIES = {"competitor", "platform", "regulation", "technology", "other"}
+
+# Ordered keyword sets for keyword-based category inference. First category with a
+# match wins, so the order encodes priority.
+_CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("regulation", ("regulation", "stig", "mandate", "compliance", "nist", "disa")),
+    ("platform", ("android", "ios", "platform", "os", "api", "kernel", "amapi")),
+    ("competitor", ("competitor", "graykey", "cellebrite", "graphene", "zimperium")),
+    ("technology", ("exploit", "cve", "zero-day", "vulnerability", "rkp", "attestation")),
+)
+
+# Match on word boundaries, not substrings. A substring match let the regulation
+# keyword "disa" (the DISA agency) fire inside "disables", mis-tagging an Android
+# malware signal as "regulation" once site-chrome boilerplate leaked into
+# raw_content (run d014f313: "Salesforce disables Klue …").
+_CATEGORY_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = tuple(
+    (category, re.compile(r"\b(?:" + "|".join(re.escape(w) for w in keywords) + r")\b"))
+    for category, keywords in _CATEGORY_KEYWORDS
+)
 
 
 async def run(
@@ -54,12 +74,7 @@ async def run(
 
 def _infer_category(text: str) -> str:
     lower = text.lower()
-    if any(w in lower for w in ("regulation", "stig", "mandate", "compliance", "nist", "disa")):
-        return "regulation"
-    if any(w in lower for w in ("android", "ios", "platform", "os", "api", "kernel", "amapi")):
-        return "platform"
-    if any(w in lower for w in ("competitor", "graykey", "cellebrite", "graphene", "zimperium")):
-        return "competitor"
-    if any(w in lower for w in ("exploit", "cve", "zero-day", "vulnerability", "rkp", "attestation")):
-        return "technology"
+    for category, pattern in _CATEGORY_PATTERNS:
+        if pattern.search(lower):
+            return category
     return "other"

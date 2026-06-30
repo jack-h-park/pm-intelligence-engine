@@ -95,3 +95,34 @@ async def test_s1_infers_regulation_category():
         store=_make_store(),
     )
     assert out.output.category == "regulation"
+
+
+@pytest.mark.asyncio
+async def test_s1_category_matches_whole_words_not_substrings():
+    """Regression for run d014f313: the regulation keyword 'disa' must not match
+    inside 'disables'. An Android malware signal whose body carries site-chrome
+    boilerplate ("Salesforce disables Klue …") should stay 'platform', not flip
+    to 'regulation' on the substring."""
+    s1_input = S1Input(
+        signal_id="sig-005",
+        title="Rokarolla Android Malware Steals PINs",
+        raw_content=(
+            "A new Android banking trojan disables Google Play Protect. "
+            "Top stories: Salesforce disables Klue app integration."
+        ),
+    )
+    out = await s1_signal.run(
+        input=s1_input,
+        context=_make_context(),
+        llm=AsyncMock(),
+        store=_make_store(),
+    )
+    assert out.output.category == "platform"
+
+
+def test_infer_category_substring_does_not_leak():
+    # 'disa' inside 'disables' / 'api' inside 'therapist' must not fire.
+    assert s1_signal._infer_category("the system disables a therapist account") == "other"
+    # whole-word keywords still match
+    assert s1_signal._infer_category("New NIST guidance issued") == "regulation"
+    assert s1_signal._infer_category("Android kernel update") == "platform"
