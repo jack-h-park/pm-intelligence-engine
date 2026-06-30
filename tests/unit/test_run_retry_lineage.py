@@ -46,6 +46,113 @@ def test_different_product_is_separate_lineage(tmp_path):
     assert s.get_run(r_other)["root_run_id"] is None
 
 
+def test_default_origin_is_start(tmp_path):
+    s = _store(tmp_path)
+    sid = s.save_signal(title="t", raw_content="c")
+    rid = s.create_run(product_id="p1", signal_id=sid)
+    assert s.get_run(rid)["origin"] == "start"
+
+
+def test_refresh_run_starts_fresh_lineage(tmp_path):
+    """A refresh (content re-ingest) is NOT "attempt N of N" of the prior
+    failure-retry lineage — it resets to attempt 1 / no root and is tagged
+    origin='refresh', so the observatory renders it as a re-ingest."""
+    s = _store(tmp_path)
+    sid = s.save_signal(title="t", raw_content="c")
+    s.create_run(product_id="p1", signal_id=sid)            # attempt 1
+    r2 = s.create_run(product_id="p1", signal_id=sid)       # attempt 2
+    assert s.get_run(r2)["attempt_no"] == 2
+
+    refreshed = s.create_run(product_id="p1", signal_id=sid, origin="refresh")
+    run = s.get_run(refreshed)
+    assert run["attempt_no"] == 1
+    assert run["root_run_id"] is None
+    assert run["origin"] == "refresh"
+
+
+def test_retry_after_refresh_counts_from_the_refresh_boundary(tmp_path):
+    """A failure-retry that happens after a refresh continues the refresh
+    lineage, not the pre-refresh history."""
+    s = _store(tmp_path)
+    sid = s.save_signal(title="t", raw_content="c")
+    s.create_run(product_id="p1", signal_id=sid)            # pre-refresh attempt 1
+    s.create_run(product_id="p1", signal_id=sid)            # pre-refresh attempt 2
+    refresh = s.create_run(product_id="p1", signal_id=sid, origin="refresh")  # attempt 1
+    retry = s.create_run(product_id="p1", signal_id=sid)    # attempt 2 of refresh lineage
+    assert s.get_run(retry)["attempt_no"] == 2
+    assert s.get_run(retry)["root_run_id"] == refresh
+
+
+def test_update_signal_content_overwrites_and_stamps(tmp_path):
+    s = _store(tmp_path)
+    sid = s.save_signal(title="t", raw_content="thin chrome", category="other")
+    assert s.get_signal(sid)["refreshed_at"] is None
+
+    updated = s.update_signal_content(sid, raw_content="full article body", category="platform")
+    assert updated["raw_content"] == "full article body"
+    assert updated["category"] == "platform"
+    assert updated["refreshed_at"] is not None
+    # Persisted, not just returned.
+    assert s.get_signal(sid)["raw_content"] == "full article body"
+
+
+def test_update_signal_content_unknown_signal_returns_none(tmp_path):
+    s = _store(tmp_path)
+    assert s.update_signal_content("nope", raw_content="x") is None
+
+
+def test_migration_adds_refresh_columns_to_legacy_db(tmp_path):
+    """A DB predating the refresh columns gains signals.refreshed_at and
+    workflow_runs.origin on next open; existing rows back-fill (origin='start',
+    refreshed_at NULL); re-opening is a no-op."""
+    url = f"sqlite:///{tmp_path}/legacy.db"
+    e = sa.create_engine(url)
+    with e.begin() as c:
+        c.execute(
+            sa.text(
+                "CREATE TABLE signals (signal_id VARCHAR PRIMARY KEY, "
+                "original_product_id VARCHAR, title VARCHAR, source_url VARCHAR, "
+                "source_ref VARCHAR, raw_content TEXT, category VARCHAR, "
+                "status VARCHAR, source_type VARCHAR, ingested_at DATETIME)"
+            )
+        )
+        c.execute(
+            sa.text(
+                "CREATE TABLE workflow_runs (run_id VARCHAR PRIMARY KEY, "
+                "product_id VARCHAR, signal_id VARCHAR, status VARCHAR, "
+                "current_stage VARCHAR, mode VARCHAR, recommendation_json TEXT, "
+                "routing VARCHAR, composite_score FLOAT, created_at DATETIME, "
+                "updated_at DATETIME, completed_at DATETIME, batch_id VARCHAR, "
+                "prompt_tokens_total INTEGER, completion_tokens_total INTEGER, "
+                "attempt_no INTEGER NOT NULL DEFAULT 1, root_run_id VARCHAR, "
+                "failed_stage VARCHAR, error TEXT)"
+            )
+        )
+        c.execute(
+            sa.text(
+                "INSERT INTO signals (signal_id, title, raw_content, category, "
+                "status, source_type, ingested_at) VALUES ('s-old', 't', 'c', "
+                "'other', 'new', 'manual', '2026-01-01 00:00:00')"
+            )
+        )
+        c.execute(
+            sa.text(
+                "INSERT INTO workflow_runs (run_id, product_id, signal_id, status, "
+                "created_at) VALUES ('r-old', 'p1', 's-old', 'completed', "
+                "'2026-01-01 00:00:00')"
+            )
+        )
+    e.dispose()
+
+    store = SQLiteStore(url)
+    assert store.get_signal("s-old")["refreshed_at"] is None
+    assert store.get_run("r-old")["origin"] == "start"  # back-filled by DEFAULT
+
+    # Idempotent: a second open must not raise.
+    reopened = SQLiteStore(url)
+    assert reopened.get_run("r-old")["origin"] == "start"
+
+
 def test_failure_fields_round_trip(tmp_path):
     s = _store(tmp_path)
     sid = s.save_signal(title="t", raw_content="c")

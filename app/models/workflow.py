@@ -143,6 +143,11 @@ class Signal(Base):
     status = Column(SAEnum(SignalStatus), nullable=False, default=SignalStatus.new)
     source_type = Column(SAEnum(SourceType), nullable=False, default=SourceType.manual)
     ingested_at = Column(DateTime, nullable=False, default=_utc_now)
+    # Set when a signal's raw_content is re-ingested via POST /signals/{id}/refresh
+    # (e.g. the original crawl captured only site-chrome and a better fetch
+    # recovered the article). NULL for signals that were never refreshed. The
+    # content is otherwise immutable after Gate 0 intake.
+    refreshed_at = Column(DateTime, nullable=True)
 
     runs = relationship("WorkflowRun", back_populates="signal")
 
@@ -186,6 +191,13 @@ class WorkflowRun(Base):
     #   stable lineage key.
     attempt_no = Column(Integer, nullable=False, default=1)
     root_run_id = Column(String, nullable=True)
+    # How this run was started. "start" = normal Gate 0 / manual / fan-out start
+    # (the default). "refresh" = started by POST /signals/{id}/refresh after the
+    # signal's content was re-ingested. A refresh begins a FRESH attempt lineage
+    # (attempt_no resets to 1, root_run_id NULL) so the observatory shows it as a
+    # re-ingest, not as "attempt N of N" of a failure-retry lineage. create_run
+    # scopes attempt counting to runs at/after the latest refresh boundary.
+    origin = Column(String, nullable=False, default="start")
     # Set only on failure: the stage that was executing when the run died, and
     # the exception string. Both NULL for non-failed runs.
     failed_stage = Column(String, nullable=True)
