@@ -20,6 +20,13 @@ class PMWorkflowStore(Protocol):
 
     def update_signal_status(self, signal_id: str, status: str) -> None: ...
 
+    def update_signal_content(
+        self,
+        signal_id: str,
+        raw_content: str,
+        category: Optional[str] = None,
+    ) -> Optional[dict]: ...
+
     def list_signals(
         self,
         original_product_id: Optional[str] = None,
@@ -33,6 +40,7 @@ class PMWorkflowStore(Protocol):
         product_id: str,
         signal_id: str,
         batch_id: Optional[str] = None,
+        origin: str = "start",
     ) -> str: ...
 
     def get_run(self, run_id: str) -> Optional[dict]: ...

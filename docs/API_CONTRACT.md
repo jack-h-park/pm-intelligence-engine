@@ -52,6 +52,7 @@ version bump.
 | `POST` | `/signals` | Submit a new signal | Harvest submission |
 | `GET` | `/signals` | List signals with filters | Inventory check |
 | `GET` | `/signals/{id}` | Get a single signal | Detail fetch |
+| `POST` | `/signals/{id}/refresh` | Re-ingest content + re-run on a fresh lineage | Recover a mis-crawled capture |
 | `POST` | `/signals/reconcile` | Re-derive every signal's status from its runs | Maintenance / drift repair |
 | `POST` | `/runs/start` | Start a pipeline run | Optional (manual start) |
 | `GET` | `/runs` | List runs with filters | Polling actionable queues |
@@ -151,6 +152,48 @@ synthetic/backfilled `completed` run that bypassed `finalize_run`.
   ]
 }
 ```
+
+---
+
+### `POST /signals/{id}/refresh`
+Re-ingest a signal's content and re-run it. Signals are **immutable after Gate 0
+intake**; this is the single audited path that overwrites `raw_content` — for when
+the original crawl captured only site-chrome / a bot-wall page and a better fetch
+recovered the article. The engine never fetches: the caller (ops/Hermes via
+`sensing-fetch.py`) recovers the body and posts it here.
+
+Three steps: (1) **void** every in-flight run for the signal (`killed`, event
+`voided`) — they reasoned over the stale capture; (2) overwrite `raw_content`,
+re-infer `category`, stamp `refreshed_at`; (3) start a new run with
+**`origin="refresh"`**, which begins a *fresh attempt lineage* (`attempt_no` = 1,
+no `root_run_id`) rather than incrementing the failure-retry counter — so the
+observatory shows a re-ingest, not "attempt N of N".
+
+**Request body:**
+```json
+{
+  "raw_content": "the recovered article body",
+  "note": "curl_cffi refetch, 12627 prose chars",
+  "product_id": "example-mobile-product",
+  "depth": "note",
+  "force_gate1": false
+}
+```
+`product_id` optional — given → a single manual run; omitted → re-runs the
+Portfolio Triage fan-out (mirrors `POST /runs/start`). `depth`/`force_gate1`
+optional, same semantics as start.
+
+**Response (202):**
+```json
+{
+  "signal": { "...": "updated SignalResponse, with refreshed_at set" },
+  "voided_runs": ["uuid", "..."],
+  "category": "platform",
+  "started": { "...": "RunResponse (manual) or BatchStartResponse (fan-out)" }
+}
+```
+
+**Errors:** `404` unknown signal · `422` empty `raw_content`.
 
 ---
 

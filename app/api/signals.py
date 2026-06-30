@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
 from app.factory import PMEngine
@@ -43,6 +43,8 @@ class SignalResponse(BaseModel):
     status: str
     source_type: str
     ingested_at: str
+    # Set when the signal's content was re-ingested via POST /signals/{id}/refresh.
+    refreshed_at: Optional[str] = None
 
 
 def _check_gate0_skip(source_ref: str) -> None:
@@ -195,3 +197,104 @@ async def get_signal(
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
     return SignalResponse(**signal)
+
+
+class SignalRefreshRequest(BaseModel):
+    # The freshly-fetched clean body that supersedes the original capture. The
+    # engine never fetches — the caller (ops/Hermes via sensing-fetch.py) recovers
+    # the article and posts it here.
+    raw_content: str
+    note: Optional[str] = None  # provenance, e.g. "curl_cffi refetch, 12627 prose chars"
+    # Optional re-run targeting, mirroring POST /runs/start: a product_id starts a
+    # single manual run; omitting it re-runs the Portfolio Triage fan-out.
+    product_id: Optional[str] = None
+    depth: Optional[str] = Field(
+        default=None, validation_alias=AliasChoices("depth", "mode")
+    )
+    force_gate1: bool = False
+
+
+_TERMINAL_RUN_STATUSES = {"completed", "killed", "failed"}
+
+
+@router.post("/{signal_id}/refresh", response_model=None, status_code=202)
+async def refresh_signal(
+    signal_id: str,
+    body: SignalRefreshRequest,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine = Depends(get_engine),
+) -> dict:
+    """Re-ingest a signal's content and re-run it on a fresh attempt lineage.
+
+    Signals are immutable after Gate 0 intake; this is the single audited path
+    that overwrites ``raw_content`` — for when the original crawl captured only
+    site-chrome / a bot-wall page and a better fetch recovered the article.
+
+    Steps:
+      1. Void every in-flight run for the signal (``killed``, event ``voided``) —
+         they reasoned over the stale capture.
+      2. Overwrite ``raw_content``, re-infer category, stamp ``refreshed_at``.
+      3. Start a new run with ``origin="refresh"`` so it begins a fresh attempt
+         lineage (attempt 1) rather than incrementing the failure-retry counter.
+    """
+    if not body.raw_content.strip():
+        raise HTTPException(status_code=422, detail="raw_content must be non-empty")
+
+    signal = engine.store.get_signal(signal_id)
+    if signal is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+
+    from app.logging import emit_event
+    from app.services.run_finalizer import finalize_run
+    from app.stages.s1_signal import _infer_category
+    from app.api.runs import dispatch_start
+
+    # 1. Void in-flight runs — they reasoned over the now-superseded content.
+    voided: list[str] = []
+    for run in engine.store.list_runs(signal_id=signal_id):
+        if run["status"] in _TERMINAL_RUN_STATUSES:
+            continue
+        engine.store.record_approval(
+            run_id=run["run_id"],
+            stage=run.get("current_stage") or "s1",
+            action="void",
+            feedback_text="superseded by content refresh",
+        )
+        engine.store.update_run(run["run_id"], routing=None)
+        await finalize_run(
+            run["run_id"], "killed", engine,
+            event_action="voided",
+            event_detail={"reason": "content refreshed", "voided_from": run["status"]},
+        )
+        voided.append(run["run_id"])
+
+    # 2. Overwrite content + re-infer category (word-boundary match; see s1_signal).
+    category = _infer_category(signal["title"] + " " + body.raw_content)
+    updated = engine.store.update_signal_content(
+        signal_id, raw_content=body.raw_content, category=category
+    )
+    if updated is None:  # raced with a delete between get_signal and here
+        raise HTTPException(status_code=404, detail="Signal not found")
+    emit_event(
+        "signal", "refreshed", signal_id,
+        {"voided_runs": voided, "note": body.note, "content_len": len(body.raw_content)},
+    )
+
+    # 3. Start a fresh run on a new lineage.
+    started = await dispatch_start(
+        signal_id=signal_id,
+        signal=updated,
+        product_id=body.product_id,
+        depth=body.depth,
+        force_gate1=body.force_gate1,
+        background_tasks=background_tasks,
+        engine=engine,
+        origin="refresh",
+    )
+
+    return {
+        "signal": SignalResponse(**updated).model_dump(),
+        "voided_runs": voided,
+        "category": category,
+        "started": started.model_dump(),
+    }

@@ -133,6 +133,21 @@ class SQLiteStore:
                 )
             )
 
+        # Signal re-ingest support (POST /signals/{id}/refresh). Plain ADD COLUMNs,
+        # both nullable / defaulted, so guarded checks keep them idempotent.
+        inspector = inspect(self._engine)
+        if "refreshed_at" not in {c["name"] for c in inspector.get_columns("signals")}:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE signals ADD COLUMN refreshed_at DATETIME"))
+        if "origin" not in {c["name"] for c in inspector.get_columns("workflow_runs")}:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs "
+                        "ADD COLUMN origin VARCHAR NOT NULL DEFAULT 'start'"
+                    )
+                )
+
     # --- Signal ---
 
     def save_signal(
@@ -171,6 +186,31 @@ class SQLiteStore:
                 s.status = SignalStatus(status)
                 session.commit()
 
+    def update_signal_content(
+        self,
+        signal_id: str,
+        raw_content: str,
+        category: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Re-ingest a signal's content (POST /signals/{id}/refresh).
+
+        Signals are otherwise immutable after Gate 0 intake; this is the single
+        audited path that overwrites ``raw_content`` — used when the original
+        crawl captured site-chrome / a bot-wall page and a better fetch recovered
+        the article. Stamps ``refreshed_at`` and, when given, re-infers category.
+        Returns the updated signal dict, or None if the signal does not exist.
+        """
+        with self._Session() as session:
+            s = session.get(Signal, signal_id)
+            if s is None:
+                return None
+            s.raw_content = raw_content
+            if category is not None:
+                s.category = SignalCategory(category)
+            s.refreshed_at = datetime.now(UTC)
+            session.commit()
+            return self._signal_to_dict(s)
+
     def list_signals(
         self,
         original_product_id: Optional[str] = None,
@@ -193,6 +233,7 @@ class SQLiteStore:
         product_id: str,
         signal_id: str,
         batch_id: Optional[str] = None,
+        origin: str = "start",
     ) -> str:
         with self._Session() as session:
             # Derive retry lineage from prior runs of the same (signal_id,
@@ -209,10 +250,22 @@ class SQLiteStore:
                 .order_by(WorkflowRun.created_at.asc())
                 .all()
             )
-            attempt_no = len(prior) + 1
+            # A refresh (re-ingest of content) begins a FRESH attempt lineage so
+            # it is not rendered as "attempt N of N" of the prior failure-retry
+            # lineage. It also acts as a boundary: a later failure-retry counts
+            # only runs at/after the most recent refresh, not the whole history.
+            if origin == "refresh":
+                scoped: list[WorkflowRun] = []
+            else:
+                last_refresh = next(
+                    (i for i in range(len(prior) - 1, -1, -1) if prior[i].origin == "refresh"),
+                    None,
+                )
+                scoped = prior if last_refresh is None else prior[last_refresh:]
+            attempt_no = len(scoped) + 1
             root_run_id = None
-            if prior:
-                first = prior[0]
+            if scoped:
+                first = scoped[0]
                 # COALESCE semantics: attempt 1's root_run_id is NULL (it is the
                 # root), so fall back to its own run_id for later attempts.
                 root_run_id = first.root_run_id or first.run_id
@@ -222,6 +275,7 @@ class SQLiteStore:
                 batch_id=batch_id,
                 attempt_no=attempt_no,
                 root_run_id=root_run_id,
+                origin=origin,
             )
             session.add(run)
             session.commit()
@@ -490,6 +544,7 @@ class SQLiteStore:
             "status": s.status.value,
             "source_type": s.source_type.value,
             "ingested_at": s.ingested_at.isoformat(),
+            "refreshed_at": s.refreshed_at.isoformat() if s.refreshed_at else None,
         }
 
     @staticmethod
@@ -512,6 +567,7 @@ class SQLiteStore:
             "completion_tokens_total": r.completion_tokens_total,
             "attempt_no": r.attempt_no,
             "root_run_id": r.root_run_id,
+            "origin": r.origin,
             "failed_stage": r.failed_stage,
             "error": r.error,
         }

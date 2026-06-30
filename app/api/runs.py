@@ -64,6 +64,10 @@ class RunResponse(BaseModel):
     # without grepping server.log.
     attempt_no: int | None = None
     root_run_id: str | None = None
+    # "start" (default) or "refresh" — a run started by POST /signals/{id}/refresh
+    # after the signal's content was re-ingested. Lets the observatory render a
+    # re-ingest distinctly instead of as "attempt N of N" of a retry lineage.
+    origin: str | None = None
     failed_stage: str | None = None
     error: str | None = None
     stage_outputs: list[dict] | None = None
@@ -201,20 +205,46 @@ async def start_run(
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
 
+    return await dispatch_start(
+        signal_id=body.signal_id,
+        signal=signal,
+        product_id=body.product_id,
+        depth=body.depth,
+        force_gate1=body.force_gate1,
+        background_tasks=background_tasks,
+        engine=engine,
+    )
+
+
+async def dispatch_start(
+    signal_id: str,
+    signal: dict,
+    product_id: str | None,
+    depth: str | None,
+    force_gate1: bool,
+    background_tasks: BackgroundTasks,
+    engine: PMEngine,
+    origin: str = "start",
+) -> RunResponse | BatchStartResponse:
+    """Start a run for a signal — manual (product_id given) or fan-out (omitted).
+
+    Shared by ``POST /runs/start`` and ``POST /signals/{id}/refresh`` (the latter
+    passes ``origin="refresh"`` so the new run begins a fresh attempt lineage).
+    """
     # `depth` (canonical) accepts the `mode` alias; legacy values are normalized (US-43)
     from app.modes import normalize_mode
-    requested_mode = normalize_mode(body.depth)
+    requested_mode = normalize_mode(depth)
     if requested_mode is not None:
         _validate_mode(requested_mode)
 
-    if body.product_id is not None:
+    if product_id is not None:
         return _start_manual_run(
-            body.signal_id, body.product_id, requested_mode,
-            body.force_gate1, background_tasks, engine,
+            signal_id, product_id, requested_mode,
+            force_gate1, background_tasks, engine, origin=origin,
         )
     return await _start_fanout_runs(
-        body.signal_id, signal, requested_mode,
-        body.force_gate1, background_tasks, engine,
+        signal_id, signal, requested_mode,
+        force_gate1, background_tasks, engine, origin=origin,
     )
 
 
@@ -225,12 +255,15 @@ def _start_manual_run(
     force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
+    origin: str = "start",
 ) -> RunResponse:
     _validate_product_exists(product_id, engine)
     if requested_mode is not None:
         validate_mode_for_product(requested_mode, product_id)
 
-    run_id = engine.store.create_run(product_id=product_id, signal_id=signal_id)
+    run_id = engine.store.create_run(
+        product_id=product_id, signal_id=signal_id, origin=origin
+    )
     engine.store.update_run(run_id, status="running", current_stage="s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
@@ -247,6 +280,7 @@ async def _start_fanout_runs(
     force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
+    origin: str = "start",
 ) -> BatchStartResponse:
     from config import settings
     from app.logging import emit_event
@@ -275,6 +309,7 @@ async def _start_fanout_runs(
     runs = _spawn_runs_in_batch(
         [primary_id] if primary_id else [],
         signal_id, batch_id, requested_mode, force_gate1, background_tasks, engine,
+        origin=origin,
     )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
@@ -343,12 +378,13 @@ def _spawn_runs_in_batch(
     force_gate1: bool,
     background_tasks: BackgroundTasks,
     engine: PMEngine,
+    origin: str = "start",
 ) -> list[RunResponse]:
     """Create one run per product in the batch and start each pipeline."""
     runs: list[RunResponse] = []
     for product_id in product_ids:
         run_id = engine.store.create_run(
-            product_id=product_id, signal_id=signal_id, batch_id=batch_id
+            product_id=product_id, signal_id=signal_id, batch_id=batch_id, origin=origin
         )
         engine.store.update_run(run_id, status="running", current_stage="s1")
         background_tasks.add_task(
