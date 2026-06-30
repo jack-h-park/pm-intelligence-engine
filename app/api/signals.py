@@ -47,6 +47,14 @@ class SignalResponse(BaseModel):
     refreshed_at: Optional[str] = None
 
 
+class SignalDetailResponse(SignalResponse):
+    """Single-signal detail — adds the full ``raw_content``. Kept off the list
+    response (``GET /signals``) so an inventory scan does not pull every signal's
+    full body. Consumers that need the current content (e.g. signal-refresh.py's
+    ``--min-improvement`` guard comparing old vs recovered length) read it here."""
+    raw_content: str
+
+
 def _check_gate0_skip(source_ref: str) -> None:
     """Raise 409 if source_ref is in the gate0-state.json `skipped` bucket.
 
@@ -188,15 +196,15 @@ async def list_signals(
     return [SignalResponse(**s) for s in signals]
 
 
-@router.get("/{signal_id}", response_model=SignalResponse)
+@router.get("/{signal_id}", response_model=SignalDetailResponse)
 async def get_signal(
     signal_id: str,
     engine: PMEngine = Depends(get_engine),
-) -> SignalResponse:
+) -> SignalDetailResponse:
     signal = engine.store.get_signal(signal_id)
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
-    return SignalResponse(**signal)
+    return SignalDetailResponse(**signal)
 
 
 class SignalRefreshRequest(BaseModel):

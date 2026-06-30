@@ -50,8 +50,8 @@ version bump.
 | Method | Path | Purpose | Hermes use |
 |--------|------|---------|------------|
 | `POST` | `/signals` | Submit a new signal | Harvest submission |
-| `GET` | `/signals` | List signals with filters | Inventory check |
-| `GET` | `/signals/{id}` | Get a single signal | Detail fetch |
+| `GET` | `/signals` | List signals with filters (lean — no `raw_content`) | Inventory check |
+| `GET` | `/signals/{id}` | Get a single signal (detail — includes full `raw_content`) | Detail fetch |
 | `POST` | `/signals/{id}/refresh` | Re-ingest content + re-run on a fresh lineage | Recover a mis-crawled capture |
 | `POST` | `/signals/reconcile` | Re-derive every signal's status from its runs | Maintenance / drift repair |
 | `POST` | `/runs/start` | Start a pipeline run | Optional (manual start) |
