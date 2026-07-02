@@ -30,6 +30,54 @@ pm-engine has no remaining wiki write responsibility.
 - pm-engine completion remains successful with local archive disabled
 - legacy local archive call path can be removed after Hermes validation
 
+#### US-50 — Notification delivery consolidation: single owner + channel policy
+**Status:** ✅ Completed (2026-07-02). Audit of the live gate-watcher showed the
+Iris side was further along than assumed: dedup (`gate-notified.json`,
+`<run_id>:<status>` + `run_updated_at`, 24h staleness re-nag, terminal
+notify-once) and terminal-result messages (incl. per-signal batching and
+PM-chosen-archive suppression) were already implemented. The real channel policy
+is **origin-affinity routing** (deliver to the platform+channel the run started
+on via `run-chat-map.json`; fallback `GATE_NOTIFY_DEFAULT_CHAT_ID`) — the
+contract §3 was rewritten to record that verified policy instead of the assumed
+fixed class→channel map. Closing work: engine exposes `review_url` on run
+objects (Gate 2 messages can carry the review link without Iris knowing the
+engine's network config); gate-watcher skill + SOUL.md + control-plane skill
+updated on the iMac to include the review link and the `deepen` relay rule.
+
+Found 2026-07-02 while verifying the first production Gate 2 (the US-48 cutover
+worked — Iris delivered the prompt to Discord — but the surrounding surface was
+incoherent): gate prompts arrive on **Discord**, reconciler/expiry digests on
+**Telegram**, the engine's dormant `FanoutNotifier` was one flag-flip from
+re-creating a duplicate delivery path, and `ARCHITECTURE.md` still claimed the
+engine owned notifications ("Hermes does not participate in the notification
+loop"). No single document said who sends what, where, or how duplicates are
+prevented — the PM experienced this as notifications being "all over the place".
+
+**Engine side (done 2026-07-02):**
+- `docs/NOTIFICATION_CONTRACT.md` — normative ownership table, the engine
+  interface Iris consumes (gate queues, review payloads, event filters), the
+  dedup key `(run_id, status, updated_at)`, and the 3-class channel policy
+  (A: decision-required prompts / B: informational digests / C: ops alerts —
+  one channel per class).
+- `ARCHITECTURE.md` de-drifted: all "pm-engine fires notifications directly"
+  claims replaced with the post-US-48 reality (7 locations incl. §11 rewrite).
+- `notifier.py` marked LOCAL/DEV-ONLY in its module docstring with an explicit
+  "do not flip the flag in prod" warning.
+
+**Iris side (remaining — hermes control-plane repo):**
+- Record/confirm the Class A channel and consolidate B/C per the contract table
+- Dedup keyed on `(run_id, status, updated_at)` if not already
+- Terminal-result messages for non-decide completions (US-48 folded scope)
+- Gate 2 messages carry the review-page link
+
+**Acceptance criteria**
+- Every production message class maps to exactly one channel, recorded in
+  `NOTIFICATION_CONTRACT.md` §3; changing a channel updates the doc in the same
+  change
+- No transition is announced by two systems (dedup tuple observable in Iris logs)
+- `GATE_NOTIFICATIONS_ENABLED` remains false on the iMac; docs and code agree
+  on ownership
+
 ### E5 — Quality Calibration
 
 #### US-23b — Eval calibration for active model baseline
@@ -396,7 +444,10 @@ labeled datapoint capturing system-suggestion vs PM-choice:
 - queryable via `GET /runs?event=direction|confirm|override` (+ existing filters)
 
 #### US-48 — Gate-notification cutover flag (consolidate notifications to Hermes)
-**Status:** Flag shipped 2026-06-11 (default true; cutover pending Hermes ops sweep).
+**Status:** ✅ Cutover complete — verified in production 2026-07-02: flag false on
+the iMac, Iris gate-watcher polling and delivering Gate 1/2 prompts (first live
+Gate 2 was the deepened run 9b49fc8c). Follow-up consolidation (channel policy,
+dedup, doc de-drift) tracked as US-50.
 
 Notification ownership is consolidating to Hermes-ops (conversational, LLM-authored
 messages) instead of pm-engine's fixed-template push. pm-engine keeps the gate

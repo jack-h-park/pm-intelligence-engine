@@ -11,8 +11,9 @@ artifacts to the decision-system. Signal harvesting, wiki sync, and operational 
 owned by the separate **Hermes operations plane**.
 
 The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
-MacBook) without port-forwarding. Gate notifications are fired directly by pm-engine;
-Hermes may absorb this concern later.
+MacBook) without port-forwarding. Gate and result notifications are composed and delivered
+by the Hermes ops plane (Iris), which polls the gate queues; pm-engine exposes state only
+(US-48 cutover — see `docs/NOTIFICATION_CONTRACT.md`).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -30,20 +31,21 @@ Hermes may absorb this concern later.
 │                                      ├─ completed_at stamp              │
 │                                      └─ decision-system export          │
 │                                             │                           │
-│                          notifier.py (FanoutNotifier)                   │
-│                           Gate 1 alert (Telegram/Slack)                 │
-│                           Gate 2 alert + review page link               │
-│                           Gate 3 alert (kill routing review)            │
+│                          gate queues (HTTP API)                         │
+│                           waiting_direction / waiting_approval /        │
+│                           waiting_routing_review + terminal statuses    │
+│                           — polled by Hermes-ops (Iris)                 │
 └─────────────────────────────────────────────────────────────────────────┘
         ↑ read context / write runs              ↑ (export on completion)
 decision-context-companion-repo/          decision-context-companion-repo/runs/
 
-              │ Tailscale                    │ Gate 2 review link
-              │ (iMac reachable from         │ http://<imac-tailscale-ip>:8000
-              │  iPhone / MacBook)           │ /runs/{id}/review
+              │ polled by Iris,              │ Gate 2 review link
+              │ which composes and           │ http://<imac-tailscale-ip>:8000
+              │ delivers per channel policy  │ /runs/{id}/review
               ▼                             ▼
-        📱 Telegram / Slack           📱 Browser (PM's iPhone)
-            notification               review page → Approve/Revise/Reject
+        📱 Discord / Telegram         📱 Browser (PM's iPhone)
+         (Iris-delivered; see          review page → Approve/Revise/Reject
+          NOTIFICATION_CONTRACT.md)
 
 ┌─────────────────────────────────────────────────────────────────────────┐
 │              External Operations Plane (Hermes — separate repo)         │
@@ -70,7 +72,7 @@ pm-intelligence-engine API        product-management-wiki-repo/
 | Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-engine | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate notifications | pm-engine | `notifier.py` fires Gate 1 alert (after S2), Gate 2 alert (after S4, includes link to `GET /runs/{id}/review`), and Gate 3 alert (after S5 routing=kill); Hermes bridges PM responses back via API |
+| Gate/result notification delivery | Hermes (Iris) | Iris polls the gate queues and terminal statuses, composes and delivers all production messages (US-48). pm-engine exposes state + review payloads only; built-in `notifier.py` is a local/dev fallback (`GATE_NOTIFICATIONS_ENABLED=false` in prod). See `docs/NOTIFICATION_CONTRACT.md` |
 | Operational scheduling | Hermes | Cron/harvest jobs |
 | Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
 
@@ -105,9 +107,11 @@ operational scheduling, pattern accumulation.
 **Integration:** Hermes interacts with pm-engine exclusively via the HTTP API.
 Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
 
-**Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are fired by pm-engine's
-built-in `FanoutNotifier`. Hermes-ops bridges PM responses back to pm-engine via the gate
-API endpoints (`/direction`, `/approve`, `/revise`, `/reject`, `/routing-review`).
+**Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are composed and delivered
+by Hermes-ops (Iris), which polls the gate queues (US-48 cutover; the engine's built-in
+`FanoutNotifier` is local/dev-only). Hermes-ops also bridges PM responses back to
+pm-engine via the gate API endpoints (`/direction`, `/approve`, `/revise`, `/reject`,
+`/routing-review`). Ownership, dedup keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 
 ---
 
@@ -171,7 +175,7 @@ app/
 │   ├── template_service.py Loads and renders prompt templates from /prompts/
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
 │   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
-│   ├── notifier.py        FanoutNotifier: fires Gate 1 + Gate 2 alerts via Telegram/Slack
+│   ├── notifier.py        FanoutNotifier: local/dev-only gate alerts (prod delivery is Iris-owned, US-48)
 │   │                      Gate 2 alert includes link to /runs/{id}/review (see Section 11)
 │   └── wiki_sync.py       Utility adapter (canonical paths); not called from completion paths
 │                          (wiki writes are Hermes-owned — see EXPORT_AND_SYNC_CONTRACT.md)
@@ -189,7 +193,7 @@ app/
 │   ├── routing_review.py  /runs/{id}/routing-review — Gate 3
 │   ├── artifacts.py       /runs/{id}/artifacts — artifact query endpoint
 │   └── review.py          /runs/{id}/review — browser-based Gate 2 review page
-│                          (HTML; linked from Gate 2 Telegram notification; see Section 11)
+│                          (HTML; linked from the Gate 2 message Iris delivers; see Section 11)
 │
 ├── llm/
 │   ├── protocol.py        LLMProvider Protocol: async complete(messages) -> str
@@ -433,9 +437,17 @@ The pm-engine API (`POST /signals`) remains the stable integration point.
 
 ### Overview
 
-pm-engine fires Gate notifications directly via `app/services/notifier.py`. Hermes does not
-participate in the notification loop. The Gate 2 notification includes a link to a browser-based
-review page, accessible from any device connected to the same Tailscale network.
+Production notifications are composed and delivered by **Hermes-ops (Iris)**, which polls
+pm-engine's gate queues and terminal statuses (US-48 cutover). pm-engine owns the gate
+**state machine, queue queries, and review payloads** — it does not send messages in
+production. The engine's built-in `app/services/notifier.py` (`FanoutNotifier`,
+Telegram/Slack templates) is a local/dev fallback behind `GATE_NOTIFICATIONS_ENABLED`
+(default `true` locally, **`false` on the iMac** — enabling it in prod would duplicate
+every Iris message). Ownership, dedup keys, and channel policy are normatively defined in
+`docs/NOTIFICATION_CONTRACT.md`.
+
+The Gate 2 message includes a link to a browser-based review page (engine-served),
+accessible from any device connected to the same Tailscale network.
 
 ### Hosting and Tailscale
 
@@ -452,13 +464,13 @@ the same Tailnet regardless of network location.
 BASE_URL=http://100.x.x.x:8000
 ```
 
-With this set, the review page link embedded in every Gate 2 Telegram notification remains
+With this set, the review page link embedded in every Gate 2 message remains
 valid whether the PM is at home, in transit, or on a different network.
 
 ### Gate 1 Notification (after S2)
 
-Fired by `FanoutNotifier.send_gate1()` when a signal passes the auto-triage threshold and
-pm-engine is waiting for the PM to choose a run mode.
+Composed by Iris when it observes a run in `waiting_direction` (data from
+`gate1_review` on `GET /runs/{id}`).
 
 **Content:**
 - Product name and signal title
@@ -470,8 +482,8 @@ pm-engine is waiting for the PM to choose a run mode.
 
 ### Gate 2 Notification (after S4)
 
-Fired by `FanoutNotifier.send_gate2()` after the four persona agents complete their evaluations
-and the run enters `waiting_approval` state.
+Composed by Iris when it observes a run in `waiting_approval` (after the four persona
+agents complete their evaluations).
 
 **Content:**
 - Product name and run ID
@@ -494,16 +506,16 @@ Served by `app/api/review.py`. Renders an HTML page showing:
 ```
 [S2 completes — relevance passes threshold]
         │
-        ▼
-FanoutNotifier.send_gate1()
-  → Telegram: "New signal: <title> — relevance 4/5 — POST /runs/start"
+        ▼ run enters waiting_direction
+Iris polls GET /runs?status=waiting_direction
+  → composes + delivers: "New signal: <title> — relevance 4/5 — depth?"
         │
-        ▼ [PM starts run via API]
+        ▼ [PM answers → Iris bridges POST /runs/{id}/direction]
 [S3 → S4 complete — 4 personas scored]
         │
-        ▼
-FanoutNotifier.send_gate2()
-  → Telegram: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
+        ▼ run enters waiting_approval
+Iris polls GET /runs?status=waiting_approval
+  → composes + delivers: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
         │
         ▼ [PM taps link → iPhone browser opens review page via Tailscale]
 GET /runs/{id}/review   (served by iMac over Tailscale)
@@ -524,12 +536,15 @@ Hermes reads artifacts → writes to WIKI_ROOT (Hermes-owned)
 | Setting | Description | Example |
 |---------|-------------|---------|
 | `BASE_URL` | iMac's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
-| `TELEGRAM_BOT_TOKEN` | Bot token from @BotFather | `7123456789:AAF...` |
-| `TELEGRAM_CHAT_ID` | Chat ID where alerts are sent (personal or group) | `123456789` |
-| `SLACK_WEBHOOK_URL` | Incoming Webhook URL from Slack app settings; leave empty to disable | `https://hooks.slack.com/...` |
+| `GATE_NOTIFICATIONS_ENABLED` | Master switch for the built-in notifier. **`false` in production** (Iris owns delivery); `true` only for local/dev use | `false` |
+| `TELEGRAM_BOT_TOKEN` | Local/dev built-in notifier only | `7123456789:AAF...` |
+| `TELEGRAM_CHAT_ID` | Local/dev built-in notifier only | `123456789` |
+| `SLACK_WEBHOOK_URL` | Local/dev built-in notifier only; leave empty to disable | `https://hooks.slack.com/...` |
 
-All four settings live in `.env`. Leave `TELEGRAM_BOT_TOKEN` or `SLACK_WEBHOOK_URL` empty to
-disable that provider. Both providers can be active simultaneously via `FanoutNotifier`.
+All settings live in `.env`. The Telegram/Slack settings only matter when
+`GATE_NOTIFICATIONS_ENABLED=true` (local/dev); in production they are inert because the
+notifier wires zero providers. Production delivery configuration lives on the Iris side —
+see `docs/NOTIFICATION_CONTRACT.md`.
 
 ### iMac Setup Checklist
 
@@ -539,6 +554,6 @@ disable that provider. Both providers can be active simultaneously via `FanoutNo
    - `product-management-wiki-repo` → `WIKI_ROOT`
 3. Install Tailscale on the iMac and ensure it is running
 4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
-5. Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` in `.env`
+5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is Iris-owned; see `docs/NOTIFICATION_CONTRACT.md`)
 6. Start the API: `uvicorn app.api.main:app --reload` (or via launchd for auto-start)
 7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari

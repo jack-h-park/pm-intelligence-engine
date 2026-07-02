@@ -205,6 +205,9 @@ List runs. Hermes uses this for polling actionable queues.
 - `product_id` — filter by product
 - `status` — filter by status (e.g. `waiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
+- Every run object carries `review_url` — an absolute link to the engine-served
+  browser review page (`{BASE_URL}/runs/{id}/review`), built from the engine's
+  `BASE_URL` so delivery consumers never need the engine's network config.
 - `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
   `revise`, `reject`, `direction`, `confirm`, `override`, `void`, `deepen`). Every human gate decision is
   now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
@@ -515,6 +518,10 @@ or depth not allowed for the product (`general` supports archive/note only).
 ---
 
 ## Hermes Polling Pattern
+
+Hermes owns all production message composition and delivery (US-48/US-50) —
+ownership, the dedup key `(run_id, status, updated_at)`, and the per-class
+channel policy are normatively defined in `NOTIFICATION_CONTRACT.md`.
 
 Hermes should poll the following queues at a cadence suited to PM availability:
 

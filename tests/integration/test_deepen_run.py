@@ -273,3 +273,14 @@ def test_deepen_filterable_in_run_list(client, engine, monkeypatch):
     resp = client.get("/runs", params={"event": "deepen"})
     assert resp.status_code == 200
     assert [r["run_id"] for r in resp.json()] == [run_id]
+
+
+def test_run_response_includes_review_url(client, engine):
+    """Every run object carries review_url so the delivery owner (Iris) can put
+    the Gate 2 review link in messages without knowing the engine's BASE_URL
+    (NOTIFICATION_CONTRACT §2, US-50)."""
+    run_id, _ = _seed_completed_run(engine, "note", stages=["s2"])
+    resp = client.get(f"/runs/{run_id}")
+    assert resp.status_code == 200
+    from config import settings
+    assert resp.json()["review_url"] == f"{settings.BASE_URL}/runs/{run_id}/review"
