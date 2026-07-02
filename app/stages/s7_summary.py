@@ -155,10 +155,15 @@ Rules:
         metadata=StageMetadata.with_usage(_resolve_model(), usage_sink),
     )
 
+    # S7 can legitimately run twice for one run (a note-depth summary, then a
+    # deepen to decide re-summarizes over the full pipeline) — bump the version
+    # so the latest wins on read instead of colliding at version 1.
+    existing_s7 = store.get_stage_output(context.run_id, "s7")
     store.save_stage_output(
         run_id=context.run_id,
         stage="s7",
         output_json=output.model_dump_json(),
+        version=(existing_s7["version"] + 1) if existing_s7 else 1,
     )
 
     # Save Markdown as Artifact for easy export

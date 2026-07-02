@@ -630,7 +630,7 @@ async def list_runs(
     if event is not None:
         valid_events = {
             "approve", "revise", "reject", "auto_triaged", "reopen",
-            "direction", "confirm", "override",
+            "direction", "confirm", "override", "deepen",
         }
         if event not in valid_events:
             raise HTTPException(
@@ -871,11 +871,23 @@ async def _continue_after_direction(
     context,
     engine: PMEngine,
 ) -> None:
-    """Execute the stages appropriate for the chosen mode after S1+S2 are done."""
+    """Execute the stages appropriate for the chosen mode after S1+S2 are done.
+
+    Stored S3/S4 outputs are reused instead of re-run. Fresh runs never have
+    them, so the direction path is unchanged; a deepened run (POST /deepen)
+    re-enters here and pays only for the stages its new depth adds.
+    """
     import json as _json
 
     from app.logging import emit_event
-    from app.models.stages import S2OutputData, S3Input, S4Input, S7Input
+    from app.models.stages import (
+        S2OutputData,
+        S3Input,
+        S3OutputData,
+        S4Input,
+        S4OutputData,
+        S7Input,
+    )
     from app.services.run_finalizer import finalize_run
     from app.stages import s3_opportunity, s4_evaluation, s7_summary
 
@@ -895,32 +907,42 @@ async def _continue_after_direction(
             await finalize_run(run_id, "completed", engine, event_detail={"mode": "note"})
             return
 
-        # All remaining modes need Stage 3
-        s2_signal_id = _json.loads(s2_raw["output_json"]).get("signal_id", run_id)
-        engine.store.update_run(run_id, current_stage="s3")
-        s3_out = await s3_opportunity.run(
-            input=S3Input(
-                signal_id=s2_signal_id,
-                s2_output=s2_output_data,
-                product_id=context.product_id,
-            ),
-            context=context,
-            llm=engine.llm,
-            store=engine.store,
-        )
+        # All remaining modes need Stage 3 — reuse a stored output if present.
+        s3_raw = engine.store.get_stage_output(run_id, "s3")
+        if s3_raw is not None:
+            s3_output_data = S3OutputData(**_json.loads(s3_raw["output_json"])["output"])
+        else:
+            s2_signal_id = _json.loads(s2_raw["output_json"]).get("signal_id", run_id)
+            engine.store.update_run(run_id, current_stage="s3")
+            s3_out = await s3_opportunity.run(
+                input=S3Input(
+                    signal_id=s2_signal_id,
+                    s2_output=s2_output_data,
+                    product_id=context.product_id,
+                ),
+                context=context,
+                llm=engine.llm,
+                store=engine.store,
+            )
+            s3_output_data = s3_out.output
 
         if mode == "structure":
             await finalize_run(run_id, "completed", engine, event_detail={"mode": "structure"})
             return
 
-        # evaluate + decide both need Stage 4
-        engine.store.update_run(run_id, current_stage="s4")
-        s4_out = await s4_evaluation.run(
-            S4Input(s3_output=s3_out.output),
-            context,
-            engine.llm,
-            engine.store,
-        )
+        # evaluate + decide both need Stage 4 — reuse a stored output if present.
+        s4_raw = engine.store.get_stage_output(run_id, "s4")
+        if s4_raw is not None:
+            s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
+        else:
+            engine.store.update_run(run_id, current_stage="s4")
+            s4_out = await s4_evaluation.run(
+                S4Input(s3_output=s3_output_data),
+                context,
+                engine.llm,
+                engine.store,
+            )
+            s4_output_data = s4_out.output
 
         if mode == "evaluate":
             await finalize_run(run_id, "completed", engine, event_detail={"mode": "evaluate"})
@@ -936,7 +958,7 @@ async def _continue_after_direction(
             _json.loads(s2_raw["output_json"]).get("signal_id", "")
         )
         signal_title = signal_for_notify["title"] if signal_for_notify else run_id
-        personas = {p.persona: p for p in s4_out.output.personas}
+        personas = {p.persona: p for p in s4_output_data.personas}
         skeptic_concern = (
             personas["skeptic"].key_argument if "skeptic" in personas else ""
         )

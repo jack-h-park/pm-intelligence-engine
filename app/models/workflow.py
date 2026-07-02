@@ -100,6 +100,7 @@ class ApprovalAction(str, enum.Enum):
     confirm = "confirm"            # PM confirms S5 routing at Gate 3 (US-44)
     override = "override"          # PM overrides S5 routing at Gate 3 (US-44)
     void = "void"                  # PM voids an improperly-started run (any non-terminal state)
+    deepen = "deepen"              # PM resumes a completed run at a deeper depth (human-pull)
 
 
 class ArtifactType(str, enum.Enum):
