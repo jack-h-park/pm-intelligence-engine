@@ -203,6 +203,16 @@ class WorkflowRun(Base):
     # the exception string. Both NULL for non-failed runs.
     failed_stage = Column(String, nullable=True)
     error = Column(Text, nullable=True)
+    # The semantic terminal reason, stamped once at finalize. Collapses the
+    # (status, mode, routing, approval_events) join a consumer would otherwise
+    # need to answer "how did this run end?" — the observatory reads the SQLite
+    # file directly, so this moves that logic out of the dashboard. NULL for
+    # non-terminal runs and for pre-column rows (backfilled lazily on next
+    # finalize; historical rows stay NULL). Controlled vocabulary — see
+    # run_finalizer._derive_ended_by:
+    #   auto_triaged · archived · noted · structured · evaluated · decided
+    #   · rejected · kill_confirmed · kill_overridden · voided · failed
+    ended_by = Column(String, nullable=True)
 
     signal = relationship("Signal", back_populates="runs")
     stage_outputs = relationship("StageOutput", back_populates="run")

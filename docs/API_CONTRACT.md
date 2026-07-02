@@ -241,6 +241,7 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
   "created_at": "2026-05-24T10:00:00",
   "updated_at": "2026-05-24T10:12:34",
   "completed_at": "2026-05-24T10:12:34",
+  "ended_by": "decided",
   "stage_outputs": [...],
   "gate3_review": {
     "routing": "poc",
@@ -255,6 +256,12 @@ Get a single run. Pass `include_outputs=true` to include all stage outputs
 ```
 
 `stage_outputs` is only present when `include_outputs=true`.
+`ended_by` is the semantic terminal reason, stamped once when the run reaches a
+terminal state: one of `auto_triaged`, `archived`, `noted`, `structured`,
+`evaluated`, `decided`, `rejected`, `kill_confirmed`, `kill_overridden`, `voided`,
+`failed`. It is `null` while the run is non-terminal and for rows that predate the
+column. Prefer it over re-deriving the outcome from `status`+`depth`+`routing`+
+approval events.
 `gate3_review` is `null` until S5 has run, then present on every response
 (US-30) — Hermes renders it in the Gate 3 notification follow-up and the PM
 can inspect it when confirming or overriding routing.

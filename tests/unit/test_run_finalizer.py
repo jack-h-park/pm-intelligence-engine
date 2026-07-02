@@ -49,8 +49,9 @@ async def test_finalize_run_calls_store_update_with_status():
         with patch("app.logging.emit_event"):
             await finalize_run("run-abc", "completed", engine)
 
+    # mode=decide + completed -> ended_by="decided".
     engine.store.update_run.assert_called_once_with(
-        "run-abc", status="completed", current_stage=None
+        "run-abc", status="completed", current_stage=None, ended_by="decided"
     )
 
 
@@ -63,8 +64,9 @@ async def test_finalize_run_killed_calls_store_update():
     with patch("app.logging.emit_event"):
         await finalize_run("run-abc", "killed", engine)
 
+    # killed with no semantic event_action -> ended_by falls back to "killed".
     engine.store.update_run.assert_called_once_with(
-        "run-abc", status="killed", current_stage=None
+        "run-abc", status="killed", current_stage=None, ended_by="killed"
     )
 
 
@@ -79,7 +81,8 @@ async def test_finalize_run_failed_calls_store_update():
 
     # No current_stage on the mock run and no error in event_detail -> both None.
     engine.store.update_run.assert_called_once_with(
-        "run-abc", status="failed", current_stage=None, failed_stage=None, error=None
+        "run-abc", status="failed", current_stage=None, ended_by="failed",
+        failed_stage=None, error=None,
     )
 
 
@@ -101,7 +104,8 @@ async def test_finalize_run_failed_persists_stage_and_error():
         )
 
     engine.store.update_run.assert_called_once_with(
-        "run-abc", status="failed", current_stage=None, failed_stage="s2", error="boom 400"
+        "run-abc", status="failed", current_stage=None, ended_by="failed",
+        failed_stage="s2", error="boom 400",
     )
 
 
@@ -401,3 +405,53 @@ async def test_empty_event_detail_uses_empty_dict():
 
     first_call = mock_emit.call_args_list[0]
     assert first_call.args[3] == {}
+
+
+# ---------------------------------------------------------------------------
+# ended_by derivation (terminal-reason taxonomy)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "status,event_action,mode,expected",
+    [
+        # Failure always wins, regardless of prior depth.
+        ("failed", None, "decide", "failed"),
+        # Semantic actions distinguish reasons that share a status/mode.
+        ("completed", "auto_triaged", "archive", "auto_triaged"),  # S2 auto-file
+        ("completed", None, "archive", "archived"),                # PM Gate-1 archive
+        ("killed", "rejected", "decide", "rejected"),              # Gate 2 reject
+        ("killed", "kill_confirmed", "decide", "kill_confirmed"),  # Gate 3 kill
+        ("killed", "kill_overridden", "poc", "kill_overridden"),
+        ("killed", "voided", "structure", "voided"),               # admin void
+        # Plain completion derives the reason from the depth reached.
+        ("completed", None, "note", "noted"),
+        ("completed", None, "structure", "structured"),
+        ("completed", None, "evaluate", "evaluated"),
+        ("completed", None, "decide", "decided"),
+        # Fallbacks when nothing more specific is available.
+        ("killed", None, None, "killed"),
+        ("completed", None, None, "completed"),
+    ],
+)
+def test_derive_ended_by(status, event_action, mode, expected):
+    from app.services.run_finalizer import _derive_ended_by
+
+    assert _derive_ended_by(status, event_action, mode) == expected
+
+
+@pytest.mark.asyncio
+async def test_finalize_persists_ended_by_on_run():
+    """ended_by is stamped on the row, distinguishing a PM archive from an
+    auto-triage even though both leave status=completed, mode=archive."""
+    from app.services.run_finalizer import finalize_run
+
+    engine = _make_engine(mode="archive", status="running")
+    with patch("app.services.run_finalizer._maybe_export"):
+        with patch("app.logging.emit_event"):
+            await finalize_run(
+                "run-abc", "completed", engine, event_action="auto_triaged"
+            )
+
+    _, kwargs = engine.store.update_run.call_args
+    assert kwargs["ended_by"] == "auto_triaged"

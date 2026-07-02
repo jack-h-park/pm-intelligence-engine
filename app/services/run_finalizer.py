@@ -25,6 +25,42 @@ if TYPE_CHECKING:
 # note depth and above export to the run archive; archive depth (set-aside) is excluded.
 _EXPORTABLE_MODES = {"note", "structure", "evaluate", "decide"}
 
+# Terminal-reason vocabulary keyed by the semantic event_action a caller passes.
+# The remaining reasons (archived/noted/structured/evaluated/decided) have no
+# distinguishing event_action — they are derived from the run's depth instead.
+_ENDED_BY_FROM_ACTION = {
+    "auto_triaged": "auto_triaged",
+    "rejected": "rejected",
+    "kill_confirmed": "kill_confirmed",
+    "kill_overridden": "kill_overridden",
+    "voided": "voided",
+}
+# Depth → completed-reason, for a normal completion (no distinguishing action).
+_ENDED_BY_FROM_MODE = {
+    "archive": "archived",
+    "note": "noted",
+    "structure": "structured",
+    "evaluate": "evaluated",
+    "decide": "decided",
+}
+
+
+def _derive_ended_by(status: str, event_action: str | None, mode: str | None) -> str:
+    """Collapse (status, event_action, mode) into one terminal-reason token.
+
+    Precedence: failure first, then a semantic action (which distinguishes a PM
+    Gate-1 ``archive`` from an S2 ``auto_triaged`` — both leave ``mode=archive``),
+    then the depth a plain completion ran to. Falls back to the bare status so the
+    column is never NULL for a run this function stamps.
+    """
+    if status == "failed":
+        return "failed"
+    if event_action in _ENDED_BY_FROM_ACTION:
+        return _ENDED_BY_FROM_ACTION[event_action]
+    if status == "completed" and mode in _ENDED_BY_FROM_MODE:
+        return _ENDED_BY_FROM_MODE[mode]
+    return status
+
 
 async def finalize_run(
     run_id: str,
@@ -55,21 +91,24 @@ async def finalize_run(
     """
     from app.logging import emit_event
 
-    # Capture the stage that was executing *before* we clear current_stage, so a
-    # failure records where it died. The run row still holds the live stage here.
+    # Read the live row once — for the failure stage (before we clear it) and for
+    # the depth the ended_by derivation needs.
+    run_before = engine.store.get_run(run_id)
     failure_fields: dict = {}
     if status == "failed":
-        run_before = engine.store.get_run(run_id)
         failure_fields = {
             "failed_stage": (run_before or {}).get("current_stage"),
             "error": (event_detail or {}).get("error"),
         }
 
+    ended_by = _derive_ended_by(status, event_action, (run_before or {}).get("mode"))
+
     # Apply terminal state (store layer handles completed_at stamping). Roll up
     # per-stage token usage into run-level totals at the same time (Phase 2).
     token_totals = _sum_run_tokens(run_id, engine)
     engine.store.update_run(
-        run_id, status=status, current_stage=None, **token_totals, **failure_fields
+        run_id, status=status, current_stage=None, ended_by=ended_by,
+        **token_totals, **failure_fields,
     )
     _sync_signal_status(run_id, status, engine)
 
