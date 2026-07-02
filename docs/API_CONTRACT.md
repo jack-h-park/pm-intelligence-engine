@@ -65,6 +65,7 @@ version bump.
 | `POST` | `/runs/{id}/routing-review` | Gate 3 confirm/override | Bridge PM routing decision |
 | `POST` | `/runs/{id}/void` | Cancel an improperly-started run (→ killed) | Bridge PM void at any gate |
 | `POST` | `/runs/{id}/reopen` | Revive an auto-triaged run | Auto-triage digest follow-up |
+| `POST` | `/runs/{id}/deepen` | Resume a completed run at a deeper depth | Bridge PM depth pull |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
 
@@ -205,7 +206,7 @@ List runs. Hermes uses this for polling actionable queues.
 - `status` — filter by status (e.g. `waiting_direction`, `completed`)
 - `routing` — filter by routing (`prd`, `poc`, `kill`)
 - `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
-  `revise`, `reject`, `direction`, `confirm`, `override`, `void`). Every human gate decision is
+  `revise`, `reject`, `direction`, `confirm`, `override`, `void`, `deepen`). Every human gate decision is
   now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
   `reject`), Gate 3 routing (`confirm`/`override`) — each records the system suggestion
   vs the PM's choice in `feedback_text`, forming the labeled human-decision dataset.
@@ -479,6 +480,37 @@ silently filed by the relevance gate are revivable — deliberate PM decisions
 **Digest ownership:** pm-engine sends no notification for auto-triaged runs.
 The daily digest is Hermes-owned: poll `GET /runs?event=auto_triaged&since=<last-digest>`
 and include the results in the hermes-eval / hermes-ops digest.
+
+---
+
+### `POST /runs/{id}/deepen`
+Resume a `completed` run at a deeper processing depth (human-pull). The pipeline
+reuses stored S2/S3/S4 outputs and executes only the stages the new depth adds —
+e.g. `note → structure` runs S3 only; `structure → decide` runs S4 and pauses at
+Gate 2 like any decide run. Records a `deepen` decision event
+(`feedback_text: "from=<old>; to=<new>"`), clears `completed_at`, and returns the
+signal to `in_run` until the resumed run settles.
+
+Distinct from `reopen`: reopen revives an *auto-triaged* run back to Gate 1 with
+no depth; deepen acts on any completed run *with* a depth and carries the new
+depth directly (no second Gate 1 pause).
+
+**Request:**
+```json
+{ "depth": "structure" }
+```
+`depth` must be strictly deeper than the run's current depth
+(`archive < note < structure < evaluate < decide`). Legacy `mode` key and
+legacy values (`file`/`brief`/`opportunity`) are accepted and normalized.
+
+**Response (202):**
+```json
+{ "run_id": "uuid", "action": "deepen_started", "from_depth": "note", "depth": "structure" }
+```
+
+**Errors:** `404` unknown run · `409` not `completed`, no current depth (use
+`/reopen`), target not deeper, or missing stored S2 output · `422` invalid depth,
+or depth not allowed for the product (`general` supports archive/note only).
 
 ---
 

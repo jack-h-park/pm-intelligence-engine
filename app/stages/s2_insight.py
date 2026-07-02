@@ -36,7 +36,7 @@ Score the strategic relevance of this signal for this specific product:
 | 4 | Clearly relevant — connects to a named strategy pillar or specific user need |
 | 5 | Highly relevant — direct, urgent, actionable implication for the product |
 
-Signals scored 1–2 must use `suggested_mode: file`.
+Signals scored 1–2 must use `suggested_mode: archive`.
 Signals scored 3–5 warrant PM attention at minimum.
 
 ## Suggested Pipeline Depth
@@ -54,6 +54,10 @@ Modes are a depth ladder (shallow → deep). Pick the minimum depth needed.
 | decide | Signal is directly actionable, opportunity is obvious, and the team is ready to commit to a path |
 
 Choose the minimum depth needed given the signal's relevance, urgency, and actionability.
+When torn between two adjacent depths, suggest the SHALLOWER one: a shallow run
+can always be deepened later at no re-work cost, whereas an over-deep suggestion
+wastes PM review time. Suggest `structure` or deeper only when the signal names a
+concrete, product-specific opportunity — "relevant and worth watching" is `note`.
 Canonical definition: pm-decision-context/core/02-workflow.md ("Processing Depth — 5 modes")."""
 
 
