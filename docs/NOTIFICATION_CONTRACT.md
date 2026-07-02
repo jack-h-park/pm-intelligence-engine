@@ -56,6 +56,7 @@ transition would be announced twice by two different systems.
 | Decision-event digests | `GET /runs?event=auto_triaged\|deepen\|direction\|…&since=…` | Every human/system gate decision is a persisted `approval_event` |
 | Failure alerts | `GET /runs?status=failed` + `failed_stage`/`error` fields | `retry_exhausted` is also emitted as a structured log event |
 | Batch/synthesis results | `GET /runs/batch/{batch_id}` | `synthesis` non-null once all siblings settle |
+| Gate 2 review link | `review_url` on every run object | Built by the engine from `BASE_URL` (Tailscale address in prod) so the delivery owner never needs the engine's network config |
 
 **Re-notification / dedup key:** `(run_id, status, updated_at)`.
 `updated_at` bumps on every run change, so a run re-entering the same gate
@@ -63,22 +64,32 @@ transition would be announced twice by two different systems.
 the same tuple observed twice is a duplicate and must not be re-sent. This is
 the documented reason `updated_at` exists on the run row.
 
+> **Implementation status (verified 2026-07-02):** the Iris gate-watcher already
+> implements this exactly — `state/gate-notified.json` keyed `<run_id>:<status>`
+> with `run_updated_at` comparison for gates, notify-once for terminal states,
+> a 24h staleness re-nag for un-actioned gates, and a suppression rule for
+> PM-chosen archive completions. Terminal-result messages for non-decide
+> completions (the "evaluate-run silence") are likewise already implemented.
+> See `~/.hermes/profiles/ops/skills/gate-watcher/SKILL.md` on the iMac.
+
 ---
 
-## 3. Channel policy (normative for Iris)
+## 3. Channel policy (normative for Iris; recorded from the verified implementation)
 
-Messages fall into three classes. **Each class has exactly one channel.**
-Moving a class to a different channel is allowed — but the move includes
-updating this table, in the same change.
+Messages fall into three classes. Classes A and B follow **origin-affinity
+routing**; class C goes to the default channel. Changing this policy is allowed —
+but the change includes updating this table, in the same change.
 
-| Class | Definition | Channel (as of 2026-07-02) | Rules |
+| Class | Definition | Routing (verified 2026-07-02) | Rules |
 |---|---|---|---|
-| **A — Decision-required prompts** | Gate 1 / Gate 2 / Gate 3: the run is blocked on a PM decision | Discord (ops channel) | One message per dedup tuple; must state the pending decision, the options, and the next action; must carry the review link for Gate 2 |
-| **B — Informational digests** | Terminal-run results, auto-triage digest, signal expiry/reconciler sweeps | Telegram | Batched; no per-item pings; a digest never demands a decision |
-| **C — Ops alerts** | Run failures, retry exhaustion, service health | Telegram (until an ops channel is designated) | Immediate; include `failed_stage`/`error` so no log-grepping is needed |
+| **A — Decision-required prompts** | Gate 1 / Gate 2 / Gate 3: the run is blocked on a PM decision | **Origin-affinity**: delivered to the platform+channel the run's conversation started on (`state/run-chat-map.json`); runs with no recorded origin (auto-sensing, API-started) fall back to `GATE_NOTIFY_DEFAULT_CHAT_ID` (Telegram shared group) | One message per dedup tuple (+ 24h staleness re-nag); states the pending decision and options in plain language, no raw API text; Gate 2 carries the `review_url` link |
+| **B — Result messages** | Terminal-run outcomes (completed / killed / failed), batched per signal | Same origin-affinity routing as class A — the result lands where the decision conversation happened | Notify-once, never re-announced; PM-chosen-archive completions suppressed; failed = system-fault alert, not an outcome |
+| **C — Ops digests & alerts** | Signal expiry/reconciler sweeps, gate0 intake digests, engine watchdog | Telegram default channel | Batched where possible; a digest never demands a decision |
 
-Rationale: the PM should be able to answer "do I owe the system a decision?"
-by checking exactly one place, and mute everything else without missing a gate.
+Rationale: a decision prompt should arrive **where the PM was already talking
+about that run** (origin-affinity), so the conversation and the decision stay in
+one thread; everything that is not tied to a live conversation goes to the one
+default channel, which can be muted without missing a gate.
 
 ---
 
@@ -95,15 +106,21 @@ by checking exactly one place, and mute everything else without missing a gate.
 
 ---
 
-## 5. Open items (Iris-side, tracked as US-50)
+## 5. Item status (US-50; audited against the live gate-watcher 2026-07-02)
 
-- [ ] Confirm/record the intended Class A channel (Discord assumed from
-      observed behavior) and consolidate Class B/C to the table above.
-- [ ] Implement dedup keyed on `(run_id, status, updated_at)` if not already.
-- [ ] Terminal-result messages for non-decide completions (note/structure/
-      evaluate) per US-48's folded scope.
-- [ ] Include the Gate 2 review-page link in Class A messages (engine exposes
-      `BASE_URL`-based link; Iris currently offers approve/revise/reject inline).
+- [x] Channel policy recorded — §3 documents the verified origin-affinity
+      routing (`run-chat-map.json` + `GATE_NOTIFY_DEFAULT_CHAT_ID` fallback).
+- [x] Dedup — already implemented in the gate-watcher (`gate-notified.json`,
+      key `<run_id>:<status>` + `run_updated_at`, staleness re-nag, terminal
+      notify-once). Matches §2 exactly.
+- [x] Terminal-result messages for non-decide completions — already implemented
+      (with per-signal batching and PM-chosen-archive suppression).
+- [x] Gate 2 review link — engine exposes `review_url` on the run object; the
+      gate-watcher skill instructs including it in Gate 2 messages.
+- [x] `deepen` relay — the gate-watcher terminal message offers deepening for
+      completed note/structure/evaluate runs; SOUL.md / control-plane skill
+      carry the `POST /runs/{id}/deepen` relay rule.
 
-Iris implementation lives in the hermes control-plane repo; this contract is
-the engine-side half of the boundary.
+Iris runtime skill/config files live on the iMac under
+`~/.hermes/profiles/ops/` (not in this repo); this contract is the engine-side
+half of the boundary and the single place the policy is recorded.

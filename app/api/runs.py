@@ -73,6 +73,11 @@ class RunResponse(BaseModel):
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
     gate3_review: dict | None = None
+    # Absolute link to the engine-served browser review page, built from BASE_URL
+    # (the iMac's Tailscale address in production). Exposed so the delivery owner
+    # (Iris) can include it in Gate 2 messages without knowing the engine's
+    # network config — see docs/NOTIFICATION_CONTRACT.md §2.
+    review_url: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -86,6 +91,10 @@ class RunResponse(BaseModel):
             d = dict(data)
             if d.get("depth") is None and d.get("mode") is not None:
                 d["depth"] = d["mode"]
+            if not d.get("review_url") and d.get("run_id"):
+                from config import settings
+                if settings.BASE_URL:
+                    d["review_url"] = f"{settings.BASE_URL}/runs/{d['run_id']}/review"
             return d
         return data
 

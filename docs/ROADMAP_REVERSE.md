@@ -31,7 +31,18 @@ pm-engine has no remaining wiki write responsibility.
 - legacy local archive call path can be removed after Hermes validation
 
 #### US-50 — Notification delivery consolidation: single owner + channel policy
-**Status:** Engine side ✅ done (2026-07-02); Iris-side channel policy pending.
+**Status:** ✅ Completed (2026-07-02). Audit of the live gate-watcher showed the
+Iris side was further along than assumed: dedup (`gate-notified.json`,
+`<run_id>:<status>` + `run_updated_at`, 24h staleness re-nag, terminal
+notify-once) and terminal-result messages (incl. per-signal batching and
+PM-chosen-archive suppression) were already implemented. The real channel policy
+is **origin-affinity routing** (deliver to the platform+channel the run started
+on via `run-chat-map.json`; fallback `GATE_NOTIFY_DEFAULT_CHAT_ID`) — the
+contract §3 was rewritten to record that verified policy instead of the assumed
+fixed class→channel map. Closing work: engine exposes `review_url` on run
+objects (Gate 2 messages can carry the review link without Iris knowing the
+engine's network config); gate-watcher skill + SOUL.md + control-plane skill
+updated on the iMac to include the review link and the `deepen` relay rule.
 
 Found 2026-07-02 while verifying the first production Gate 2 (the US-48 cutover
 worked — Iris delivered the prompt to Discord — but the surrounding surface was
