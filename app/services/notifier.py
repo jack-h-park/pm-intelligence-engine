@@ -1,4 +1,16 @@
-"""Notification service — PM gate alerts via Telegram and/or Slack.
+"""Notification service — LOCAL/DEV-ONLY gate alerts via Telegram and/or Slack.
+
+PRODUCTION OWNERSHIP (US-48 — read before touching this module)
+---------------------------------------------------------------
+Production message composition and delivery are owned by Hermes-ops (Iris),
+which polls the gate queues and terminal statuses. This module is a local/dev
+fallback: `GATE_NOTIFICATIONS_ENABLED` is **false on the iMac**, so
+build_notifier() wires zero providers and every send_gate* call is a no-op.
+
+Do NOT flip the flag to true in production — Iris already announces every gate
+transition, so enabling this module creates a second, duplicate delivery path
+for the same events. Ownership, dedup keys, and channel policy are normatively
+defined in docs/NOTIFICATION_CONTRACT.md.
 
 Architecture
 ------------

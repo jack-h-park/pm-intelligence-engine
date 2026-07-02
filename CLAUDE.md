@@ -70,7 +70,7 @@ app/
 │   ├── template_service.py Loads and renders prompt templates
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
 │   ├── run_exporter.py    Writes completed runs to the canonical pm-engine archive
-│   ├── notifier.py        FanoutNotifier: Gate 1 + Gate 2 Telegram/Slack alerts
+│   ├── notifier.py        FanoutNotifier: local/dev-only gate alerts — prod delivery is Iris-owned (docs/NOTIFICATION_CONTRACT.md)
 │   └── wiki_sync.py       Utility adapter only — NOT called from completion paths
 ├── storage/
 │   ├── protocol.py        PMWorkflowStore Protocol (interface)

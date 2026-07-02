@@ -516,6 +516,10 @@ or depth not allowed for the product (`general` supports archive/note only).
 
 ## Hermes Polling Pattern
 
+Hermes owns all production message composition and delivery (US-48/US-50) —
+ownership, the dedup key `(run_id, status, updated_at)`, and the per-class
+channel policy are normatively defined in `NOTIFICATION_CONTRACT.md`.
+
 Hermes should poll the following queues at a cadence suited to PM availability:
 
 ```
