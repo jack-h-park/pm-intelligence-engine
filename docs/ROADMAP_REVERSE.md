@@ -14,6 +14,100 @@ Implemented workflow, contracts, and tests are tracked in:
 
 ## Now
 
+### E5 — Depth-ladder & terminal-state simplification (data-gated)
+
+This epic records a **structural review** of the depth ladder and gates
+(2026-07-01/02) and — importantly — what was *deliberately not changed*. The
+review was a diagnosis; only the reversible, additive parts were shipped. The
+destructive simplifications are **deferred behind a data check**, not rejected.
+
+> **What a PM/maintainer must know:** the pipeline a PM experiences today is
+> unchanged except for one added "go deeper" action and a more conservative S2
+> suggestion. The 5-depth ladder (archive<note<structure<evaluate<decide) and the
+> three gates are **intact**. The bigger merges below are decisions *scheduled for
+> ~2026-08*, to be made against real usage, not now.
+
+**Motivating data (prod DB, 5 weeks / 42 runs, checked 2026-07-01):** `decide`
+never chosen; Gates 2/3 never fired; `routing` NULL on every run. Gate-1 depth
+picks: archive 6, note 5, structure 5, evaluate 1, decide 0. The PM downgraded
+S2's suggestion in 9/17 decisions and never upgraded — the ladder is *effectively*
+3-deep and the upfront depth choice biases shallow. See memory
+`prod-usage-decide-never-used`.
+
+#### US-51 — Deepen: depth as an incremental pull (shipped, the experiment)
+**Status:** ✅ Shipped (2026-07-02, PR #28); first production use = run `9b49fc8c`
+(Android 16 MTE), which reached the first-ever prod Gate 2.
+
+Instead of merging depths, make going deeper *cheap and reversible* so the Gate 1
+choice stops being a high-stakes upfront forecast:
+- `POST /runs/{id}/deepen {depth}` resumes a completed run at a strictly deeper
+  depth, **reusing stored S2/S3/S4 outputs** — only the added stages run
+  (`evaluate→decide` reaches Gate 2 with zero LLM calls). Records a `deepen`
+  calibration event (`from=X; to=Y`).
+- S2 suggestion calibrated conservative (tie-break shallower) to match the 9/17
+  downgrade pattern.
+
+**Why this instead of the merges:** it gathers the missing data (do PMs deepen?
+does anything reach decide?) *without* discarding structure we might want. If, in
+~1 month, `deepen`-to-decide is used and produces value, the ladder earned its
+depth; if evaluate/decide stay at zero even with deepening free, the merges below
+become well-evidenced.
+
+#### US-53 — Depth-ladder merge (DEFERRED — decide ~2026-08 on US-51 data)
+**Status:** ⏸ Deferred, criteria set. Do **not** implement before reviewing:
+`GET /runs?event=deepen` usage + evaluate/decide completion counts.
+
+Candidate simplifications, each with its trigger:
+- **Merge `structure`+`evaluate`** if `evaluate` selections stay near-zero (the
+  only difference is whether S4 runs; PMs don't seem to want "evaluated but not
+  routed" as a stopping point).
+- **Drop `note`'s S7 call** — `note` re-runs S7 to produce a half-"not run"
+  summary while S2 already persisted `insight_memo`. Define note = "S2 insight
+  memo is the artifact"; removes one stage + one LLM call. (Low-risk; can ship
+  independent of the merge decision.)
+- **Reclassify `archive` as an outcome, not a depth** — it is "set aside", which
+  is why `void.py` had to be invented to distinguish an improperly-started run
+  from evaluated `archive` work. The new `ended_by` column (US-52) is the first
+  step: it already separates `auto_triaged`/`archived`/`voided` without touching
+  the depth enum.
+
+#### US-54 — Gate 2 / Gate 3 consolidation (DEFERRED — revisit after US-51)
+**Status:** ⏸ Deferred. Supersedes the framing of DESIGN_DECISIONS §4.
+
+In `decide` mode the PM approves at Gate 2 (post-S4), then re-confirms routing at
+Gate 3 (post-S5) over largely the same persona/composite data. S5 is
+deterministic, so Gate 2 could pre-compute "will route to prd" and offer
+approve+confirm (with override) in one stop. **Blocked on evidence:** we have not
+yet observed a single run traverse Gate 2→3 in production (9b49fc8c is the first).
+Revisit once a few real decide runs show whether the second gate earns its
+friction; premature merge would remove a control we have never exercised.
+
+#### US-52 — Terminal-state legibility & low-cost cleanups (in progress)
+**Status:** 🚧 In progress (this PR). Safe, additive items from the review:
+- **`ended_by` column** (shipped here): one terminal-reason token stamped at
+  finalize (`auto_triaged`/`archived`/`noted`/`structured`/`evaluated`/`decided`/
+  `rejected`/`kill_confirmed`/`kill_overridden`/`voided`/`failed`). Collapses the
+  `status`+`mode`+`routing`+`approval_events` join the observatory otherwise needs
+  to answer "how did this run end?" Addresses the 2026-06-21 untraceable-kill
+  incident (8 kills with no recorded reason). Nullable; legacy rows stay NULL.
+- **`artifacts?artifact_type=` hardening** (shipped here): unknown types now 422
+  at the edge instead of 500 deep in the store; depth-named guesses
+  (`structure_memo`→`opportunity_memo`) are aliased.
+- **Doc de-drift** (shipped here): CLAUDE.md corrected (stage prompts are
+  shared/product-agnostic, not per-product); ARCHITECTURE.md notification
+  ownership already fixed under US-50.
+
+**Deferred within US-52 — need owner confirmation (external consumers):**
+- Remove `POST /runs/{id}/scan` (fan-out to all) in favour of `/promote`
+  (per-product) — Hermes may still call `scan`; verify before removing.
+- Stop creating a `run_batches` row for single-product manual starts; close the
+  16 orphaned open batches — observatory reads `run_batches` directly.
+- Unify `DECISION_CONTEXT_ROOT` / `DECISION_SYSTEM_ROOT` (identical value, two
+  names) — internal-only refactor, ~6 files; cosmetic, low-risk, unscheduled.
+- Retire the legacy aliases (`file/brief/opportunity`, `awaiting_direction`,
+  signal `pending`) — only after confirming Hermes/observatory no longer emit
+  them; set a removal date rather than ripping out the `_missing_` hooks now.
+
 ### E4 — Hermes Handoff Completion
 
 #### US-20b — Auto-triage archive ownership cutover

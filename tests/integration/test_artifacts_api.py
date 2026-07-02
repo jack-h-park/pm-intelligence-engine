@@ -101,3 +101,31 @@ def test_list_artifacts_filters_by_type(client, engine):
 def test_list_artifacts_404_when_run_missing(client):
     resp = client.get("/runs/nonexistent/artifacts")
     assert resp.status_code == 404
+
+
+def test_list_artifacts_legacy_type_alias_resolves(client, engine):
+    """`structure_memo` (depth-named guess) resolves to `opportunity_memo`
+    instead of 500ing on ArtifactType(<bad>)."""
+    run_id = _seed_run(engine)
+    engine.store.save_artifact(
+        run_id=run_id,
+        artifact_type="opportunity_memo",
+        content_md="# Opportunity",
+        content_json='{"markdown":"# Opportunity"}',
+    )
+
+    resp = client.get(f"/runs/{run_id}/artifacts", params={"artifact_type": "structure_memo"})
+
+    assert resp.status_code == 200
+    payload = resp.json()
+    assert len(payload) == 1
+    assert payload[0]["type"] == "opportunity_memo"
+
+
+def test_list_artifacts_unknown_type_is_422_not_500(client, engine):
+    """A genuinely unknown artifact_type is a clean 422, not a 500 from deep in
+    the store (the pre-fix behaviour that spammed server.log)."""
+    run_id = _seed_run(engine)
+    resp = client.get(f"/runs/{run_id}/artifacts", params={"artifact_type": "bogus_memo"})
+    assert resp.status_code == 422
+    assert "bogus_memo" in resp.json()["detail"]

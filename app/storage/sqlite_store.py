@@ -148,6 +148,14 @@ class SQLiteStore:
                     )
                 )
 
+        # Terminal-reason column (nullable). Existing terminal rows stay NULL —
+        # the reason cannot be reconstructed for a row that predates the column
+        # without re-deriving from approval_events, and a NULL correctly reads as
+        # "legacy / unknown". New finalize calls populate it going forward.
+        if "ended_by" not in {c["name"] for c in inspector.get_columns("workflow_runs")}:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN ended_by VARCHAR"))
+
     # --- Signal ---
 
     def save_signal(
@@ -570,6 +578,7 @@ class SQLiteStore:
             "origin": r.origin,
             "failed_stage": r.failed_stage,
             "error": r.error,
+            "ended_by": r.ended_by,
         }
 
     @staticmethod

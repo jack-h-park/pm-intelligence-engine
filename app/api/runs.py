@@ -70,6 +70,10 @@ class RunResponse(BaseModel):
     origin: str | None = None
     failed_stage: str | None = None
     error: str | None = None
+    # Semantic terminal reason (auto_triaged/archived/noted/…/voided/failed);
+    # null while non-terminal or for pre-column legacy rows. Lets a consumer read
+    # "how did this end?" without joining status+mode+routing+approval_events.
+    ended_by: str | None = None
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
     gate3_review: dict | None = None

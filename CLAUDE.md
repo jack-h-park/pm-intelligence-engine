@@ -25,8 +25,14 @@ WIKI_ROOT = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 - `core/00-pm-identity.md` — PM philosophy and operating principles (loaded into every LLM call)
 - `company-context.md` — company strategy context
 - `products/<name>/context.md` — product-specific context
+- `products/<name>/scoring.yaml` — per-product S5 weights + routing thresholds (optional; defaults apply)
 - `products/<name>/signal-sources.md` — RSS/URL sources for signal collection
-- `prompts/s1/` through `prompts/s7/` — per-product stage prompt templates
+- `prompts/s1-*.md` through `prompts/s7-*.md` (+ `prompts/s4-personas/`) — stage
+  prompt templates. These are **product-agnostic and shared** — one template per
+  stage for all products; the per-product signal lives in `context.md` /
+  `scoring.yaml`, which the engine injects around the shared template.
+  `template_service.py` takes no product_id. (What is per-product is context and
+  scoring, NOT the prompt text.)
 - `prompts/portfolio/` — **product-agnostic** cross-product prompts (US-49):
   `triage.md` (fan-out routing) and `synthesis.md` (Variant 2 memo). The
   "workflow lives in decision-context" rule is now product- *and*
