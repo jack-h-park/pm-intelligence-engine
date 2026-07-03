@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI
 
 from app.api.approvals import router as approvals_router
 from app.api.artifacts import router as artifacts_router
+from app.api.decision import router as decision_router
 from app.api.deepen import router as deepen_router
 from app.api.deps import require_auth
 from app.api.direction import router as direction_router
@@ -53,6 +54,7 @@ app.include_router(approvals_router, dependencies=_auth)
 app.include_router(routing_review_router, dependencies=_auth)
 app.include_router(void_router, dependencies=_auth)
 app.include_router(deepen_router, dependencies=_auth)
+app.include_router(decision_router, dependencies=_auth)
 app.include_router(review_router, dependencies=_auth)
 
 

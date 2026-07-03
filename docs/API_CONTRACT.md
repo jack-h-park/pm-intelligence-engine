@@ -66,6 +66,7 @@ version bump.
 | `POST` | `/runs/{id}/void` | Cancel an improperly-started run (→ killed) | Bridge PM void at any gate |
 | `POST` | `/runs/{id}/reopen` | Revive an auto-triaged run | Auto-triage digest follow-up |
 | `POST` | `/runs/{id}/deepen` | Resume a completed run at a deeper depth | Bridge PM depth pull |
+| `POST` | `/runs/{id}/decision` | **Unified gate decision** (advance/advance_to/revise/stop) | Preferred single entry (US-55) |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
 
@@ -521,6 +522,32 @@ legacy values (`file`/`brief`/`opportunity`) are accepted and normalized.
 **Errors:** `404` unknown run · `409` not `completed`, no current depth (use
 `/reopen`), target not deeper, or missing stored S2 output · `422` invalid depth,
 or depth not allowed for the product (`general` supports archive/note only).
+
+---
+
+### `POST /runs/{id}/decision`
+The single gate/terminal endpoint (US-55 step 4). A human decision is one of four
+verbs, interpreted against the run's current state:
+
+| `action` | Gate 1 (`waiting_direction`) | Gate 2 (`waiting_approval`) | Gate 3 (`waiting_routing_review`) | `completed` |
+|----------|------------------------------|------------------------------|------------------------------------|-------------|
+| `advance` | — | approve | confirm routing | reopen (auto-triaged only) |
+| `advance_to` | pick depth (`target`) | — | override routing (`routing`) | deepen (`target`) |
+| `revise` | — | re-run S4 (`feedback`) | — | — |
+| `stop` | *(any non-terminal → void `reason`)* | reject (`reason`) | kill (`reason`) | — |
+
+**Request:** `{ "action": "...", "target": "<depth>"?, "routing": "prd|poc|kill"?, "reason": "..."?, "feedback": "..."? }`
+
+**Response (202):** the underlying transition's payload (the decision was accepted).
+
+**Errors:** `404` unknown run · `409` action not valid for the run's current state
+· `422` unknown action, or a value the underlying transition rejects.
+
+**Transitional:** the six legacy endpoints (`/direction`, `/approve`, `/revise`,
+`/reject`, `/routing-review`, `/void`, `/reopen`, `/deepen`) remain live and share
+this one implementation; `/decision` is the preferred entry. They are removed at the
+final (position, lifecycle) cutover (see `WORKFLOW_MODEL_REDESIGN.md`), at which
+point Hermes/observatory move to `/decision`.
 
 ---
 
