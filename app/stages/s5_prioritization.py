@@ -489,17 +489,30 @@ def _compute_routing(
 ) -> str:
     """Deterministic two-axis hybrid routing — not delegated to the LLM.
 
-    Composite answers "how good is this overall?" and sets the quality floor
-    (kill and PRD-eligibility). Confidence answers "do we know enough to commit?"
-    and alone decides prd vs poc for PRD-eligible opportunities — high scores
-    elsewhere must never let an unvalidated opportunity skip validation.
+    Two axes:
+      - Composite = "is this worth doing?" (value). A composite at/below the kill
+        floor is a genuinely low-value opportunity → kill.
+      - Confidence + open Blocking assumptions = "do we know enough to commit?"
+        A Blocking assumption is an *unresolved question* whose answer gates the
+        opportunity — that is the definition of a PoC candidate (go validate it),
+        NOT a reason to kill. A true value-nullifier ("even if built, no one wants
+        it") already shows up as a low composite and is caught by the kill floor
+        above; so Blocking routes to **poc**, not kill.
+
+    Ordering matters: the kill floor is checked first, so a low-value opportunity
+    that also has blockers still kills (R06: composite 1.35 + 3 Blocking → kill on
+    the value floor). A decent-value opportunity with unresolved blockers goes to
+    poc (run 9b49fc8c: composite 3.6 + Blocking → poc, where the old
+    `blocking → kill` rule wrongly killed it and needed a manual Gate 3 override).
 
     Canonical rule documentation: pm-decision-context/core/04-scoring.md
     ("Routing Decision — Two-Axis Hybrid Rule"). Change them together.
     """
     t = thresholds or _DEFAULT_THRESHOLDS
-    if blocking or composite <= t["kill_threshold"]:
+    if composite <= t["kill_threshold"]:
         return "kill"
+    if blocking:
+        return "poc"
     if composite >= t["prd_threshold"] and confidence >= t["confidence_gate"]:
         return "prd"
     return "poc"

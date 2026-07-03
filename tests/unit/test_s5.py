@@ -116,10 +116,13 @@ def test_routing_poc_composite_below_threshold():
     assert _compute_routing(3.0, confidence=4, blocking=[]) == "poc"
 
 
-def test_routing_kill_with_blocking_assumptions():
+def test_routing_blocking_with_decent_composite_routes_poc():
+    """A Blocking assumption on a decent-value opportunity is an unresolved
+    question → poc (validate), not kill. This is the run-9b49fc8c pattern that
+    the old `blocking → kill` rule wrongly killed."""
     from app.stages.s5_prioritization import _compute_routing
     blocking = [Assumption(statement="Partner needed", severity="Blocking", reason="No partner = no product")]
-    assert _compute_routing(3.0, confidence=3, blocking=blocking) == "kill"
+    assert _compute_routing(3.0, confidence=3, blocking=blocking) == "poc"
 
 
 def test_routing_kill_low_composite():
@@ -127,20 +130,23 @@ def test_routing_kill_low_composite():
     assert _compute_routing(1.35, confidence=3, blocking=[]) == "kill"
 
 
-def test_routing_kill_blocking_overrides_high_composite():
+def test_routing_kill_low_composite_even_with_blocking():
+    """The kill floor is checked before blocking: a low-value opportunity still
+    kills even if it also has blockers (R06 pattern: composite 1.35 + 3 Blocking)."""
     from app.stages.s5_prioritization import _compute_routing
-    blocking = [Assumption(statement="Fatal assumption", severity="Blocking", reason="Fatal")]
-    assert _compute_routing(4.5, confidence=5, blocking=blocking) == "kill"
+    blocking = [Assumption(statement="Out of scope", severity="Blocking", reason="MTD not our product")]
+    assert _compute_routing(1.35, confidence=3, blocking=blocking) == "kill"
 
 
 # ---------------------------------------------------------------------------
-# Two-axis hybrid routing boundary matrix (US-29)
+# Two-axis hybrid routing boundary matrix (US-29, revised: blocking → poc)
 #
-# Target rule (04-scoring.md "Routing Decision — Two-Axis Hybrid Rule"):
-#   1. blocking OR composite <= 1.5            -> kill
-#   2. composite >= 3.5 AND confidence >= 4    -> prd
-#   3. composite >= 3.5 AND confidence < 4     -> poc
-#   4. otherwise                               -> poc
+# Rule (04-scoring.md "Routing Decision — Two-Axis Hybrid Rule"):
+#   1. composite <= 1.5                        -> kill   (low value; value floor)
+#   2. blocking                                -> poc    (unresolved → validate)
+#   3. composite >= 3.5 AND confidence >= 4    -> prd
+#   4. composite >= 3.5 AND confidence < 4     -> poc
+#   5. otherwise                               -> poc
 
 # ---------------------------------------------------------------------------
 
@@ -213,10 +219,12 @@ def test_thresholds_partial_yaml_falls_back_per_key(tmp_path):
     assert t["confidence_gate"] == 4
 
 
-def test_hybrid_blocking_overrides_both_axes():
+def test_hybrid_blocking_high_composite_routes_poc():
+    """Blocking no longer overrides the axes into kill — a high-value opportunity
+    with an unresolved blocker routes to poc (validate before PRD commit)."""
     from app.stages.s5_prioritization import _compute_routing
-    blocking = [Assumption(statement="Fatal", severity="Blocking", reason="Fatal")]
-    assert _compute_routing(4.5, confidence=5, blocking=blocking) == "kill"
+    blocking = [Assumption(statement="Feasibility unknown", severity="Blocking", reason="Can we build it?")]
+    assert _compute_routing(4.5, confidence=5, blocking=blocking) == "poc"
 
 
 def test_legacy_informing_severity_coerced_to_adjusting():
@@ -416,7 +424,10 @@ async def test_verifier_downgrades_overeager_blocking(capsys):
 
 @pytest.mark.asyncio
 async def test_verifier_keeps_genuine_blocking():
-    """Verifier confirms no alternative path → Blocking kept → kill."""
+    """Verifier confirms no alternative path → Blocking kept → poc.
+
+    The kept Blocking no longer forces kill (composite 3.65 > kill floor); an
+    unresolved genuine blocker routes to poc to validate before committing."""
     from app.stages import s5_prioritization
 
     stmt = "DISA certification is required and unobtainable in time"
@@ -437,7 +448,7 @@ async def test_verifier_keeps_genuine_blocking():
 
     assert llm.complete.call_count == 2
     assert out.output.blocking_count == 1
-    assert out.output.routing == "kill"
+    assert out.output.routing == "poc"
 
 
 @pytest.mark.asyncio
