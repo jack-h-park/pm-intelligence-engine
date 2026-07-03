@@ -243,8 +243,12 @@ def test_reopen_revives_auto_triaged_run(client, engine):
     resp = client.post(f"/runs/{run_id}/reopen")
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["status"] == "waiting_direction"
-    assert body.get("depth") is None  # depth cleared; mode no longer in response (US-43)
+    # Single-vocabulary surface (US-55): the run state is lifecycle + position,
+    # not `status`. Reopen returns the run to Gate 1 = paused at s2.
+    assert body["lifecycle"] == "paused"
+    assert body["position"] == "s2"
+    assert "status" not in body  # legacy field no longer surfaced
+    assert body.get("depth") is None  # depth cleared on reopen
     assert body["completed_at"] is None
 
     run = engine.store.get_run(run_id)

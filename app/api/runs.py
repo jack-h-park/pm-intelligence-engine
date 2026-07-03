@@ -50,9 +50,12 @@ class RunResponse(BaseModel):
     product_id: str
     signal_id: str
     batch_id: str | None = None  # fan-out sibling group (US-49); null for single runs
-    status: str
-    current_stage: str | None
-    depth: str | None = None  # processing depth (canonical, US-43)
+    # `status`/`current_stage`/`mode` are no longer surfaced (US-55 single
+    # vocabulary): the run state is `lifecycle` + `position` + `target` +
+    # `outcome` + `reason` (below); the depth name is `depth`. The legacy columns
+    # still exist in storage (dual-write) but are an internal detail — the API,
+    # observatory, and Hermes read the canonical fields only.
+    depth: str | None = None  # processing-depth name (archive/note/…/decide)
     recommendation_json: str | None
     routing: str | None
     composite_score: float | None
