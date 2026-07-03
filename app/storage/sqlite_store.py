@@ -156,6 +156,35 @@ class SQLiteStore:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN ended_by VARCHAR"))
 
+        # Canonical (position, lifecycle) columns (US-55 step 6, dual-write). Plain
+        # nullable ADD COLUMNs; the store backfills them on the next write of each
+        # row. Guarded → idempotent.
+        run_cols = {c["name"] for c in inspector.get_columns("workflow_runs")}
+        for col in ("lifecycle", "position", "outcome", "reason"):
+            if col not in run_cols:
+                with self._engine.begin() as conn:
+                    conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} VARCHAR"))
+
+    @staticmethod
+    def _project_columns(r: WorkflowRun) -> None:
+        """Recompute the canonical (position, lifecycle) columns from the row's
+        authoritative status/mode/current_stage. Called on every run write so the
+        physical columns stay consistent with the legacy ones (dual-write)."""
+        from app import run_view
+
+        proj = run_view.project({
+            "status": r.status.value if r.status else None,
+            "mode": r.mode.value if r.mode else None,
+            "current_stage": r.current_stage,
+            "failed_stage": r.failed_stage,
+            "ended_by": r.ended_by,
+            "error": r.error,
+        })
+        r.lifecycle = proj["lifecycle"]
+        r.position = proj["position"]
+        r.outcome = proj["outcome"]
+        r.reason = proj["reason"]
+
     # --- Signal ---
 
     def save_signal(
@@ -285,6 +314,7 @@ class SQLiteStore:
                 root_run_id=root_run_id,
                 origin=origin,
             )
+            self._project_columns(run)
             session.add(run)
             session.commit()
             return run.run_id
@@ -312,6 +342,9 @@ class SQLiteStore:
                 elif key == "mode" and value is not None:
                     value = RunMode(value)
                 setattr(r, key, value)
+            # Dual-write: keep the canonical (position, lifecycle) columns in sync
+            # with the legacy fields just changed.
+            self._project_columns(r)
             session.commit()
 
     def list_runs(
@@ -579,6 +612,11 @@ class SQLiteStore:
             "failed_stage": r.failed_stage,
             "error": r.error,
             "ended_by": r.ended_by,
+            # Canonical (position, lifecycle) columns (real, dual-written).
+            "lifecycle": r.lifecycle,
+            "position": r.position,
+            "outcome": r.outcome,
+            "reason": r.reason,
         }
 
     @staticmethod

@@ -214,6 +214,22 @@ class WorkflowRun(Base):
     #   · rejected · kill_confirmed · kill_overridden · voided · failed
     ended_by = Column(String, nullable=True)
 
+    # --- Canonical (position, lifecycle) columns (US-55 step 6, dual-write) ---
+    # The redesign's target vocabulary, now PHYSICALLY stored (not just derived at
+    # the API layer as in step 5). The store recomputes these from the authoritative
+    # status/mode/current_stage on every write (see SQLiteStore._project_columns),
+    # so they stay consistent while status/mode remain. This makes the new columns
+    # real for the direct-SQLite reader (observatory) ahead of the coordinated
+    # cutover; removing status/mode is a later cleanup once nothing reads them.
+    #   lifecycle: running | paused | done
+    #   position:  furthest stage reached (s1..s7) — NOT cleared on finalize
+    #   outcome:   completed | stopped | failed  (NULL while live)
+    #   reason:    why it stopped / the error    (NULL otherwise)
+    lifecycle = Column(String, nullable=True)
+    position = Column(String, nullable=True)
+    outcome = Column(String, nullable=True)
+    reason = Column(String, nullable=True)
+
     signal = relationship("Signal", back_populates="runs")
     stage_outputs = relationship("StageOutput", back_populates="run")
     approval_events = relationship("ApprovalEvent", back_populates="run")

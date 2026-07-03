@@ -43,7 +43,29 @@ These can ship ahead of time; none of them break the running system:
 
 ---
 
-## 2. Engine changes (the physical flip)
+## 2. Engine changes
+
+> **Revised approach (2026-07-03): split the flip so the engine leaves the window's
+> critical path.** Rather than a big-bang removal of `status`/`mode` (16 source
+> files + ~150 test assertions, unverifiable outside the window), the engine flip
+> is done in two safe halves:
+>
+> - **(a) Dual-write — SHIPPED, deployable now (additive).** `lifecycle`, `position`,
+>   `outcome`, `reason` are now **real, populated columns** (`app/models/workflow.py`
+>   + `SQLiteStore._project_columns`), recomputed from the authoritative
+>   `status`/`mode`/`current_stage` on every write. `position` is persisted and, per
+>   the projection, is **not** cleared on finalize. This makes the new columns
+>   physically queryable by the observatory *before* the window — the whole reason
+>   the flip had to be "in the window" is gone.
+> - **(b) Legacy removal — deferred cleanup, AFTER consumers migrate.** Once the
+>   observatory + Hermes read only the new columns/`/decision`, drop `status`/`mode`/
+>   `ended_by`, the legacy endpoints, `run_view.py`, and the alias hooks. This is a
+>   safe, isolated cleanup (nothing reads them), not a coordinated-window act.
+>
+> Net: the window is now just **observatory + Hermes + wipe** (§6); the engine is
+> already deployed. The table below is the (b) removal spec, for when it's scheduled.
+
+### (b) Legacy-removal spec (deferred)
 
 Do the flip so the `run_view` mapping becomes the storage, not a projection.
 
@@ -119,13 +141,18 @@ migrate nothing.
 Hard cutover — all three repos change together; no dual-read window (data wiped).
 
 1. Freeze intake (no new runs).
-2. **Engine**: deploy new schema/code to the iMac, wipe DB (§5), restart via launchd.
-3. **Observatory**: deploy the adapter/format changes; verify it renders the empty
-   (then reseeded) DB without errors.
-4. **Hermes**: update the SOUL/SKILL markdown + `hermes_eval` reads; restart the
-   gate-watcher.
+2. **Engine**: already deployed (dual-write columns are live). Only the DB wipe (§5)
+   happens in the window — the schema is unchanged by the wipe (columns already
+   exist). The legacy-removal cleanup (§2b) is *not* required for the window.
+3. **Observatory**: deploy the adapter/format changes (read the now-real
+   `lifecycle`/`position`/`outcome` columns; `GateActions` → `/decision`); verify it
+   renders the empty (then reseeded) DB without errors.
+4. **Hermes**: update the SOUL/SKILL markdown (endpoint calls → `/decision`, gate
+   table → lifecycle/position); the `hermes_eval` reads already migrated (step B).
 5. **Reseed** signals (§5.4).
 6. **Smoke test** (§7).
+7. **Later (not in window)**: once observatory + Hermes are confirmed reading only
+   the new fields, run the §2b legacy-removal cleanup.
 
 **Rollback**: `git revert` the three repos to the pre-cutover commits and restore
 `pm_platform.db.bak-cutover-<date>`. Because it's a hard break, roll back all three
