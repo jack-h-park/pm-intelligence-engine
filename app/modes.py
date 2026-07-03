@@ -45,7 +45,13 @@ than rename, to avoid a 3-repo migration (Hermes watch paths, observatory, on-di
 data). This block is that documentation.
 """
 
-MODES = ("archive", "note", "structure", "evaluate", "decide")
+# Derived from the stage registry (app/pipeline.py) — the single source of truth
+# for positions. Kept as a module constant so existing importers are unchanged;
+# it is no longer an independent definition. The registry's stop rows, in order,
+# are archive < note < structure < evaluate < decide.
+from app import pipeline as _pipeline
+
+MODES = _pipeline.depths()
 
 _LEGACY_MODE_ALIASES = {
     "file": "archive",

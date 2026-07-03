@@ -108,11 +108,15 @@ async def _apply_routing(
 
 
 async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngine) -> None:
-    from app.logging import emit_event
-    from app.models.stages import RunContext, S6AInput, S6BInput, S7Input
-    from app.stages import s6a_poc_plan, s6b_prd, s7_summary
+    """Segment 3 of a decide run: run S6 (PoC plan or PRD) then S7, then complete.
+
+    The S6 branch (s6a for poc, s6b for prd) and the sequence come from the shared
+    planner; ``runner.run_stage`` builds each stage's input from the store.
+    """
+    from app import runner
+    from app.models.stages import RunContext
+    from app.runner import plan_advance, target_for_depth
     from app.services.run_finalizer import finalize_run
-    import json
 
     try:
         run = engine.store.get_run(run_id)
@@ -128,29 +132,10 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
             product_context=full_context.product_context,
         )
 
-        # Load S5 output for Stage 6 input
-        s5_raw = engine.store.get_stage_output(run_id, "s5")
-        if s5_raw is None:
-            raise ValueError("S5 output not found")
-
-        from app.models.stages import S5OutputData
-        s5_output_data = S5OutputData(**json.loads(s5_raw["output_json"])["output"])
-
-        if routing == "poc":
-            engine.store.update_run(run_id, current_stage="s6a")
-            s6_out = await s6a_poc_plan.run(
-                S6AInput(s5_output=s5_output_data), context, engine.llm, engine.store
-            )
-            s7_in = S7Input(mode="decide", s5_output=s5_output_data, s6a_output=s6_out.output)
-        else:
-            engine.store.update_run(run_id, current_stage="s6b")
-            s6_out = await s6b_prd.run(
-                S6BInput(s5_output=s5_output_data), context, engine.llm, engine.store
-            )
-            s7_in = S7Input(mode="decide", s5_output=s5_output_data, s6b_output=s6_out.output)
-
-        engine.store.update_run(run_id, current_stage="s7")
-        await s7_summary.run(s7_in, context, engine.llm, engine.store)
+        # plan_advance("s5", decide, routing) -> run (s6a|s6b, s7), then complete.
+        plan = plan_advance("s5", target_for_depth("decide"), routing=routing)
+        for position in plan.run:
+            await runner.run_stage(position, run_id, engine, context)
 
         await finalize_run(
             run_id, "completed", engine,

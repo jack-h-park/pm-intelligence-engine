@@ -36,13 +36,10 @@ _ENDED_BY_FROM_ACTION = {
     "voided": "voided",
 }
 # Depth → completed-reason, for a normal completion (no distinguishing action).
-_ENDED_BY_FROM_MODE = {
-    "archive": "archived",
-    "note": "noted",
-    "structure": "structured",
-    "evaluate": "evaluated",
-    "decide": "decided",
-}
+# Derived from the stage registry (single source of truth) rather than restated.
+from app import pipeline
+
+_ENDED_BY_FROM_MODE = pipeline.ended_by_by_depth()
 
 
 def _derive_ended_by(status: str, event_action: str | None, mode: str | None) -> str:

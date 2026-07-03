@@ -707,7 +707,8 @@ async def reopen_run(
 
 
 def _validate_mode(mode: str) -> None:
-    valid = {"archive", "note", "structure", "evaluate", "decide"}
+    from app import pipeline
+    valid = set(pipeline.depths())  # single source of truth (app/pipeline.py)
     if mode not in valid:
         raise HTTPException(
             status_code=422,
@@ -884,112 +885,69 @@ async def _continue_after_direction(
     context,
     engine: PMEngine,
 ) -> None:
-    """Execute the stages appropriate for the chosen mode after S1+S2 are done.
+    """Advance a run from S2 to its chosen depth's target, pausing at any gate.
 
-    Stored S3/S4 outputs are reused instead of re-run. Fresh runs never have
-    them, so the direction path is unchanged; a deepened run (POST /deepen)
-    re-enters here and pays only for the stages its new depth adds.
+    The stage sequence and pause points come from the registry-driven planner
+    (``app.runner.plan_advance``) — this function only executes the plan. Stored
+    S3/S4 outputs are reused (a deepened run pays only for the stages its new depth
+    adds); ``note`` completes at S2 (its insight memo is the artifact — no S7).
     """
-    import json as _json
-
-    from app.logging import emit_event
-    from app.models.stages import (
-        S2OutputData,
-        S3Input,
-        S3OutputData,
-        S4Input,
-        S4OutputData,
-        S7Input,
-    )
+    from app import runner
+    from app.runner import plan_advance, target_for_depth
     from app.services.run_finalizer import finalize_run
-    from app.stages import s3_opportunity, s4_evaluation, s7_summary
 
     try:
         s2_raw = engine.store.get_stage_output(run_id, "s2")
         if s2_raw is None:
             raise ValueError("S2 output not found")
-        s2_output_data = S2OutputData(**_json.loads(s2_raw["output_json"])["output"])
 
-        if mode == "archive":
-            await finalize_run(run_id, "completed", engine, event_detail={"mode": "archive"})
+        plan = plan_advance("s2", target_for_depth(mode))
+        for position in plan.run:
+            await runner.run_stage(position, run_id, engine, context)
+
+        if plan.then == "complete":
+            await finalize_run(run_id, "completed", engine, event_detail={"mode": mode})
             return
 
-        if mode == "note":
-            engine.store.update_run(run_id, current_stage="s7")
-            await s7_summary.run(S7Input(mode="note"), context, engine.llm, engine.store)
-            await finalize_run(run_id, "completed", engine, event_detail={"mode": "note"})
-            return
-
-        # All remaining modes need Stage 3 — reuse a stored output if present.
-        s3_raw = engine.store.get_stage_output(run_id, "s3")
-        if s3_raw is not None:
-            s3_output_data = S3OutputData(**_json.loads(s3_raw["output_json"])["output"])
-        else:
-            s2_signal_id = _json.loads(s2_raw["output_json"]).get("signal_id", run_id)
-            engine.store.update_run(run_id, current_stage="s3")
-            s3_out = await s3_opportunity.run(
-                input=S3Input(
-                    signal_id=s2_signal_id,
-                    s2_output=s2_output_data,
-                    product_id=context.product_id,
-                ),
-                context=context,
-                llm=engine.llm,
-                store=engine.store,
-            )
-            s3_output_data = s3_out.output
-
-        if mode == "structure":
-            await finalize_run(run_id, "completed", engine, event_detail={"mode": "structure"})
-            return
-
-        # evaluate + decide both need Stage 4 — reuse a stored output if present.
-        s4_raw = engine.store.get_stage_output(run_id, "s4")
-        if s4_raw is not None:
-            s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
-        else:
-            engine.store.update_run(run_id, current_stage="s4")
-            s4_out = await s4_evaluation.run(
-                S4Input(s3_output=s3_output_data),
-                context,
-                engine.llm,
-                engine.store,
-            )
-            s4_output_data = s4_out.output
-
-        if mode == "evaluate":
-            await finalize_run(run_id, "completed", engine, event_detail={"mode": "evaluate"})
-            return
-
-        # decide mode: pause for human approval at Stage 4
-        engine.store.update_run(run_id, status="waiting_approval", current_stage="s4")
-        emit_event("run", "waiting_approval", run_id)
-
-        # Notify PM via configured providers (Telegram / Slack)
-        from config import settings as _notify_cfg
-        signal_for_notify = engine.store.get_signal(
-            _json.loads(s2_raw["output_json"]).get("signal_id", "")
-        )
-        signal_title = signal_for_notify["title"] if signal_for_notify else run_id
-        personas = {p.persona: p for p in s4_output_data.personas}
-        skeptic_concern = (
-            personas["skeptic"].key_argument if "skeptic" in personas else ""
-        )
-        review_url = f"{_notify_cfg.BASE_URL}/runs/{run_id}/review"
-        await engine.notifier.send_gate2(
-            run_id=run_id,
-            product_id=context.product_id,
-            signal_title=signal_title,
-            explorer_score=personas.get("explorer", _DummyPersona).score,
-            strategist_score=personas.get("strategist", _DummyPersona).score,
-            builder_score=personas.get("builder", _DummyPersona).score,
-            skeptic_score=personas.get("skeptic", _DummyPersona).score,
-            key_concern=skeptic_concern,
-            review_url=review_url,
-        )
+        # Segment 1 only ever pauses at S4 (Gate 2, decide mode).
+        await _pause_at_gate2(run_id, context, engine, s2_raw)
 
     except Exception as exc:  # noqa: BLE001
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+
+
+async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) -> None:
+    """Pause a decide run at Gate 2 (post-S4 human approval) and notify the PM."""
+    import json as _json
+
+    from app.logging import emit_event
+    from app.models.stages import S4OutputData
+    from config import settings as _notify_cfg
+
+    s4_raw = engine.store.get_stage_output(run_id, "s4")
+    s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
+
+    engine.store.update_run(run_id, status="waiting_approval", current_stage="s4")
+    emit_event("run", "waiting_approval", run_id)
+
+    signal_for_notify = engine.store.get_signal(
+        _json.loads(s2_raw["output_json"]).get("signal_id", "")
+    )
+    signal_title = signal_for_notify["title"] if signal_for_notify else run_id
+    personas = {p.persona: p for p in s4_output_data.personas}
+    skeptic_concern = personas["skeptic"].key_argument if "skeptic" in personas else ""
+    review_url = f"{_notify_cfg.BASE_URL}/runs/{run_id}/review"
+    await engine.notifier.send_gate2(
+        run_id=run_id,
+        product_id=context.product_id,
+        signal_title=signal_title,
+        explorer_score=personas.get("explorer", _DummyPersona).score,
+        strategist_score=personas.get("strategist", _DummyPersona).score,
+        builder_score=personas.get("builder", _DummyPersona).score,
+        skeptic_score=personas.get("skeptic", _DummyPersona).score,
+        key_concern=skeptic_concern,
+        review_url=review_url,
+    )
 
 
 def _archive_auto_triaged_if_enabled(

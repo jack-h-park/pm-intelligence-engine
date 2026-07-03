@@ -102,11 +102,16 @@ async def reject_run(
 
 
 async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
-    from app.logging import emit_event
-    from app.models.stages import RunContext, S5Input, S6AInput, S6BInput, S7Input
-    from app.stages import s5_prioritization, s6a_poc_plan, s6b_prd, s7_summary
+    """Segment 2 of a decide run: run S5 (Prioritization) then pause at Gate 3.
+
+    The stage sequence comes from the shared planner; execution goes through
+    ``runner.run_stage`` (which records the routing S5 computes). Naming kept for
+    the background-task call site; it stops at Gate 3, not S7.
+    """
+    from app import runner
+    from app.models.stages import RunContext
+    from app.runner import plan_advance, target_for_depth
     from app.services.run_finalizer import finalize_run
-    import json
 
     try:
         run = engine.store.get_run(run_id)
@@ -122,53 +127,55 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
             product_context=full_context.product_context,
         )
 
-        # Load S4 output (latest version)
-        s4_raw = engine.store.get_stage_output(run_id, "s4")
-        if s4_raw is None:
-            raise ValueError("S4 output not found")
+        # plan_advance("s4", decide) -> run (s5,), pause at Gate 3 (s5).
+        plan = plan_advance("s4", target_for_depth("decide"))
+        for position in plan.run:
+            await runner.run_stage(position, run_id, engine, context)
 
-        from app.models.stages import S4OutputData
-        s4_output_data = S4OutputData(**json.loads(s4_raw["output_json"])["output"])
-
-        engine.store.update_run(run_id, current_stage="s5")
-        s5_out = await s5_prioritization.run(
-            S5Input(s4_output=s4_output_data), context, engine.llm, engine.store
-        )
-
-        routing = s5_out.output.routing
-        engine.store.update_run(run_id, routing=routing)
-
-        # All routings pause for PM review at Gate 3.
-        engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
-        emit_event("run", "waiting_routing_review", run_id, {
-            "routing": routing,
-            "composite": s5_out.output.composite_score,
-            "blocking_count": s5_out.output.blocking_count,
-        })
-        signal_for_g3 = engine.store.get_signal(run["signal_id"])
-        signal_title_g3 = signal_for_g3["title"] if signal_for_g3 else run_id
-        persona_lines = [
-            f"{p.persona.capitalize()} ({p.dimension}) {p.score}/5 — {p.key_argument}"
-            for p in s4_output_data.personas
-        ]
-        rubric_total = (
-            f"{s4_output_data.rubric.total_score}/12" if s4_output_data.rubric else None
-        )
-        await engine.notifier.send_gate3(
-            run_id=run_id,
-            product_id=context.product_id,
-            signal_title=signal_title_g3,
-            routing=routing,
-            composite_score=s5_out.output.composite_score,
-            blocking_count=s5_out.output.blocking_count,
-            assumptions=[a.model_dump() for a in s5_out.output.assumptions],
-            persona_lines=persona_lines,
-            rubric_total=rubric_total,
-            closing_window=s5_out.output.closing_window,
-        )
+        await _pause_at_gate3(run_id, run, context, engine)
 
     except Exception as exc:  # noqa: BLE001
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
+
+
+async def _pause_at_gate3(run_id: str, run: dict, context, engine: PMEngine) -> None:
+    """Pause a decide run at Gate 3 (post-S5 routing review) and notify the PM.
+
+    Reads the stored S5/S4 outputs rather than threading them in, so the caller is
+    just "run the plan, then pause"."""
+    import json
+
+    from app.logging import emit_event
+    from app.models.stages import S4OutputData, S5OutputData
+
+    s5 = S5OutputData(**json.loads(engine.store.get_stage_output(run_id, "s5")["output_json"])["output"])
+    s4 = S4OutputData(**json.loads(engine.store.get_stage_output(run_id, "s4")["output_json"])["output"])
+
+    engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
+    emit_event("run", "waiting_routing_review", run_id, {
+        "routing": s5.routing,
+        "composite": s5.composite_score,
+        "blocking_count": s5.blocking_count,
+    })
+    signal = engine.store.get_signal(run["signal_id"])
+    signal_title = signal["title"] if signal else run_id
+    persona_lines = [
+        f"{p.persona.capitalize()} ({p.dimension}) {p.score}/5 — {p.key_argument}"
+        for p in s4.personas
+    ]
+    rubric_total = f"{s4.rubric.total_score}/12" if s4.rubric else None
+    await engine.notifier.send_gate3(
+        run_id=run_id,
+        product_id=context.product_id,
+        signal_title=signal_title,
+        routing=s5.routing,
+        composite_score=s5.composite_score,
+        blocking_count=s5.blocking_count,
+        assumptions=[a.model_dump() for a in s5.assumptions],
+        persona_lines=persona_lines,
+        rubric_total=rubric_total,
+        closing_window=s5.closing_window,
+    )
 
 
 async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> None:

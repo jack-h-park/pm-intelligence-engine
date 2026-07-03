@@ -16,7 +16,9 @@ from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["direction"])
 
-_VALID_MODES = {"archive", "note", "structure", "evaluate", "decide"}
+from app import pipeline
+
+_VALID_MODES = set(pipeline.depths())  # single source of truth (app/pipeline.py)
 
 
 class DirectionRequest(BaseModel):
