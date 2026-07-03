@@ -112,12 +112,17 @@ class RunResponse(BaseModel):
                 from config import settings
                 if settings.BASE_URL:
                     d["review_url"] = f"{settings.BASE_URL}/runs/{d['run_id']}/review"
-            # Canonical (position, lifecycle) projection (US-55 step 5), derived
-            # from the storage fields. Only fill keys not already provided.
+            # Canonical (position, lifecycle) projection (US-55 step 5/6). The
+            # store now persists these columns (step 6 dual-write), but a row that
+            # predates the dual-write — or has not been re-written since — carries
+            # NULL there. Derive to fill a NULL (not just an absent key), so the API
+            # always returns a correct lifecycle/position regardless of whether the
+            # physical column is populated yet.
             if "status" in d:
                 from app import run_view
                 for k, v in run_view.project(d).items():
-                    d.setdefault(k, v)
+                    if d.get(k) is None:
+                        d[k] = v
             return d
         return data
 

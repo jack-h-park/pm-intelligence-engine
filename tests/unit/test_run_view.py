@@ -88,6 +88,42 @@ def test_project_completed_decide():
     assert p["reason"] is None
 
 
+def test_run_response_derives_when_stored_columns_are_null():
+    """A pre-dual-write row carries NULL lifecycle/position columns; the API must
+    still derive them (regression guard for the step-6 serializer change)."""
+    from app.api.runs import RunResponse
+
+    row = {
+        "run_id": "r0", "product_id": "p", "signal_id": "s",
+        "status": "waiting_approval", "current_stage": "s4", "mode": "decide",
+        "recommendation_json": None, "routing": None, "composite_score": None,
+        "created_at": "2026-07-03T00:00:00", "completed_at": None,
+        # Legacy row: stored projection columns are NULL.
+        "lifecycle": None, "position": None, "outcome": None, "reason": None,
+    }
+    resp = RunResponse(**row)
+    assert resp.lifecycle == "paused"   # derived, not the stored NULL
+    assert resp.position == "s4"
+    assert resp.target == "s7"
+
+
+def test_run_response_prefers_stored_columns_when_present():
+    """A dual-written row's real columns win over re-derivation."""
+    from app.api.runs import RunResponse
+
+    row = {
+        "run_id": "r0b", "product_id": "p", "signal_id": "s",
+        "status": "completed", "current_stage": None, "mode": "decide",
+        "recommendation_json": None, "routing": None, "composite_score": None,
+        "created_at": "2026-07-03T00:00:00", "completed_at": "2026-07-03T01:00:00",
+        "lifecycle": "done", "position": "s7", "outcome": "completed", "reason": None,
+    }
+    resp = RunResponse(**row)
+    assert resp.lifecycle == "done"
+    assert resp.position == "s7"
+    assert resp.outcome == "completed"
+
+
 def test_run_response_surfaces_projection():
     """The API model derives the new fields from the stored row (US-55 step 5)."""
     from app.api.runs import RunResponse
