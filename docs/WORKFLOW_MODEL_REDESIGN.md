@@ -249,6 +249,11 @@ coordinated cutover — it swaps the storage under an already-adopted contract. 
 bridge, not a permanent shim: `run_view.project()` collapses into the store at
 cutover.
 
+**The coordinated cutover itself is an executable runbook: [CUTOVER_step6.md](CUTOVER_step6.md)**
+— the exact engine / observatory / Hermes edits (grounded in a line-level read of
+all three repos), the wipe + reseed procedure, deploy order, rollback, and a smoke
+test. It needs no new design decisions; it executes this model.
+
 ---
 
 ## 5. Backward-compatibility stance
