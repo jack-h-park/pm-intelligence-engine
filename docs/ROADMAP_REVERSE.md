@@ -14,18 +14,26 @@ Implemented workflow, contracts, and tests are tracked in:
 
 ## Now
 
-### E5 — Depth-ladder & terminal-state simplification (data-gated)
+### E5 — Depth-ladder & terminal-state simplification
 
 This epic records a **structural review** of the depth ladder and gates
-(2026-07-01/02) and — importantly — what was *deliberately not changed*. The
-review was a diagnosis; only the reversible, additive parts were shipped. The
-destructive simplifications are **deferred behind a data check**, not rejected.
+(2026-07-01/02) and what was done about it. Two things are distinct and were
+initially conflated:
 
-> **What a PM/maintainer must know:** the pipeline a PM experiences today is
-> unchanged except for one added "go deeper" action and a more conservative S2
-> suggestion. The 5-depth ladder (archive<note<structure<evaluate<decide) and the
-> three gates are **intact**. The bigger merges below are decisions *scheduled for
-> ~2026-08*, to be made against real usage, not now.
+- **Re-encoding** — collapsing the 5 parallel vocabularies (depth, status,
+  ended_by, approval-action, artifact-type) to 2 facts (position, lifecycle). This
+  removes no capability, so it needs **no usage data** to justify. Approved as a
+  near-term clean cutover (data wipe) — see **US-55** and
+  [WORKFLOW_MODEL_REDESIGN.md](WORKFLOW_MODEL_REDESIGN.md).
+- **Capability removal** — dropping `evaluate`, merging Gate 2/3. These *do* remove
+  a choice, so they stay data-informed (US-53/54) — but under the new model each is
+  a one-line config toggle, not a restructure.
+
+> **What a PM/maintainer must know:** today's pipeline is unchanged except a
+> "go deeper" action, a conservative S2 suggestion, and `blocking→poc` routing
+> (PR #32). The redesign (US-55) is a *representation* change that keeps every
+> current behavior; the capability questions (US-53/54) are what's genuinely
+> deferred, and they become trivial once US-55 lands.
 
 **Motivating data (prod DB, 5 weeks / 42 runs, checked 2026-07-01):** `decide`
 never chosen; Gates 2/3 never fired; `routing` NULL on every run. Gate-1 depth
@@ -52,6 +60,30 @@ does anything reach decide?) *without* discarding structure we might want. If, i
 ~1 month, `deepen`-to-decide is used and produces value, the ladder earned its
 depth; if evaluate/decide stay at zero even with deepening free, the merges below
 become well-evidenced.
+
+#### US-55 — Workflow model re-encoding to (position, lifecycle)
+**Status:** 📐 Design approved (2026-07-03), not yet implemented. Full spec:
+[WORKFLOW_MODEL_REDESIGN.md](WORKFLOW_MODEL_REDESIGN.md).
+
+Collapse the 5 parallel vocabularies (~40 values) + 6 gate/terminal endpoints to
+`position` (s1..s7) + `lifecycle` (running/paused/done) + `outcome`/`reason`, with a
+single `POST /runs/{id}/decision` endpoint. depth, the `waiting_*` statuses, the
+`ended_by` enum, the 4 "terminate" spellings, and the per-gate notifier/review code
+all derive from those two facts. No capability is removed — it is a representation
+change, so it is **not** data-gated (unlike US-53/54).
+
+- **Migration:** clean cutover with a **data wipe** (the 42 prod runs are
+  unvalidated dry-runs; row migration has near-zero value). No back-compat shims —
+  the 3 legacy alias layers are dropped, not carried.
+- **Preservation:** 24/32 signals already durable in the wiki; landmark `9b49fc8c`
+  pulled from prod pre-wipe and re-submitted; 7 orphans dropped as noise.
+- **Live consumers (bounded coupling, measured 2026-07-02):** observatory
+  `lib/adapters/engine-db.ts` + `lib/format.ts` + `lib/pipeline-stages.ts` +
+  `components/GateActions.tsx`; Hermes `gate-watcher` skill + `hermes_eval/`.
+  Coordinated single cutover (no dual-read window needed given the wipe).
+- Structurally fixes the S5 rationale-vs-routing incoherence that `blocking→poc`
+  (PR #32) only patched: routing becomes "which position to advance to", and the
+  LLM explains the computed advance instead of contradicting it.
 
 #### US-53 — Depth-ladder merge (DEFERRED — decide ~2026-08 on US-51 data)
 **Status:** ⏸ Deferred, criteria set. Do **not** implement before reviewing:
