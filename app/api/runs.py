@@ -82,6 +82,19 @@ class RunResponse(BaseModel):
     # (Iris) can include it in Gate 2 messages without knowing the engine's
     # network config — see docs/NOTIFICATION_CONTRACT.md §2.
     review_url: str | None = None
+    # Canonical (position, lifecycle) view (US-55 step 5) — derived from
+    # status/mode/current_stage until the coordinated cutover makes them real
+    # columns. Consumers (observatory, Hermes, /decision) should prefer these:
+    #   lifecycle: running | paused | done
+    #   position:  furthest stage reached (s1..s7)
+    #   target:    the position the chosen depth is going to
+    #   outcome:   completed | stopped | failed  (null while live)
+    #   reason:    why it stopped / the error    (null otherwise)
+    lifecycle: str | None = None
+    position: str | None = None
+    target: str | None = None
+    outcome: str | None = None
+    reason: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -99,6 +112,12 @@ class RunResponse(BaseModel):
                 from config import settings
                 if settings.BASE_URL:
                     d["review_url"] = f"{settings.BASE_URL}/runs/{d['run_id']}/review"
+            # Canonical (position, lifecycle) projection (US-55 step 5), derived
+            # from the storage fields. Only fill keys not already provided.
+            if "status" in d:
+                from app import run_view
+                for k, v in run_view.project(d).items():
+                    d.setdefault(k, v)
             return d
         return data
 

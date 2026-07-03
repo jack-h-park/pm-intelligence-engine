@@ -238,6 +238,17 @@ Estimated as a **bounded multi-repo cutover** (adapter/format layers + one
 gate-watcher skill), not the 1–2 week data migration originally feared. Exact
 sizing pending a line-level read of `engine-db.ts` and the gate-watcher skill.
 
+**Step 5 is staged "derive-first" (shipped in `app/run_view.py`).** The target
+vocabulary — `lifecycle` / `position` / `target` / `outcome` / `reason` — is first
+exposed as a *derivation* over the current `status` / `mode` / `current_stage`
+fields and surfaced on the run object. This lets `/decision`, the observatory, and
+Hermes migrate their reads to the new names *before* the storage changes. The
+physical flip (dropping `status`/`mode`, making these real columns, and no longer
+clearing `position` on finalize) is then the mechanical final act of the same
+coordinated cutover — it swaps the storage under an already-adopted contract. A
+bridge, not a permanent shim: `run_view.project()` collapses into the store at
+cutover.
+
 ---
 
 ## 5. Backward-compatibility stance

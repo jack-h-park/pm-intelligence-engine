@@ -1,0 +1,107 @@
+"""Unit tests for the (position, lifecycle) projection (app/run_view.py).
+
+Locks the status/mode/current_stage → lifecycle/position/target/outcome/reason
+mapping that the redesign's read model derives, so the eventual physical column
+flip can be verified against exactly this table.
+"""
+
+import pytest
+
+from app import run_view
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("pending", "running"),
+    ("running", "running"),
+    ("waiting_direction", "paused"),
+    ("waiting_approval", "paused"),
+    ("waiting_routing_review", "paused"),
+    ("completed", "done"),
+    ("killed", "done"),
+    ("failed", "done"),
+])
+def test_lifecycle_mapping(status, expected):
+    assert run_view.lifecycle(status) == expected
+
+
+@pytest.mark.parametrize("status,expected", [
+    ("running", None),
+    ("waiting_approval", None),
+    ("completed", "completed"),
+    ("killed", "stopped"),
+    ("failed", "failed"),
+])
+def test_outcome_mapping(status, expected):
+    assert run_view.outcome(status) == expected
+
+
+@pytest.mark.parametrize("mode,expected_target", [
+    ("archive", "s1"), ("note", "s2"), ("structure", "s3"),
+    ("evaluate", "s4"), ("decide", "s7"), (None, None),
+])
+def test_target_from_depth(mode, expected_target):
+    assert run_view.target({"mode": mode}) == expected_target
+
+
+def test_position_prefers_live_current_stage():
+    assert run_view.position({"status": "waiting_approval", "current_stage": "s4"}) == "s4"
+
+
+def test_position_inferred_for_completed_from_target():
+    # current_stage cleared on finalize; a completed run reached its target.
+    assert run_view.position({"status": "completed", "current_stage": None, "mode": "structure"}) == "s3"
+
+
+def test_position_inferred_for_failed_from_failed_stage():
+    assert run_view.position(
+        {"status": "failed", "current_stage": None, "failed_stage": "s3"}
+    ) == "s3"
+
+
+def test_reason_is_error_on_failure():
+    assert run_view.reason({"status": "failed", "error": "boom"}) == "boom"
+
+
+def test_reason_is_ended_by_on_kill():
+    assert run_view.reason({"status": "killed", "ended_by": "voided"}) == "voided"
+
+
+def test_reason_none_for_completed_and_live():
+    assert run_view.reason({"status": "completed", "ended_by": "decided"}) is None
+    assert run_view.reason({"status": "running"}) is None
+
+
+def test_project_full_shape():
+    run = {"status": "waiting_routing_review", "current_stage": "s5", "mode": "decide"}
+    assert run_view.project(run) == {
+        "lifecycle": "paused", "position": "s5", "target": "s7",
+        "outcome": None, "reason": None,
+    }
+
+
+def test_project_completed_decide():
+    run = {"status": "completed", "current_stage": None, "mode": "decide", "ended_by": "decided"}
+    p = run_view.project(run)
+    assert p["lifecycle"] == "done"
+    assert p["outcome"] == "completed"
+    assert p["position"] == "s7"
+    assert p["reason"] is None
+
+
+def test_run_response_surfaces_projection():
+    """The API model derives the new fields from the stored row (US-55 step 5)."""
+    from app.api.runs import RunResponse
+
+    row = {
+        "run_id": "r1", "product_id": "p", "signal_id": "s",
+        "status": "waiting_approval", "current_stage": "s4", "mode": "decide",
+        "recommendation_json": None, "routing": None, "composite_score": None,
+        "created_at": "2026-07-03T00:00:00", "completed_at": None,
+    }
+    resp = RunResponse(**row)
+    assert resp.lifecycle == "paused"
+    assert resp.position == "s4"
+    assert resp.target == "s7"
+    assert resp.outcome is None
+    # depth is still surfaced too (legacy field kept during the transition).
+    assert resp.depth == "decide"
