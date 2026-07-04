@@ -23,17 +23,17 @@ by the Hermes ops plane (Iris), which polls the gate queues; pm-engine exposes s
 │                                       (FastAPI + SQLite)                │
 │                                             │                           │
 │                                     Human gates (3)                    │
-│                                      Gate 1: direction                  │
-│                                      Gate 2: evaluation                 │
-│                                      Gate 3: routing review             │
+│                                      Gate 1: pause @ position s2         │
+│                                      Gate 2: pause @ position s4         │
+│                                      Gate 3: pause @ position s5         │
 │                                             │                           │
 │                                   run_finalizer.py                      │
 │                                      ├─ completed_at stamp              │
 │                                      └─ decision-system export          │
 │                                             │                           │
 │                          gate queues (HTTP API)                         │
-│                           waiting_direction / waiting_approval /        │
-│                           waiting_routing_review + terminal statuses    │
+│                           lifecycle=paused (position s2/s4/s5)          │
+│                           + lifecycle=done (outcome-tagged)             │
 │                           — polled by Hermes-ops (Iris)                 │
 └─────────────────────────────────────────────────────────────────────────┘
         ↑ read context / write runs              ↑ (export on completion)
@@ -68,7 +68,7 @@ pm-intelligence-engine API        product-management-wiki-repo/
 | Signal intake (manual) | pm-engine | `POST /signals` API |
 | Signal harvesting (RSS, file watch) | Hermes | Submits via `POST /signals` |
 | Stage execution (S1–S7) | pm-engine | Background tasks, async |
-| Human gate state machine | pm-engine | 3 gates, 10 API endpoints |
+| Human gate state machine | pm-engine | 3 gates (pause @ s2/s4/s5), one `POST /runs/{id}/decision` endpoint (US-55) |
 | Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-engine | `run_finalizer` triggers on decide-mode completion |
 | Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
@@ -110,8 +110,9 @@ Direct database mutation or file-based approval are prohibited — see `docs/INT
 **Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are composed and delivered
 by Hermes-ops (Iris), which polls the gate queues (US-48 cutover; the engine's built-in
 `FanoutNotifier` is local/dev-only). Hermes-ops also bridges PM responses back to
-pm-engine via the gate API endpoints (`/direction`, `/approve`, `/revise`, `/reject`,
-`/routing-review`). Ownership, dedup keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
+pm-engine via the single decision endpoint (`POST /runs/{id}/decision` with an
+`action` of `advance` | `advance_to` | `revise` | `stop`, US-55). Ownership, dedup
+keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 
 ---
 
@@ -188,9 +189,11 @@ app/
 │   ├── main.py            FastAPI app initialization
 │   ├── signals.py         /signals routes
 │   ├── runs.py            /runs routes + Gate 1 logic
-│   ├── direction.py       /runs/{id}/direction — Gate 1 response
-│   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2
-│   ├── routing_review.py  /runs/{id}/routing-review — Gate 3
+│   ├── decision.py        /runs/{id}/decision — unified gate/terminal decision
+│   │                      (advance | advance_to | revise | stop) — preferred entry (US-55)
+│   ├── direction.py       /runs/{id}/direction — Gate 1 (legacy; transitional, shares /decision impl)
+│   ├── approvals.py       /runs/{id}/approve|revise|reject — Gate 2 (legacy; transitional)
+│   ├── routing_review.py  /runs/{id}/routing-review — Gate 3 (legacy; transitional)
 │   ├── artifacts.py       /runs/{id}/artifacts — artifact query endpoint
 │   └── review.py          /runs/{id}/review — browser-based Gate 2 review page
 │                          (HTML; linked from the Gate 2 message Iris delivers; see Section 11)

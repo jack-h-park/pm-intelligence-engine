@@ -87,7 +87,7 @@ The schema design mirrors what PostgreSQL-ready code would look like (proper UUI
 
 This project does not use LangGraph in v1 because:
 - The workflow has only one branching point (S5 routing: PRD / PoC / Kill) — this is a simple `if` statement
-- Approval gate state is managed by `WorkflowRun.status` in the database — no separate state machine framework needed
+- Approval gate state is managed by `WorkflowRun` `lifecycle`+`position` in the database (US-55; formerly a single `status` enum) — no separate state machine framework needed
 - LangGraph adds a learning curve and abstraction layer that slows PoC iteration
 - The upgrade path is clear: if branching becomes complex (multiple gates, retries, parallel tracks), LangGraph can replace the plain `if` logic without changing stage functions
 
@@ -122,14 +122,22 @@ has gone through three versions:
 | v2 (`c124036`, 2026-05-23) | `composite >= 3.5 → prd`, else `poc` | Confidence is diluted to its 0.15 weight. A high-impact, unvalidated opportunity (e.g. 5/5/4/2 → composite 4.35) skips PoC and goes straight to PRD — the opposite of the framework's stated intent ("low confidence is a signal to run a PoC"). The design doc was never updated, leaving a silent doc/code mismatch. |
 | **v3 (decided 2026-06-10)** | **Two-axis hybrid** (see below) | — |
 
-**v3 rule** (first match wins):
+**v3 rule** (first match wins). *Revised 2026-07-03 (US-55): a Blocking assumption
+routes to `poc`, not `kill` — Kill is reserved for a low composite (value floor).*
 
 ```
-1. blocking assumptions OR composite <= KILL_THRESHOLD (1.5)  → kill
-2. composite >= PRD_THRESHOLD (3.5) AND confidence >= 4       → prd
-3. composite >= PRD_THRESHOLD AND confidence < 4              → poc
+1. composite <= KILL_THRESHOLD (1.5)                          → kill  (low value)
+2. any blocking assumption                                    → poc   (validate the unresolved question)
+3. composite >= PRD_THRESHOLD (3.5) AND confidence >= 4       → prd
 4. otherwise                                                  → poc
 ```
+
+> Previously (before 2026-07-03) rule 1 was "blocking assumptions **OR** composite
+> ≤ 1.5 → kill". The first production `decide` run showed a feasibility Blocker
+> wrongly killing a composite-3.6 opportunity against S5's own PoC rationale; a
+> Blocking assumption is an unresolved feasibility/dependency question (a PoC
+> case), and a true value-nullifier already lands at/below the kill floor. See
+> `core/04-scoring.md` in decision-context.
 
 **Rationale:** composite and confidence answer different questions. Composite
 ("how good is this overall?") sets the quality floor — it decides kill and
@@ -139,7 +147,7 @@ readiness gate — it alone decides PRD vs PoC for strong opportunities. This
 restores v1's intent while keeping v2's stability where it matters.
 
 **Residual brittleness is accepted:** PRD vs PoC can still flip on Skeptic
-3 → 4, but Gate 3 (`waiting_routing_review`) puts a human on every routing
+3 → 4, but Gate 3 (a run `paused` at `position=s5`) puts a human on every routing
 decision, so the rule only needs to be a good default, not an infallible one.
 
 **Thresholds** (kill 1.5, prd 3.5, confidence gate 4) move from hardcoded
