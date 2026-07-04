@@ -85,17 +85,17 @@ class RunResponse(BaseModel):
     # (Iris) can include it in Gate 2 messages without knowing the engine's
     # network config — see docs/NOTIFICATION_CONTRACT.md §2.
     review_url: str | None = None
-    # Canonical (position, lifecycle) view (US-55 step 5) — derived from
-    # status/mode/current_stage until the coordinated cutover makes them real
-    # columns. Consumers (observatory, Hermes, /decision) should prefer these:
+    # Canonical (position, lifecycle) view (US-55):
     #   lifecycle: running | paused | done
     #   position:  furthest stage reached (s1..s7)
-    #   target:    the position the chosen depth is going to
     #   outcome:   completed | stopped | failed  (null while live)
     #   reason:    why it stopped / the error    (null otherwise)
+    # The run's GOAL is `depth` (the human name); its position (archive→s1 …
+    # decide→s7) is a 1:1 projection of depth, so it is NOT a separate field —
+    # deriving it would just re-introduce a "same fact, two names" pair. `position`
+    # (current location) is the only stage field on the surface.
     lifecycle: str | None = None
     position: str | None = None
-    target: str | None = None
     outcome: str | None = None
     reason: str | None = None
 

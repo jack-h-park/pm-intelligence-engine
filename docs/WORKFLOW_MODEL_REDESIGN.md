@@ -71,12 +71,20 @@ A run is fully described by:
 ```
 run = {
   position:   "s1" .. "s7"                 # furthest stage reached (exists today as current_stage)
-  target:     "s1" .. "s7"                 # how far the PM wants to go (replaces depth/mode)
+  target:     "s1" .. "s7"                 # how far the PM wants to go (= the chosen depth)
   lifecycle:  "running" | "paused" | "done"
   outcome:    "completed" | "stopped"      # set when lifecycle=done
   reason:     free text                    # why it stopped (auto-triage / PM / admin / failure)
 }
 ```
+
+> **Surfacing note (2026-07-03):** the *goal* is surfaced as **`depth`** (the human
+> name: archive/note/structure/evaluate/decide), not a separate `target` field —
+> `target` is depth's position 1:1 (archive→s1 … decide→s7), so exposing both would
+> re-introduce a "same fact, two names" pair. `target` remains only as the
+> `/decision` **request** input (`advance_to {target: <depth>}`) and for internal
+> position inference; the run **response** carries `depth` + `position` (current
+> location) + `lifecycle`/`outcome`/`reason`.
 
 Everything in §1 derives from these:
 

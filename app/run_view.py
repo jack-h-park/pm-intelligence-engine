@@ -94,12 +94,16 @@ def reason(run: dict) -> str | None:
 
 
 def project(run: dict) -> dict:
-    """The canonical (position, lifecycle) view of a run, for API responses."""
+    """The canonical (position, lifecycle) view of a run, for API responses.
+
+    `target` is deliberately not surfaced — it is a 1:1 projection of `depth`
+    (archive→s1 … decide→s7), so exposing it would re-introduce a redundant name.
+    The `target()` helper stays for internal position inference only.
+    """
     status = run.get("status")
     return {
         "lifecycle": lifecycle(status),
         "position": position(run),
-        "target": target(run),
         "outcome": outcome(status),
         "reason": reason(run),
     }

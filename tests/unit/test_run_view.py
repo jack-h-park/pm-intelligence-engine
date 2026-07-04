@@ -73,8 +73,9 @@ def test_reason_none_for_completed_and_live():
 
 def test_project_full_shape():
     run = {"status": "waiting_routing_review", "current_stage": "s5", "mode": "decide"}
+    # `target` is intentionally NOT in the projected shape (= depth 1:1, US-55).
     assert run_view.project(run) == {
-        "lifecycle": "paused", "position": "s5", "target": "s7",
+        "lifecycle": "paused", "position": "s5",
         "outcome": None, "reason": None,
     }
 
@@ -104,7 +105,7 @@ def test_run_response_derives_when_stored_columns_are_null():
     resp = RunResponse(**row)
     assert resp.lifecycle == "paused"   # derived, not the stored NULL
     assert resp.position == "s4"
-    assert resp.target == "s7"
+    assert not hasattr(resp, "target")  # target is not surfaced (US-55; = depth 1:1)
 
 
 def test_run_response_prefers_stored_columns_when_present():
@@ -137,7 +138,6 @@ def test_run_response_surfaces_projection():
     resp = RunResponse(**row)
     assert resp.lifecycle == "paused"
     assert resp.position == "s4"
-    assert resp.target == "s7"
     assert resp.outcome is None
     # depth is still surfaced too (legacy field kept during the transition).
     assert resp.depth == "decide"
