@@ -141,3 +141,34 @@ def test_run_response_surfaces_projection():
     assert resp.outcome is None
     # depth is still surfaced too (legacy field kept during the transition).
     assert resp.depth == "decide"
+
+
+# --- step 7a: status ↔ (lifecycle, position, outcome) round-trip -------------
+# Locks the bijection that step 7b (flip authority: store the state, derive
+# status) will rely on. status → project → status_of must be identity for every
+# reachable RunStatus, so the eventual flip cannot silently change any state.
+
+@pytest.mark.parametrize("status,row", [
+    ("running", {"status": "running", "current_stage": "s3"}),
+    ("waiting_direction", {"status": "waiting_direction", "current_stage": "s2"}),
+    ("waiting_approval", {"status": "waiting_approval", "current_stage": "s4"}),
+    ("waiting_routing_review", {"status": "waiting_routing_review", "current_stage": "s5"}),
+    ("completed", {"status": "completed", "current_stage": None, "mode": "decide"}),
+    ("killed", {"status": "killed", "current_stage": None, "ended_by": "kill_confirmed"}),
+    ("failed", {"status": "failed", "current_stage": None, "failed_stage": "s3"}),
+])
+def test_status_roundtrip_is_identity(status, row):
+    p = run_view.project(row)
+    assert run_view.status_of(p["lifecycle"], p["position"], p["outcome"]) == status
+
+
+def test_pending_collapses_to_running():
+    # pending has no distinct state slot — it round-trips to running (documented).
+    p = run_view.project({"status": "pending", "current_stage": None})
+    assert run_view.status_of(p["lifecycle"], p["position"], p["outcome"]) == "running"
+
+
+def test_status_of_paused_without_gate_raises():
+    # A paused run must sit at a gate position (s2/s4/s5); anything else is unreachable.
+    with pytest.raises(ValueError):
+        run_view.status_of("paused", "s3", None)

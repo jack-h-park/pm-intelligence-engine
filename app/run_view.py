@@ -107,3 +107,50 @@ def project(run: dict) -> dict:
         "outcome": outcome(status),
         "reason": reason(run),
     }
+
+
+# --- Reverse: (lifecycle, position, outcome) → status  (US-55 step 7a) ---
+#
+# `status` is a compact single-enum encoding of the (lifecycle, position, outcome)
+# state: the three ``paused`` statuses are distinguished by which gate (= position),
+# and the three ``done`` statuses by outcome. The forward direction lives above
+# (``lifecycle``/``outcome``/``position``); this is its inverse.
+#
+# It is UNUSED today. It exists so step 7b can flip authority — store
+# (lifecycle, position, outcome) as canonical and derive ``status`` from it — as a
+# single localized change, proven safe by the round-trip test
+# (``status_of(project(row)) == row.status`` for every RunStatus). The one accepted
+# collapse is ``pending`` → ``running``: both are ``lifecycle=running`` and
+# ``pending`` is a transient pre-start marker with no distinct state-model slot.
+
+_STATUS_BY_GATE_POSITION = {
+    "s2": "waiting_direction",
+    "s4": "waiting_approval",
+    "s5": "waiting_routing_review",
+}
+
+_STATUS_BY_OUTCOME = {
+    "completed": "completed",
+    "stopped": "killed",
+    "failed": "failed",
+}
+
+
+def status_of(lifecycle: str | None, position: str | None, outcome: str | None) -> str:
+    """The single legacy ``status`` for a (lifecycle, position, outcome) state.
+
+    Inverse of :func:`project`. ``running`` covers both ``pending`` and ``running``
+    (see the note above). Raises if a ``paused`` state carries a position that is
+    not a gate — that pairing is not a reachable state.
+    """
+    if lifecycle == "done":
+        return _STATUS_BY_OUTCOME.get(outcome or "", "completed")
+    if lifecycle == "paused":
+        gate = _STATUS_BY_GATE_POSITION.get(position or "")
+        if gate is None:
+            raise ValueError(
+                f"paused run has no gate at position {position!r} "
+                "(expected s2/s4/s5)"
+            )
+        return gate
+    return "running"
