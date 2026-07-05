@@ -173,3 +173,20 @@ def test_finish_failed_no_completed_at(store):
         "failed", "failed", "s3", "boom")
     assert d["failed_stage"] == "s3" and d["error"] == "boom"
     assert d["completed_at"] is None      # failed never gets completed_at
+
+
+# --- step 7c: list_runs filters on (lifecycle, position), == the status filter ---
+
+def test_list_runs_lifecycle_position_filter(store):
+    g2 = _seed(store); store.pause(g2, "s4")           # Gate 2
+    g3 = _seed(store); store.pause(g3, "s5")           # Gate 3
+    live = _seed(store); store.advance(live, "s3")     # running
+
+    # Gate 2 = paused@s4 — the new filter picks exactly the same run as ?status=.
+    by_state = store.list_runs(lifecycle="paused", position="s4")
+    by_status = store.list_runs(status="waiting_approval")
+    assert [r["run_id"] for r in by_state] == [r["run_id"] for r in by_status] == [g2]
+
+    # lifecycle alone spans both gates; running is separate.
+    assert {r["run_id"] for r in store.list_runs(lifecycle="paused")} == {g2, g3}
+    assert [r["run_id"] for r in store.list_runs(lifecycle="running")] == [live]

@@ -430,6 +430,8 @@ class SQLiteStore:
         since: Optional[datetime] = None,
         batch_id: Optional[str] = None,
         signal_id: Optional[str] = None,
+        lifecycle: Optional[str] = None,
+        position: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -438,6 +440,12 @@ class SQLiteStore:
                 q = q.filter(WorkflowRun.product_id == product_id)
             if status:
                 q = q.filter(WorkflowRun.status == RunStatus(status))
+            # US-55 step 7c: filter on the canonical (lifecycle, position) columns.
+            # `status` stays as a compat filter until every reader has moved off it.
+            if lifecycle:
+                q = q.filter(WorkflowRun.lifecycle == lifecycle)
+            if position:
+                q = q.filter(WorkflowRun.position == position)
             if routing:
                 q = q.filter(WorkflowRun.routing == Routing(routing))
             if batch_id:

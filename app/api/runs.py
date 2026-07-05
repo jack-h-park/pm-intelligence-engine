@@ -651,6 +651,8 @@ async def get_run(
 async def list_runs(
     product_id: str | None = None,
     status: str | None = None,
+    lifecycle: str | None = None,
+    position: str | None = None,
     routing: str | None = None,
     event: str | None = None,
     since: str | None = None,
@@ -680,6 +682,8 @@ async def list_runs(
     runs = engine.store.list_runs(
         product_id=product_id,
         status=status,
+        lifecycle=lifecycle,
+        position=position,
         routing=routing,
         event=event,
         since=since_dt,
