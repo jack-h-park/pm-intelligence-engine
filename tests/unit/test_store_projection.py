@@ -69,7 +69,7 @@ def test_completed_persists_position_after_finalize(store):
 def test_killed_records_stopped_outcome_and_reason(store):
     run_id = _seed(store)
     store.pause(run_id, "s4", mode="decide")
-    store.finish(run_id, "stopped", position=None, reason="rejected", ended_by="rejected")
+    store.finish(run_id, "stopped", position=None, reason="rejected")
     raw = _raw(store, run_id)
     assert raw["lifecycle"] == "done"
     assert raw["outcome"] == "stopped"
@@ -79,7 +79,7 @@ def test_killed_records_stopped_outcome_and_reason(store):
 def test_archive_completion(store):
     run_id = _seed(store)
     store.update_run(run_id, mode="archive")
-    store.finish(run_id, "completed", position="s1", ended_by="archived")
+    store.finish(run_id, "completed", position="s1")
     raw = _raw(store, run_id)
     assert raw["lifecycle"] == "done"
     assert raw["outcome"] == "completed"
@@ -128,18 +128,17 @@ def test_advance_passes_through_mode(store):
 def test_finish_completed_stamps_completed_at(store):
     run_id = _seed(store)
     store.update_run(run_id, mode="decide")
-    store.finish(run_id, "completed", position="s7", reason=None, ended_by="decided")
+    store.finish(run_id, "completed", position="s7", reason=None)
     d = store.get_run(run_id)
     assert (d["lifecycle"], d["position"], d["outcome"], d["reason"]) == (
         "done", "s7", "completed", None)
-    assert d["ended_by"] == "decided"
     assert d["completed_at"] is not None
 
 
 def test_finish_stopped_records_reason(store):
     run_id = _seed(store)
     store.pause(run_id, "s4")
-    store.finish(run_id, "stopped", position=None, reason="rejected", ended_by="rejected")
+    store.finish(run_id, "stopped", position=None, reason="rejected")
     d = store.get_run(run_id)
     assert (d["lifecycle"], d["outcome"], d["reason"]) == ("done", "stopped", "rejected")
     assert d["completed_at"] is not None
@@ -148,11 +147,10 @@ def test_finish_stopped_records_reason(store):
 def test_finish_failed_no_completed_at(store):
     run_id = _seed(store)
     store.advance(run_id, "s3")
-    store.finish(run_id, "failed", position="s3", reason="boom",
-                 ended_by="failed", failed_stage="s3", error="boom")
+    store.finish(run_id, "failed", position="s3", reason="boom")
     d = store.get_run(run_id)
+    # The failure stage → position, the error → reason (7d-3 dropped failed_stage/error).
     assert (d["outcome"], d["position"], d["reason"]) == ("failed", "s3", "boom")
-    assert d["failed_stage"] == "s3" and d["error"] == "boom"
     assert d["completed_at"] is None      # failed never gets completed_at
 
 

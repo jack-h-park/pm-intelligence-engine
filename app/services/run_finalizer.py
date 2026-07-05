@@ -103,26 +103,26 @@ async def finalize_run(
     ended_by = _derive_ended_by(status, event_action, (run_before or {}).get("mode"))
 
     # Translate the terminal status into the authoritative (outcome, position, reason)
-    # model; the store writes those columns and stamps completed_at (US-55). The
-    # ended_by/failed_stage/error diagnostics ride along via **extra. position is
-    # the target for a completion, the failed stage for a failure, none for a kill.
+    # model — the single source of truth (US-55 step 7d-3 dropped the legacy
+    # ended_by/failed_stage/error columns; their information now lives in position and
+    # reason). position is the target for a completion, the failed stage for a failure,
+    # none for a kill; reason is the failure error, the kill's stop-kind, or none.
     _mode = (run_before or {}).get("mode")
     outcome = {"completed": "completed", "killed": "stopped", "failed": "failed"}[status]
     if status == "completed":
         position = pipeline.position_for_depth(_mode) if _mode else None
         reason = None
     elif status == "failed":
-        position = failure_fields.get("failed_stage")
-        reason = failure_fields.get("error")
+        position = failure_fields.get("failed_stage")   # the stage that was executing
+        reason = failure_fields.get("error")            # the exception string
     else:  # killed
         position = None
-        reason = ended_by
+        reason = ended_by                                # the stop-kind (rejected/…)
 
     # Roll up per-stage token usage into run-level totals at the same time (Phase 2).
     token_totals = _sum_run_tokens(run_id, engine)
     engine.store.finish(
-        run_id, outcome, position=position, reason=reason,
-        ended_by=ended_by, **token_totals, **failure_fields,
+        run_id, outcome, position=position, reason=reason, **token_totals,
     )
     _sync_signal_status(run_id, status, engine)
 

@@ -157,12 +157,13 @@ def test_failure_fields_round_trip(tmp_path):
     s = _store(tmp_path)
     sid = s.save_signal(title="t", raw_content="c")
     rid = s.create_run(product_id="p1", signal_id=sid)
-    s.finish(rid, "failed", position="s2", reason="boom 400",
-             failed_stage="s2", error="boom 400")
+    s.finish(rid, "failed", position="s2", reason="boom 400")
     run = s.get_run(rid)
     assert run["outcome"] == "failed"
-    assert run["failed_stage"] == "s2"
-    assert run["error"] == "boom 400"
+    # US-55 7d-3: the failure stage → position, the error → reason (the dedicated
+    # failed_stage/error columns were dropped).
+    assert run["position"] == "s2"
+    assert run["reason"] == "boom 400"
 
 
 def test_migration_adds_lineage_columns_to_legacy_db(tmp_path):
@@ -198,8 +199,9 @@ def test_migration_adds_lineage_columns_to_legacy_db(tmp_path):
     legacy = store.get_run("old-run")
     assert legacy["attempt_no"] == 1  # back-filled by the column DEFAULT
     assert legacy["root_run_id"] is None
-    assert legacy["failed_stage"] is None
-    assert legacy["error"] is None
+    # failed_stage/error were dropped in 7d-3 — no longer surfaced by the serializer.
+    assert "failed_stage" not in legacy
+    assert "error" not in legacy
 
     # New runs over the migrated DB compute lineage normally.
     r2 = store.create_run(product_id="p1", signal_id="s1")

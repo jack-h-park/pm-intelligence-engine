@@ -49,9 +49,9 @@ async def test_finalize_run_calls_store_finish_with_state():
         with patch("app.logging.emit_event"):
             await finalize_run("run-abc", "completed", engine)
 
-    # completed + mode=decide -> outcome=completed, position=s7 (target), ended_by=decided.
+    # completed + mode=decide -> outcome=completed, position=s7 (target), reason=None.
     engine.store.finish.assert_called_once_with(
-        "run-abc", "completed", position="s7", reason=None, ended_by="decided"
+        "run-abc", "completed", position="s7", reason=None
     )
 
 
@@ -64,9 +64,9 @@ async def test_finalize_run_killed_calls_store_finish():
     with patch("app.logging.emit_event"):
         await finalize_run("run-abc", "killed", engine)
 
-    # killed -> outcome=stopped, position=None, reason=ended_by ("killed" fallback).
+    # killed -> outcome=stopped, position=None, reason=the stop-kind ("killed" fallback).
     engine.store.finish.assert_called_once_with(
-        "run-abc", "stopped", position=None, reason="killed", ended_by="killed"
+        "run-abc", "stopped", position=None, reason="killed"
     )
 
 
@@ -79,10 +79,9 @@ async def test_finalize_run_failed_calls_store_finish():
     with patch("app.logging.emit_event"):
         await finalize_run("run-abc", "failed", engine)
 
-    # No current_stage on the mock run and no error in event_detail -> both None.
+    # No position on the mock run and no error in event_detail -> both None.
     engine.store.finish.assert_called_once_with(
-        "run-abc", "failed", position=None, reason=None, ended_by="failed",
-        failed_stage=None, error=None,
+        "run-abc", "failed", position=None, reason=None,
     )
 
 
@@ -105,8 +104,7 @@ async def test_finalize_run_failed_persists_stage_and_error():
 
     # failed -> position = failed stage (s2), reason = error.
     engine.store.finish.assert_called_once_with(
-        "run-abc", "failed", position="s2", reason="boom 400", ended_by="failed",
-        failed_stage="s2", error="boom 400",
+        "run-abc", "failed", position="s2", reason="boom 400",
     )
 
 
@@ -450,9 +448,11 @@ def test_derive_ended_by(status, event_action, mode, expected):
 
 
 @pytest.mark.asyncio
-async def test_finalize_persists_ended_by_on_run():
-    """ended_by is stamped on the row, distinguishing a PM archive from an
-    auto-triage even though both leave status=completed, mode=archive."""
+async def test_completed_run_finishes_with_no_reason():
+    """US-55 step 7d-3 dropped the ended_by column, so a completion's kind
+    (auto_triage vs PM archive vs decided/noted) is no longer persisted — a
+    completed run finishes with reason=None. (The kill/failure reason still lives
+    in `reason`; only the completion sub-type is intentionally not recorded.)"""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine(mode="archive", status="running")
@@ -463,4 +463,5 @@ async def test_finalize_persists_ended_by_on_run():
             )
 
     _, kwargs = engine.store.finish.call_args
-    assert kwargs["ended_by"] == "auto_triaged"
+    assert kwargs["reason"] is None
+    assert "ended_by" not in kwargs

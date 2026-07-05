@@ -143,13 +143,8 @@ class SQLiteStore:
                     )
                 )
 
-        # Terminal-reason column (nullable). Existing terminal rows stay NULL —
-        # the reason cannot be reconstructed for a row that predates the column
-        # without re-deriving from approval_events, and a NULL correctly reads as
-        # "legacy / unknown". New finalize calls populate it going forward.
-        if "ended_by" not in {c["name"] for c in inspector.get_columns("workflow_runs")}:
-            with self._engine.begin() as conn:
-                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN ended_by VARCHAR"))
+        # (The legacy `ended_by` column was added here in US-52 and dropped in
+        # US-55 step 7d-3 — its terminal-reason now lives in `reason`.)
 
         # Canonical (position, lifecycle) columns (US-55 step 6). Plain nullable
         # ADD COLUMNs. These are now the authoritative run-state columns (US-55
@@ -161,12 +156,13 @@ class SQLiteStore:
                 with self._engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} VARCHAR"))
 
-        # US-55 step 7d-2: drop the legacy status/current_stage columns. Nothing reads
-        # or writes them anymore (7d-1) — the canonical (lifecycle, position, outcome,
-        # reason) columns are authoritative. Guarded → idempotent. SQLite DROP COLUMN
-        # needs >= 3.35 (prod is 3.37); if unsupported, no-op and leave them vestigial.
+        # US-55 step 7d-2/7d-3: drop the legacy state + diagnostic columns. Nothing
+        # reads or writes them anymore — the canonical (lifecycle, position, outcome,
+        # reason) columns are authoritative (a failed run's stage/error and a killed
+        # run's stop-kind live in position/reason). Guarded → idempotent. SQLite DROP
+        # COLUMN needs >= 3.35 (prod is 3.37); if unsupported, no-op and leave vestigial.
         run_cols_after = {c["name"] for c in inspect(self._engine).get_columns("workflow_runs")}
-        for col in ("status", "current_stage"):
+        for col in ("status", "current_stage", "ended_by", "failed_stage", "error"):
             if col in run_cols_after:
                 try:
                     with self._engine.begin() as conn:
@@ -666,10 +662,7 @@ class SQLiteStore:
             "attempt_no": r.attempt_no,
             "root_run_id": r.root_run_id,
             "origin": r.origin,
-            "failed_stage": r.failed_stage,
-            "error": r.error,
-            "ended_by": r.ended_by,
-            # Canonical (position, lifecycle) columns (real, dual-written).
+            # Canonical (position, lifecycle) run-state columns.
             "lifecycle": r.lifecycle,
             "position": r.position,
             "outcome": r.outcome,

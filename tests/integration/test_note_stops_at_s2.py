@@ -83,7 +83,9 @@ def test_note_direction_completes_at_s2_without_s7(client, engine):
     run = engine.store.get_run(run_id)
     assert run_status(run) == "completed"
     assert run["mode"] == "note"
-    assert run["ended_by"] == "noted"
+    # 7d-3: the completion sub-type ("noted") is derivable from depth=note + completed;
+    # it is no longer stored as a separate column, so reason stays None on completion.
+    assert run["reason"] is None
 
     # The clean-model assertion: S7 never ran, so there is no S7 output and no
     # executive_summary artifact — the S2 insight memo is the deliverable.

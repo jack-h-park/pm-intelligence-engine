@@ -181,20 +181,10 @@ class WorkflowRun(Base):
     # re-ingest, not as "attempt N of N" of a failure-retry lineage. create_run
     # scopes attempt counting to runs at/after the latest refresh boundary.
     origin = Column(String, nullable=False, default="start")
-    # Set only on failure: the stage that was executing when the run died, and
-    # the exception string. Both NULL for non-failed runs.
-    failed_stage = Column(String, nullable=True)
-    error = Column(Text, nullable=True)
-    # The semantic terminal reason, stamped once at finalize. Collapses the
-    # (status, mode, routing, approval_events) join a consumer would otherwise
-    # need to answer "how did this run end?" — the observatory reads the SQLite
-    # file directly, so this moves that logic out of the dashboard. NULL for
-    # non-terminal runs and for pre-column rows (backfilled lazily on next
-    # finalize; historical rows stay NULL). Controlled vocabulary — see
-    # run_finalizer._derive_ended_by:
-    #   auto_triaged · archived · noted · structured · evaluated · decided
-    #   · rejected · kill_confirmed · kill_overridden · voided · failed
-    ended_by = Column(String, nullable=True)
+    # The legacy failed_stage / error / ended_by diagnostic columns were dropped in
+    # US-55 step 7d-3 — their information lives in the canonical columns below: a
+    # failed run's stage → position, its error → reason; a killed run's stop-kind →
+    # reason. (SQLiteStore._migrate drops the physical columns.)
 
     # --- Canonical (position, lifecycle) columns (US-55) ---
     # The redesign's target vocabulary, PHYSICALLY stored and AUTHORITATIVE

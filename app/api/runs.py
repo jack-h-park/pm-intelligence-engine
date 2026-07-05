@@ -71,12 +71,8 @@ class RunResponse(BaseModel):
     # after the signal's content was re-ingested. Lets the observatory render a
     # re-ingest distinctly instead of as "attempt N of N" of a retry lineage.
     origin: str | None = None
-    failed_stage: str | None = None
-    error: str | None = None
-    # Semantic terminal reason (auto_triaged/archived/noted/…/voided/failed);
-    # null while non-terminal or for pre-column legacy rows. Lets a consumer read
-    # "how did this end?" without joining status+mode+routing+approval_events.
-    ended_by: str | None = None
+    # (failed_stage / error / ended_by were dropped in US-55 step 7d-3 — a failed
+    # run's stage → position, its error → reason; a killed run's stop-kind → reason.)
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
     gate3_review: dict | None = None

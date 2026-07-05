@@ -134,7 +134,7 @@ def test_stop_at_gate2_rejects(client, engine):
     assert resp.status_code == 202, resp.text
     run = engine.store.get_run(run_id)
     assert run_status(run) == "killed"
-    assert run["ended_by"] == "rejected"
+    assert run["reason"] == "rejected"   # stop-kind lives in reason (7d-3)
 
 
 # --- Gate 3 ---------------------------------------------------------------
@@ -193,7 +193,7 @@ def test_stop_on_running_voids(client, engine):
     assert resp.status_code == 202, resp.text
     run = engine.store.get_run(run_id)
     assert run_status(run) == "killed"
-    assert run["ended_by"] == "voided"
+    assert run["reason"] == "voided"   # stop-kind lives in reason (7d-3)
 
 
 # --- Validation -----------------------------------------------------------
