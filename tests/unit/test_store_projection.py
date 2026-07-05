@@ -94,3 +94,45 @@ def test_serializer_exposes_columns(store):
     assert d["position"] == "s5"
     assert d["outcome"] is None
     assert d["reason"] is None
+
+
+# --- step 7b: advance()/pause() write (lifecycle, position) as authority --------
+# The non-terminal transitions now go through advance()/pause() instead of
+# update_run(status=, current_stage=). These assert the NEW columns are the
+# authoritative write and status/current_stage are derived to the SAME values the
+# legacy form produced (so readers + ?status= are unaffected until 7c/7d).
+
+def test_advance_sets_state_and_derives_legacy(store):
+    run_id = _seed(store)
+    store.advance(run_id, "s5")
+    d = store.get_run(run_id)
+    assert (d["lifecycle"], d["position"]) == ("running", "s5")   # authoritative
+    assert (d["status"], d["current_stage"]) == ("running", "s5")  # derived compat
+
+
+def test_pause_derives_gate_status(store):
+    run_id = _seed(store)
+    store.pause(run_id, "s4")
+    d = store.get_run(run_id)
+    assert (d["lifecycle"], d["position"]) == ("paused", "s4")
+    assert d["status"] == "waiting_approval"   # s4 gate → derived compat status
+    assert d["current_stage"] == "s4"
+
+
+def test_advance_passes_through_mode(store):
+    run_id = _seed(store)
+    store.advance(run_id, "s2", mode="decide")   # Gate-1 resume form
+    d = store.get_run(run_id)
+    assert d["mode"] == "decide"
+    assert (d["lifecycle"], d["position"], d["status"]) == ("running", "s2", "running")
+
+
+def test_advance_pause_match_legacy_update_run(store):
+    """advance/pause must be a drop-in for the update_run(status=) they replaced."""
+    a = _seed(store)
+    store.pause(a, "s4")
+    b = _seed(store)
+    store.update_run(b, status="waiting_approval", current_stage="s4")
+    da, db = store.get_run(a), store.get_run(b)
+    for k in ("status", "current_stage", "lifecycle", "position", "outcome", "reason"):
+        assert da[k] == db[k], f"mismatch on {k}: advance/pause={da[k]} legacy={db[k]}"

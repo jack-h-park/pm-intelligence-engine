@@ -47,6 +47,12 @@ class PMWorkflowStore(Protocol):
 
     def update_run(self, run_id: str, **kwargs) -> None: ...
 
+    # State transitions (US-55 step 7b): (lifecycle, position) is authoritative;
+    # status/current_stage are derived compat columns.
+    def advance(self, run_id: str, position: str, **extra) -> None: ...
+
+    def pause(self, run_id: str, position: str, **extra) -> None: ...
+
     def list_runs(
         self,
         product_id: Optional[str] = None,

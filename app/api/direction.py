@@ -72,7 +72,7 @@ async def set_direction(
         feedback_text=f"chose={body.depth}; suggested={suggested}",
     )
 
-    engine.store.update_run(run_id, mode=body.depth, status="running")
+    engine.store.advance(run_id, "s2", mode=body.depth)
 
     background_tasks.add_task(_execute_from_direction, run_id, body.depth, engine)
 

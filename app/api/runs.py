@@ -304,7 +304,7 @@ def _start_manual_run(
     run_id = engine.store.create_run(
         product_id=product_id, signal_id=signal_id, origin=origin
     )
-    engine.store.update_run(run_id, status="running", current_stage="s1")
+    engine.store.advance(run_id, "s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
         _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
@@ -426,7 +426,7 @@ def _spawn_runs_in_batch(
         run_id = engine.store.create_run(
             product_id=product_id, signal_id=signal_id, batch_id=batch_id, origin=origin
         )
-        engine.store.update_run(run_id, status="running", current_stage="s1")
+        engine.store.advance(run_id, "s1")
         background_tasks.add_task(
             _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
             force_gate1,
@@ -506,7 +506,7 @@ async def promote_product(
     run_id = engine.store.create_run(
         product_id=body.product_id, signal_id=signal_id, batch_id=batch_id
     )
-    engine.store.update_run(run_id, status="running", current_stage="s1")
+    engine.store.advance(run_id, "s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
         _execute_s1_s2, run_id, signal_id, body.product_id, depth, engine
@@ -897,7 +897,7 @@ async def _execute_s1_s2(
             return
 
         # Continue immediately with the chosen mode
-        engine.store.update_run(run_id, mode=chosen_mode, status="running")
+        engine.store.advance(run_id, "s2", mode=chosen_mode)
         emit_event("run", "direction_set", run_id, {"mode": chosen_mode})
         await _continue_after_direction(run_id, chosen_mode, context, engine)
 
@@ -954,7 +954,7 @@ async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) 
     s4_raw = engine.store.get_stage_output(run_id, "s4")
     s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
 
-    engine.store.update_run(run_id, status="waiting_approval", current_stage="s4")
+    engine.store.pause(run_id, "s4")
     emit_event("run", "waiting_approval", run_id)
 
     signal_for_notify = engine.store.get_signal(

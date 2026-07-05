@@ -102,7 +102,7 @@ async def _apply_routing(
         return {"run_id": run_id, "action": action_label, "routing": "kill"}
 
     # poc or prd — start Stage 6 in background
-    engine.store.update_run(run_id, status="running", current_stage="s6")
+    engine.store.advance(run_id, "s6")
     background_tasks.add_task(_execute_s6_s7_with_routing, run_id, routing, engine)
     return {"run_id": run_id, "action": action_label, "routing": routing}
 

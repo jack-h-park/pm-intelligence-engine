@@ -52,7 +52,7 @@ async def approve_run(
     _require_waiting_approval(run_id, engine)
 
     engine.store.record_approval(run_id=run_id, stage="s4", action="approve")
-    engine.store.update_run(run_id, status="running", current_stage="s5")
+    engine.store.advance(run_id, "s5")
 
     background_tasks.add_task(_execute_s5_to_s7, run_id, engine)
 
@@ -71,7 +71,7 @@ async def revise_run(
     engine.store.record_approval(
         run_id=run_id, stage="s4", action="revise", feedback_text=body.feedback
     )
-    engine.store.update_run(run_id, status="running", current_stage="s4")
+    engine.store.advance(run_id, "s4")
 
     background_tasks.add_task(_execute_s4_retry, run_id, body.feedback, engine)
 
@@ -151,7 +151,7 @@ async def _pause_at_gate3(run_id: str, run: dict, context, engine: PMEngine) -> 
     s5 = S5OutputData(**json.loads(engine.store.get_stage_output(run_id, "s5")["output_json"])["output"])
     s4 = S4OutputData(**json.loads(engine.store.get_stage_output(run_id, "s4")["output_json"])["output"])
 
-    engine.store.update_run(run_id, status="waiting_routing_review", current_stage="s5")
+    engine.store.pause(run_id, "s5")
     emit_event("run", "waiting_routing_review", run_id, {
         "routing": s5.routing,
         "composite": s5.composite_score,
@@ -221,7 +221,7 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
             engine.store,
         )
 
-        engine.store.update_run(run_id, status="waiting_approval", current_stage="s4")
+        engine.store.pause(run_id, "s4")
         emit_event("run", "s4_retry_complete", run_id, {"version": next_version})
 
     except Exception as exc:  # noqa: BLE001

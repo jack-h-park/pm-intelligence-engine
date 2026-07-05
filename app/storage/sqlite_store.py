@@ -347,6 +347,43 @@ class SQLiteStore:
             self._project_columns(r)
             session.commit()
 
+    def advance(self, run_id: str, position: str, **extra) -> None:
+        """Move a run to *running* at ``position`` (US-55 step 7b).
+
+        ``(lifecycle, position)`` is the authoritative write; ``status`` and
+        ``current_stage`` are DERIVED here (via run_view.status_of) as back-compat
+        columns that readers + the ``?status=`` filter still use until steps 7c/7d.
+        ``extra`` passes through non-state fields (e.g. ``mode``).
+        """
+        self._set_live_state(run_id, "running", position, extra)
+
+    def pause(self, run_id: str, position: str, **extra) -> None:
+        """Pause a run at the gate at ``position`` (s2/s4/s5) — see :meth:`advance`."""
+        self._set_live_state(run_id, "paused", position, extra)
+
+    def _set_live_state(self, run_id: str, lifecycle: str, position: str, extra: dict) -> None:
+        from app import run_view
+
+        with self._Session() as session:
+            r = session.get(WorkflowRun, run_id)
+            if not r:
+                return
+            # Authoritative (position, lifecycle) write.
+            r.lifecycle = lifecycle
+            r.position = position
+            r.outcome = None
+            r.reason = None
+            # Derived legacy compat columns (dropped in 7d once no reader needs them).
+            r.status = RunStatus(run_view.status_of(lifecycle, position, None))
+            r.current_stage = position
+            for key, value in extra.items():
+                if key == "mode" and value is not None:
+                    value = RunMode(value)
+                elif key == "routing" and value is not None:
+                    value = Routing(value)
+                setattr(r, key, value)
+            session.commit()
+
     def list_runs(
         self,
         product_id: Optional[str] = None,
