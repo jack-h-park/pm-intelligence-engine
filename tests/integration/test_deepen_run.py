@@ -21,6 +21,7 @@ from app.services.context_loader import ContextLoader, FullContext
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -95,7 +96,7 @@ def _seed_completed_run(engine: PMEngine, mode: str, stages: list[str]) -> tuple
     if "s3" in stages:
         s3 = dict(_S3_OUTPUT, run_id=run_id)
         engine.store.save_stage_output(run_id, "s3", json.dumps(s3))
-    engine.store.update_run(run_id, status="completed", mode=mode)
+    seed_run_state(engine.store, run_id, "completed", mode=mode)
     engine.store.update_signal_status(signal_id, "done")
     return run_id, signal_id
 
@@ -128,7 +129,7 @@ def test_deepen_note_to_structure_runs_only_s3(client, engine, monkeypatch):
     assert body["depth"] == "structure"
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "completed"           # background task ran to finalize
+    assert run_status(run) == "completed"           # background task ran to finalize
     assert run["mode"] == "structure"
     assert run["completed_at"] is not None
     assert ran == ["s3"]
@@ -191,7 +192,7 @@ def test_deepen_structure_to_decide_reuses_s3_and_pauses_at_gate2(client, engine
     assert resp.status_code == 202
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "waiting_approval"    # Gate 2, as any decide run
+    assert run_status(run) == "waiting_approval"    # Gate 2, as any decide run
     assert run["mode"] == "decide"
     assert run["completed_at"] is None            # no longer terminal
     assert ran == ["s4"]
@@ -209,7 +210,7 @@ def test_deepen_rejects_shallower_or_equal_depth(client, engine):
 @pytest.mark.parametrize("status", ["running", "waiting_direction", "waiting_approval", "killed", "failed"])
 def test_deepen_rejects_non_completed_runs(client, engine, status):
     run_id, _ = _seed_completed_run(engine, "note", stages=["s2"])
-    engine.store.update_run(run_id, status=status)
+    seed_run_state(engine.store, run_id, status)
     resp = client.post(f"/runs/{run_id}/deepen", json={"depth": "structure"})
     assert resp.status_code == 409
 

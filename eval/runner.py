@@ -84,7 +84,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
             product_id=scenario["product_id"],
             signal_id=signal_id,
         )
-        engine.store.update_run(run_id, status="running", current_stage="s1")
+        engine.store.advance(run_id, "s1")
 
         full_ctx = engine.context_loader.load_full_context(scenario["product_id"])
         context = RunContext(
@@ -96,7 +96,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
         )
 
         # --- S1 ---
-        engine.store.update_run(run_id, current_stage="s1")
+        engine.store.advance(run_id, "s1")
         s1_out = await s1_signal.run(
             input=S1Input(
                 signal_id=signal_id,
@@ -111,7 +111,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
         result["s1"] = {"valid": True, "title": s1_out.output.title}
 
         # --- S2 ---
-        engine.store.update_run(run_id, current_stage="s2")
+        engine.store.advance(run_id, "s2")
         s2_out = await s2_insight.run(
             input=S2Input(
                 signal_id=signal_id,
@@ -128,7 +128,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
         result["s2"] = {"valid": True, "pillar_count": len(pillars)}
 
         # --- S3 ---
-        engine.store.update_run(run_id, current_stage="s3")
+        engine.store.advance(run_id, "s3")
         s3_out = await s3_opportunity.run(
             input=S3Input(
                 signal_id=signal_id,
@@ -151,7 +151,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
             result["issues"].extend(hyp_check.issues)
 
         # --- S4 (4 parallel agents) ---
-        engine.store.update_run(run_id, current_stage="s4")
+        engine.store.advance(run_id, "s4")
         s4_out = await s4_evaluation.run(
             S4Input(s3_output=s3_out.output),
             context,
@@ -174,7 +174,7 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
             result["issues"].extend([f"S4 rubric: {i}" for i in rubric.issues])
 
         # --- S5 (scoring + routing) ---
-        engine.store.update_run(run_id, current_stage="s5")
+        engine.store.advance(run_id, "s5")
         s5_out = await s5_prioritization.run(
             S5Input(s4_output=s4_out.output),
             context,
@@ -203,8 +203,12 @@ async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # t
         if not routing_result.passed:
             result["issues"].extend(routing_result.issues)
 
-        final_status = "waiting_approval" if s5_out.output.routing != "kill" else "completed"
-        engine.store.update_run(run_id, status=final_status, current_stage="s4")
+        # Park the run at its post-S5 resting state: paused at Gate 2 (s4) for a
+        # non-kill routing, or finished for a kill. (US-55 canonical state.)
+        if s5_out.output.routing != "kill":
+            engine.store.pause(run_id, "s4")
+        else:
+            engine.store.finish(run_id, "completed", position="s5")
 
         result["passed"] = len(result["issues"]) == 0
 

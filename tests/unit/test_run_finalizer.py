@@ -95,7 +95,7 @@ async def test_finalize_run_failed_persists_stage_and_error():
     engine.store.get_run.return_value = {
         "run_id": "run-abc",
         "signal_id": "signal-abc",
-        "current_stage": "s2",
+        "position": "s2",
         "attempt_no": 1,
     }
     with patch("app.logging.emit_event"):
@@ -125,7 +125,9 @@ async def test_finalize_run_failed_blocks_signal_after_max_attempts():
     # Signal status now derives from ALL the signal's runs: the lone run failed on
     # its final attempt, so the signal is parked as 'blocked'.
     engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
-    engine.store.list_runs.return_value = [{"status": "failed", "attempt_no": 3}]
+    engine.store.list_runs.return_value = [
+        {"lifecycle": "done", "outcome": "failed", "attempt_no": 3}
+    ]
     with patch("config.settings") as mock_settings:
         mock_settings.MAX_RUN_ATTEMPTS = 3
         with patch("app.logging.emit_event") as mock_emit:
@@ -149,7 +151,9 @@ async def test_finalize_run_failed_retries_below_max():
     }
     # Lone run failed below the cap → signal returns to the retryable 'new' pool.
     engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
-    engine.store.list_runs.return_value = [{"status": "failed", "attempt_no": 1}]
+    engine.store.list_runs.return_value = [
+        {"lifecycle": "done", "outcome": "failed", "attempt_no": 1}
+    ]
     with patch("config.settings") as mock_settings:
         mock_settings.MAX_RUN_ATTEMPTS = 3
         with patch("app.logging.emit_event"):
@@ -177,7 +181,11 @@ async def test_finalize_run_updates_signal_status(status: str, expected_signal_s
 
     engine = _make_engine()
     engine.store.get_signal.return_value = {"signal_id": "signal-abc", "status": "in_run"}
-    engine.store.list_runs.return_value = [{"status": status, "attempt_no": 1}]
+    # The reconcile reads the canonical (lifecycle, outcome) of the signal's runs.
+    _outcome = {"completed": "completed", "killed": "stopped", "failed": "failed"}[status]
+    engine.store.list_runs.return_value = [
+        {"lifecycle": "done", "outcome": _outcome, "attempt_no": 1}
+    ]
     with patch("app.logging.emit_event"):
         with patch("app.services.run_finalizer._maybe_export"):
             await finalize_run("run-abc", status, engine)

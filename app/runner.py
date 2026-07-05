@@ -147,7 +147,7 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
     if position in ("s3", "s4") and store.get_stage_output(run_id, position) is not None:
         return  # already computed — deepen reuse
 
-    store.update_run(run_id, current_stage=position)
+    store.advance(run_id, position)
 
     if position == "s3":
         s2_raw = store.get_stage_output(run_id, "s2")

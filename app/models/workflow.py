@@ -214,13 +214,12 @@ class WorkflowRun(Base):
     #   · rejected · kill_confirmed · kill_overridden · voided · failed
     ended_by = Column(String, nullable=True)
 
-    # --- Canonical (position, lifecycle) columns (US-55 step 6, dual-write) ---
-    # The redesign's target vocabulary, now PHYSICALLY stored (not just derived at
-    # the API layer as in step 5). The store recomputes these from the authoritative
-    # status/mode/current_stage on every write (see SQLiteStore._project_columns),
-    # so they stay consistent while status/mode remain. This makes the new columns
-    # real for the direct-SQLite reader (observatory) ahead of the coordinated
-    # cutover; removing status/mode is a later cleanup once nothing reads them.
+    # --- Canonical (position, lifecycle) columns (US-55) ---
+    # The redesign's target vocabulary, PHYSICALLY stored and AUTHORITATIVE
+    # (US-55 step 7d-1). The store writes them directly via advance/pause/finish;
+    # nothing reads or writes the legacy status/current_stage columns anymore
+    # (those are dropped in step 7d-2). The direct-SQLite reader (observatory) and
+    # Hermes read these columns.
     #   lifecycle: running | paused | done
     #   position:  furthest stage reached (s1..s7) — NOT cleared on finalize
     #   outcome:   completed | stopped | failed  (NULL while live)

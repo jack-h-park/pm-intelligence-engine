@@ -9,6 +9,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 _SYNTH_JSON = json.dumps({
     "priority_ranking": [
@@ -55,7 +56,7 @@ def _batch_with_runs(engine, n=2, *, close=True, settle=True) -> tuple[str, list
     for i in range(n):
         rid = engine.store.create_run(f"prod-{chr(97 + i)}", signal_id, batch_id=batch_id)
         if settle:
-            engine.store.update_run(rid, status="completed")
+            seed_run_state(engine.store, rid, "completed")
         run_ids.append(rid)
     if close:
         engine.store.close_batch_membership(batch_id)
@@ -143,4 +144,4 @@ async def test_finalize_single_run_batch_no_synthesis(engine):
     run_id = engine.store.create_run("prod-a", signal_id)
     await finalize_run(run_id, "completed", engine)
     # nothing to assert beyond "did not raise / no batch row created"
-    assert engine.store.get_run(run_id)["status"] == "completed"
+    assert run_status(engine.store.get_run(run_id)) == "completed"

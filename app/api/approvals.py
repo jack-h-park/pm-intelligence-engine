@@ -35,10 +35,12 @@ def _require_waiting_approval(run_id: str, engine: PMEngine) -> dict:
             status_code=409,
             detail="Evaluation gate only applies to runs in 'decide' mode",
         )
-    if run["status"] != "waiting_approval":
+    # Gate 2 = paused at s4 (canonical state; US-55).
+    if not (run.get("lifecycle") == "paused" and run.get("position") == "s4"):
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'waiting_approval'",
+            detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
+                   "expected paused at Gate 2 (s4)",
         )
     return run
 

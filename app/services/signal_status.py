@@ -26,12 +26,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
-# A run is *terminal* once it can no longer change on its own.
-_TERMINAL_RUN_STATUSES = {"completed", "killed", "failed"}
-# completed/killed are *resolved* outcomes (a real decision or a deliberate
+# completed/stopped are *resolved* outcomes (a real decision or a deliberate
 # kill). ``failed`` is terminal-but-retryable — it does not, on its own, mean the
-# signal is done.
-_RESOLVED_RUN_STATUSES = {"completed", "killed"}
+# signal is done. Read from the canonical run-state columns (US-55): a run is
+# terminal iff ``lifecycle == "done"``; its ``outcome`` distinguishes the three.
+_RESOLVED_OUTCOMES = {"completed", "stopped"}
+
+
+def _is_terminal(run: dict) -> bool:
+    return run.get("lifecycle") == "done"
 
 
 def derive_signal_status(runs: list[dict], max_attempts: int) -> str:
@@ -51,9 +54,9 @@ def derive_signal_status(runs: list[dict], max_attempts: int) -> str:
     """
     if not runs:
         return "new"
-    if any(r.get("status") not in _TERMINAL_RUN_STATUSES for r in runs):
+    if any(not _is_terminal(r) for r in runs):
         return "in_run"
-    if any(r.get("status") in _RESOLVED_RUN_STATUSES for r in runs):
+    if any(r.get("outcome") in _RESOLVED_OUTCOMES for r in runs):
         return "done"
     # Every run is terminal and all of them failed.
     if any((r.get("attempt_no") or 1) >= max_attempts for r in runs):

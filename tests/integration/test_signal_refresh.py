@@ -25,6 +25,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -59,7 +60,7 @@ def _seed_signal_with_run(
         category="other",
     )
     run_id = engine.store.create_run("example-mobile-product", signal_id)
-    engine.store.update_run(run_id, status=status, current_stage="s2")
+    seed_run_state(engine.store, run_id, status)
     engine.store.update_signal_status(signal_id, "in_run")
     return signal_id, run_id
 
@@ -87,7 +88,7 @@ def test_refresh_voids_inflight_updates_content_and_starts_refresh_run(client, e
 
     # Old in-flight run is voided (killed).
     assert old_run in body["voided_runs"]
-    assert engine.store.get_run(old_run)["status"] == "killed"
+    assert run_status(engine.store.get_run(old_run)) == "killed"
 
     # Content overwritten, category re-inferred (Android → platform, not 'other'),
     # refreshed_at stamped.
@@ -139,5 +140,5 @@ def test_refresh_with_no_inflight_runs_still_starts_a_run(client, engine):
     assert resp.status_code == 202
     body = resp.json()
     assert body["voided_runs"] == []
-    assert engine.store.get_run(old_run)["status"] == "completed"  # untouched
+    assert run_status(engine.store.get_run(old_run)) == "completed"  # untouched
     assert engine.store.get_run(body["started"]["run_id"])["origin"] == "refresh"

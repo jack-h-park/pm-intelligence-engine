@@ -31,11 +31,6 @@ from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["void"])
 
-# Mirrors the terminal set in app.models.workflow.RunStatus. A run in any of
-# these has already reached an endpoint and cannot be voided.
-_TERMINAL_STATUSES = {"completed", "killed", "failed"}
-
-
 class VoidRequest(BaseModel):
     reason: str
 
@@ -50,18 +45,19 @@ async def void_run(
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
 
-    current_status = run["status"]
-    if current_status in _TERMINAL_STATUSES:
+    # A terminal run (lifecycle=done) has already reached an endpoint (US-55).
+    voided_from = f"{run.get('lifecycle')}@{run.get('position')}"
+    if run.get("lifecycle") == "done":
         raise HTTPException(
             status_code=409,
-            detail=f"Run is already terminal ('{current_status}'); nothing to void",
+            detail=f"Run is already terminal ('{voided_from}'); nothing to void",
         )
 
     # Record the void as a labeled decision event, distinct from a Gate 2 reject
     # or an S5 routing kill. stage falls back to s1 when the run never advanced.
     engine.store.record_approval(
         run_id=run_id,
-        stage=run.get("current_stage") or "s1",
+        stage=run.get("position") or "s1",
         action="void",
         feedback_text=body.reason,
     )
@@ -76,12 +72,12 @@ async def void_run(
         "killed",
         engine,
         event_action="voided",
-        event_detail={"reason": body.reason, "voided_from": current_status},
+        event_detail={"reason": body.reason, "voided_from": voided_from},
     )
 
     return {
         "run_id": run_id,
         "action": "voided",
-        "voided_from": current_status,
+        "voided_from": voided_from,
         "reason": body.reason,
     }

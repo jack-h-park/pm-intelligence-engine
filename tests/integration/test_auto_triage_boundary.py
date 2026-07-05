@@ -25,6 +25,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -120,7 +121,7 @@ def test_relevance_below_threshold_auto_triages(client, engine):
     run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "completed"
+    assert run_status(run) == "completed"
     assert run["mode"] == "archive"  # US-43: file → archive
     assert run["completed_at"] is not None
     # Gate 1 was never reached
@@ -134,7 +135,7 @@ def test_relevance_at_threshold_pauses_at_gate1(client, engine):
     run_id = _start_run_with_s2_score(client, engine, relevance_score=3, suggested_mode="brief")
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "waiting_direction"
+    assert run_status(run) == "waiting_direction"
     assert run["mode"] is None
     assert run["completed_at"] is None
     engine.notifier.send_gate1.assert_awaited_once()
@@ -161,7 +162,7 @@ def test_force_gate1_below_threshold_pauses_at_gate1(client, engine):
     )
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "waiting_direction"
+    assert run_status(run) == "waiting_direction"
     assert run["mode"] is None
     assert run["completed_at"] is None
     engine.notifier.send_gate1.assert_awaited_once()
@@ -177,7 +178,7 @@ def test_force_gate1_does_not_affect_above_threshold(client, engine):
         client, engine, relevance_score=3, suggested_mode="brief", force_gate1=True
     )
     run = engine.store.get_run(run_id)
-    assert run["status"] == "waiting_direction"
+    assert run_status(run) == "waiting_direction"
     engine.notifier.send_gate1.assert_awaited_once()
 
 
@@ -189,7 +190,7 @@ def test_force_gate1_with_explicit_depth_still_skips_gate1(client, engine):
         force_gate1=True, depth="evaluate",
     )
     run = engine.store.get_run(run_id)
-    assert run["status"] != "waiting_direction"
+    assert run_status(run) != "waiting_direction"
     engine.notifier.send_gate1.assert_not_awaited()
 
 
@@ -198,7 +199,7 @@ def test_no_force_gate1_below_threshold_still_auto_triages(client, engine):
     (the default autonomous path is unchanged)."""
     run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
     run = engine.store.get_run(run_id)
-    assert run["status"] == "completed"
+    assert run_status(run) == "completed"
     assert run["mode"] == "archive"
     engine.notifier.send_gate1.assert_not_awaited()
 

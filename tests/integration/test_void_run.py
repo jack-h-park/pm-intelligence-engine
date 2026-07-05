@@ -20,6 +20,8 @@ from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
 
+from tests.integration.conftest import run_status, seed_run_state
+
 
 @pytest.fixture()
 def engine(tmp_path):
@@ -48,10 +50,7 @@ def _seed_run(engine: PMEngine, status: str, mode: str | None = None) -> tuple[s
         raw_content="Body.",
     )
     run_id = engine.store.create_run("example-governance-product", signal_id)
-    updates = {"status": status}
-    if mode:
-        updates["mode"] = mode
-    engine.store.update_run(run_id, **updates)
+    seed_run_state(engine.store, run_id, status, mode=mode)
     engine.store.update_signal_status(signal_id, "in_run")
     return run_id, signal_id
 
@@ -64,10 +63,10 @@ def test_void_from_waiting_direction(client, engine):
     assert resp.status_code == 200
     body = resp.json()
     assert body["action"] == "voided"
-    assert body["voided_from"] == "waiting_direction"
+    assert body["voided_from"] == "paused@s2"   # Gate 1
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
     assert run["completed_at"] is not None          # killed stamps completed_at
     assert run["mode"] is None                       # NOT archive — never evaluated
 
@@ -85,7 +84,7 @@ def test_void_from_other_non_terminal_states(client, engine, status):
     run_id, _ = _seed_run(engine, status)
     resp = client.post(f"/runs/{run_id}/void", json={"reason": "void it"})
     assert resp.status_code == 200
-    assert engine.store.get_run(run_id)["status"] == "killed"
+    assert run_status(engine.store.get_run(run_id)) == "killed"
 
 
 @pytest.mark.parametrize("status", ["completed", "killed", "failed"])
@@ -105,7 +104,7 @@ def test_void_clears_routing(client, engine):
     assert resp.status_code == 200
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
     assert run["routing"] is None
 
 

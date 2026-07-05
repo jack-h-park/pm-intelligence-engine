@@ -16,6 +16,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 _BLOCKED_MODES = ["opportunity", "evaluate", "decide"]
 _ALLOWED_MODES = ["file", "brief"]
@@ -80,7 +81,7 @@ def _seed_signal(engine: PMEngine) -> str:
 def _seed_waiting_direction_run(engine: PMEngine) -> str:
     signal_id = _seed_signal(engine)
     run_id = engine.store.create_run("general", signal_id)
-    engine.store.update_run(run_id, status="waiting_direction", current_stage="s2")
+    seed_run_state(engine.store, run_id, "waiting_direction")
     return run_id
 
 
@@ -246,6 +247,6 @@ def test_direction_failure_marks_run_failed_and_signal_pending(client, engine):
     signal = engine.store.get_signal(signal_id)
     assert run is not None
     assert signal is not None
-    assert run["status"] == "failed"
+    assert run["outcome"] == "failed"
     assert run["completed_at"] is None
     assert signal["status"] == "new"

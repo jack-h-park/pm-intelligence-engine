@@ -14,7 +14,6 @@ from app.models.workflow import (
     Routing,
     RunBatch,
     RunMode,
-    RunStatus,
     Signal,
     SignalCategory,
     SignalStatus,
@@ -119,18 +118,14 @@ class SQLiteStore:
                 conn.execute(text("DROP TABLE signals__legacy_us49"))
 
         # State-vocabulary renames (state glossary, 2026-06-14). Idempotent —
-        # the WHERE clauses match only legacy values, so re-running is a no-op.
-        # The enum `_missing_` hooks accept the legacy strings in-code; these
-        # UPDATEs migrate the stored rows so SQLAlchemy reads resolve directly.
+        # the WHERE clause matches only legacy values, so re-running is a no-op.
+        # The enum `_missing_` hook accepts the legacy strings in-code; this UPDATE
+        # migrates the stored rows so SQLAlchemy reads resolve directly.
+        # (The workflow_runs.status rename is gone — the engine no longer reads or
+        # writes that column, and step 7d-2 drops it. US-55.)
         with self._engine.begin() as conn:
             conn.execute(
                 text("UPDATE signals SET status = 'new' WHERE status = 'pending'")
-            )
-            conn.execute(
-                text(
-                    "UPDATE workflow_runs SET status = 'waiting_direction' "
-                    "WHERE status = 'awaiting_direction'"
-                )
             )
 
         # Signal re-ingest support (POST /signals/{id}/refresh). Plain ADD COLUMNs,
@@ -156,48 +151,15 @@ class SQLiteStore:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN ended_by VARCHAR"))
 
-        # Canonical (position, lifecycle) columns (US-55 step 6, dual-write). Plain
-        # nullable ADD COLUMNs; the store backfills them on the next write of each
-        # row. Guarded → idempotent.
+        # Canonical (position, lifecycle) columns (US-55 step 6). Plain nullable
+        # ADD COLUMNs. These are now the authoritative run-state columns (US-55
+        # step 7d-1); the store writes them directly via advance/pause/finish.
+        # Guarded → idempotent. Rows in prod were backfilled in step 7c.
         run_cols = {c["name"] for c in inspector.get_columns("workflow_runs")}
         for col in ("lifecycle", "position", "outcome", "reason"):
             if col not in run_cols:
                 with self._engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} VARCHAR"))
-
-        # US-55 step 7c: backfill the canonical columns for rows written before the
-        # dual-write existed. They'd otherwise stay NULL and be invisible to the new
-        # ?lifecycle=/?position= filter (readers migrate to it in 7c/7d). Derives from
-        # each row's legacy status/mode/current_stage via _project_columns; only NULL
-        # rows are touched, so re-running on startup is a cheap no-op.
-        from sqlalchemy.orm import Session as _ORMSession
-
-        with _ORMSession(self._engine) as session:
-            stale = session.query(WorkflowRun).filter(WorkflowRun.lifecycle.is_(None)).all()
-            for r in stale:
-                self._project_columns(r)
-            if stale:
-                session.commit()
-
-    @staticmethod
-    def _project_columns(r: WorkflowRun) -> None:
-        """Recompute the canonical (position, lifecycle) columns from the row's
-        authoritative status/mode/current_stage. Called on every run write so the
-        physical columns stay consistent with the legacy ones (dual-write)."""
-        from app import run_view
-
-        proj = run_view.project({
-            "status": r.status.value if r.status else None,
-            "mode": r.mode.value if r.mode else None,
-            "current_stage": r.current_stage,
-            "failed_stage": r.failed_stage,
-            "ended_by": r.ended_by,
-            "error": r.error,
-        })
-        r.lifecycle = proj["lifecycle"]
-        r.position = proj["position"]
-        r.outcome = proj["outcome"]
-        r.reason = proj["reason"]
 
     # --- Signal ---
 
@@ -327,8 +289,13 @@ class SQLiteStore:
                 attempt_no=attempt_no,
                 root_run_id=root_run_id,
                 origin=origin,
+                # Authoritative initial state (US-55 step 7d-1): a fresh run is live
+                # with no position yet. advance("s1") sets the first position.
+                lifecycle="running",
+                position=None,
+                outcome=None,
+                reason=None,
             )
-            self._project_columns(run)
             session.add(run)
             session.commit()
             return run.run_id
@@ -339,35 +306,29 @@ class SQLiteStore:
             return self._run_to_dict(r) if r else None
 
     def update_run(self, run_id: str, **kwargs) -> None:
+        """Set non-state fields on a run (mode/routing/tokens/recommendation/…).
+
+        Run STATE (lifecycle/position/outcome/reason + completed_at) is written
+        only via advance/pause/finish (US-55 step 7d-1). This method no longer
+        accepts ``status``/``current_stage``.
+        """
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             if not r:
                 return
             for key, value in kwargs.items():
-                if key == "status":
-                    value = RunStatus(value)
-                    # Stamp completed_at on first transition to a resolved state.
-                    # failed intentionally does NOT receive completed_at — the run
-                    # did not reach a meaningful endpoint and may need investigation.
-                    if value in {RunStatus.completed, RunStatus.killed} and r.completed_at is None:
-                        r.completed_at = datetime.now(UTC)
-                elif key == "routing" and value is not None:
+                if key == "routing" and value is not None:
                     value = Routing(value)
                 elif key == "mode" and value is not None:
                     value = RunMode(value)
                 setattr(r, key, value)
-            # Dual-write: keep the canonical (position, lifecycle) columns in sync
-            # with the legacy fields just changed.
-            self._project_columns(r)
             session.commit()
 
     def advance(self, run_id: str, position: str, **extra) -> None:
-        """Move a run to *running* at ``position`` (US-55 step 7b).
+        """Move a run to *running* at ``position`` (US-55).
 
-        ``(lifecycle, position)`` is the authoritative write; ``status`` and
-        ``current_stage`` are DERIVED here (via run_view.status_of) as back-compat
-        columns that readers + the ``?status=`` filter still use until steps 7c/7d.
-        ``extra`` passes through non-state fields (e.g. ``mode``).
+        ``(lifecycle, position)`` is the authoritative run-state write. ``extra``
+        passes through non-state fields (e.g. ``mode``).
         """
         self._set_live_state(run_id, "running", position, extra)
 
@@ -376,8 +337,6 @@ class SQLiteStore:
         self._set_live_state(run_id, "paused", position, extra)
 
     def _set_live_state(self, run_id: str, lifecycle: str, position: str, extra: dict) -> None:
-        from app import run_view
-
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             if not r:
@@ -387,9 +346,6 @@ class SQLiteStore:
             r.position = position
             r.outcome = None
             r.reason = None
-            # Derived legacy compat columns (dropped in 7d once no reader needs them).
-            r.status = RunStatus(run_view.status_of(lifecycle, position, None))
-            r.current_stage = position
             for key, value in extra.items():
                 if key == "mode" and value is not None:
                     value = RunMode(value)
@@ -408,15 +364,11 @@ class SQLiteStore:
     ) -> None:
         """Apply a terminal state (US-55 step 7b-2).
 
-        ``(lifecycle=done, position, outcome, reason)`` is the authoritative write;
-        ``status``/``current_stage`` are DERIVED, and ``completed_at`` is stamped for
-        ``completed``/``stopped`` outcomes (not ``failed``) — reproducing the store's
-        legacy terminal behaviour exactly. ``extra`` carries the legacy compat detail
-        the finalizer still supplies (``ended_by``/``failed_stage``/``error`` — dropped
-        in 7d) plus token totals.
+        ``(lifecycle=done, position, outcome, reason)`` is the authoritative write.
+        ``completed_at`` is stamped for ``completed``/``stopped`` outcomes (not
+        ``failed``). ``extra`` carries the diagnostic detail the finalizer supplies
+        (``ended_by``/``failed_stage``/``error``) plus token totals.
         """
-        from app import run_view
-
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             if not r:
@@ -426,9 +378,6 @@ class SQLiteStore:
             r.position = position
             r.outcome = outcome
             r.reason = reason
-            # Derived legacy compat columns.
-            r.status = RunStatus(run_view.status_of("done", position, outcome))
-            r.current_stage = None
             if outcome in ("completed", "stopped") and r.completed_at is None:
                 r.completed_at = datetime.now(UTC)
             for key, value in extra.items():
@@ -438,7 +387,6 @@ class SQLiteStore:
     def list_runs(
         self,
         product_id: Optional[str] = None,
-        status: Optional[str] = None,
         routing: Optional[str] = None,
         event: Optional[str] = None,
         since: Optional[datetime] = None,
@@ -453,12 +401,9 @@ class SQLiteStore:
             q = session.query(WorkflowRun)
             if product_id:
                 q = q.filter(WorkflowRun.product_id == product_id)
-            if status:
-                q = q.filter(WorkflowRun.status == RunStatus(status))
-            # US-55 step 7c: filter on the canonical (lifecycle, position, outcome)
-            # columns. `status` stays as a compat filter until every reader moves off
-            # it. `outcome` distinguishes the three terminal states (completed /
-            # stopped / failed) — without it, ?lifecycle=done returns all terminals.
+            # US-55: filter on the canonical (lifecycle, position, outcome) columns.
+            # `outcome` distinguishes the three terminal states (completed / stopped
+            # / failed) — without it, ?lifecycle=done returns all terminals.
             if lifecycle:
                 q = q.filter(WorkflowRun.lifecycle == lifecycle)
             if position:
@@ -696,8 +641,6 @@ class SQLiteStore:
             "product_id": r.product_id,
             "signal_id": r.signal_id,
             "batch_id": r.batch_id,
-            "status": r.status.value,
-            "current_stage": r.current_stage,
             "mode": r.mode.value if r.mode else None,
             "recommendation_json": r.recommendation_json,
             "routing": r.routing.value if r.routing else None,

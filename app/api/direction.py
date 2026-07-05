@@ -48,12 +48,14 @@ async def set_direction(
 
     validate_mode_for_product(body.depth, run["product_id"])
 
-    if run["status"] != "waiting_direction":
+    # Gate 1 = paused at s2 (canonical state; US-55).
+    if not (run.get("lifecycle") == "paused" and run.get("position") == "s2"):
         if run.get("mode") == body.depth:
             return {"run_id": run_id, "depth": body.depth, "action": "already_set"}
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'waiting_direction'",
+            detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
+                   "expected paused at Gate 1 (s2)",
         )
 
     # Record the Gate 1 decision as a labeled calibration datapoint (US-44):

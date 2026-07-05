@@ -107,6 +107,9 @@ class RunResponse(BaseModel):
         # deprecation complete) — clients read `depth`. Input still accepts `mode`
         # as an alias (see RunStartRequest/PromoteRequest). The leftover "mode" key
         # here is ignored (RunResponse has no such field).
+        #
+        # lifecycle/position/outcome/reason are read straight from the row — the
+        # store's canonical columns are now authoritative (US-55 step 7d-1).
         if isinstance(data, dict):
             d = dict(data)
             if d.get("depth") is None and d.get("mode") is not None:
@@ -115,17 +118,6 @@ class RunResponse(BaseModel):
                 from config import settings
                 if settings.BASE_URL:
                     d["review_url"] = f"{settings.BASE_URL}/runs/{d['run_id']}/review"
-            # Canonical (position, lifecycle) projection (US-55 step 5/6). The
-            # store now persists these columns (step 6 dual-write), but a row that
-            # predates the dual-write — or has not been re-written since — carries
-            # NULL there. Derive to fill a NULL (not just an absent key), so the API
-            # always returns a correct lifecycle/position regardless of whether the
-            # physical column is populated yet.
-            if "status" in d:
-                from app import run_view
-                for k, v in run_view.project(d).items():
-                    if d.get(k) is None:
-                        d[k] = v
             return d
         return data
 
@@ -650,7 +642,6 @@ async def get_run(
 @router.get("", response_model=list[RunResponse])
 async def list_runs(
     product_id: str | None = None,
-    status: str | None = None,
     lifecycle: str | None = None,
     position: str | None = None,
     outcome: str | None = None,
@@ -682,7 +673,6 @@ async def list_runs(
             )
     runs = engine.store.list_runs(
         product_id=product_id,
-        status=status,
         lifecycle=lifecycle,
         position=position,
         outcome=outcome,
@@ -717,21 +707,18 @@ async def reopen_run(
             status_code=409,
             detail="Only auto-triaged runs can be reopened",
         )
-    if run["status"] != "completed":
+    if not (run.get("lifecycle") == "done" and run.get("outcome") == "completed"):
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'completed' "
+            detail=f"Run is '{run.get('lifecycle')}/{run.get('outcome')}', "
+                   "expected a completed run "
                    "(already reopened runs cannot be reopened again)",
         )
 
     engine.store.record_approval(run_id=run_id, stage="s2", action="reopen")
-    engine.store.update_run(
-        run_id,
-        status="waiting_direction",
-        current_stage="s2",
-        mode=None,
-        completed_at=None,
-    )
+    # Revive to Gate 1 (paused@s2) with no depth and no terminal timestamp.
+    engine.store.pause(run_id, "s2")
+    engine.store.update_run(run_id, mode=None, completed_at=None)
     engine.store.update_signal_status(run["signal_id"], "in_run")
     emit_event("run", "reopened", run_id, {"from": "auto_triaged"})
 
@@ -810,7 +797,7 @@ async def _execute_s1_s2(
             product_context=full_context.product_context,
         )
 
-        engine.store.update_run(run_id, current_stage="s1")
+        engine.store.advance(run_id, "s1")
         s1_out = await s1_signal.run(
             input=S1Input(
                 signal_id=signal_id,
@@ -824,7 +811,7 @@ async def _execute_s1_s2(
             store=engine.store,
         )
 
-        engine.store.update_run(run_id, current_stage="s2")
+        engine.store.advance(run_id, "s2")
         s2_out = await s2_insight.run(
             input=S2Input(
                 signal_id=signal_id,
@@ -883,11 +870,7 @@ async def _execute_s1_s2(
             return
         else:
             # No depth specified and relevance is acceptable — pause at Gate 1.
-            engine.store.update_run(
-                run_id,
-                status="waiting_direction",
-                current_stage="s2",
-            )
+            engine.store.pause(run_id, "s2")
             emit_event("run", "waiting_direction", run_id, recommendation)
             await engine.notifier.send_gate1(
                 run_id=run_id,

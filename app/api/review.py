@@ -35,6 +35,26 @@ _STATUS_LABELS = {
     "waiting_routing_review": ("Routing review",   "waiting"),
 }
 
+# Gate position -> the legacy display-status key the labels above are keyed on.
+_GATE_STATUS = {
+    "s2": "waiting_direction",
+    "s4": "waiting_approval",
+    "s5": "waiting_routing_review",
+}
+_OUTCOME_STATUS = {"completed": "completed", "stopped": "killed", "failed": "failed"}
+
+
+def _display_status(run: dict) -> str:
+    """Reconstruct the legacy display-status key from the canonical columns."""
+    lifecycle = run.get("lifecycle")
+    if lifecycle == "done":
+        return _OUTCOME_STATUS.get(run.get("outcome"), "unknown")
+    if lifecycle == "paused":
+        return _GATE_STATUS.get(run.get("position"), "running")
+    if lifecycle == "running":
+        return "running"
+    return "unknown"
+
 
 @router.get("/{run_id}/review", response_class=HTMLResponse)
 async def review_page(
@@ -60,9 +80,11 @@ async def review_page(
         s4_data = json.loads(s4_raw["output_json"])
         personas = s4_data.get("output", {}).get("personas", [])
 
-    status = run.get("status", "unknown")
+    # Derive a display status from the canonical (lifecycle, position, outcome)
+    # columns (US-55). Gate 2 (paused@s4) is the only actionable state here.
+    status = _display_status(run)
     status_label, status_class = _STATUS_LABELS.get(status, (status, "running"))
-    is_actionable = status == "waiting_approval"
+    is_actionable = run.get("lifecycle") == "paused" and run.get("position") == "s4"
 
     insight_html = _render_insight(s2_output)
     persona_cards_html = _render_persona_cards(personas)

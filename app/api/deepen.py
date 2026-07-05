@@ -55,11 +55,11 @@ async def deepen_run(
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run["status"] != "completed":
+    if not (run.get("lifecycle") == "done" and run.get("outcome") == "completed"):
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'completed' — "
-                   "only completed runs can be deepened",
+            detail=f"Run is '{run.get('lifecycle')}/{run.get('outcome')}', "
+                   "expected a completed run — only completed runs can be deepened",
         )
     current = run.get("mode")
     if current is None:
@@ -91,9 +91,10 @@ async def deepen_run(
         action="deepen",
         feedback_text=f"from={current}; to={target}",
     )
-    engine.store.update_run(
-        run_id, mode=target, status="running", completed_at=None
-    )
+    # Resume the run: back to running at its prior position with the new depth.
+    # _continue_after_direction advances position per-stage from here.
+    engine.store.advance(run_id, run.get("position") or "s2", mode=target)
+    engine.store.update_run(run_id, completed_at=None)
     engine.store.update_signal_status(run["signal_id"], "in_run")
 
     background_tasks.add_task(_execute_deepen, run_id, target, current, engine)

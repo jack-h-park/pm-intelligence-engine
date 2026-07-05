@@ -47,8 +47,8 @@ class PMWorkflowStore(Protocol):
 
     def update_run(self, run_id: str, **kwargs) -> None: ...
 
-    # State transitions (US-55 step 7b): (lifecycle, position) is authoritative;
-    # status/current_stage are derived compat columns.
+    # State transitions (US-55): the canonical (lifecycle, position, outcome,
+    # reason) columns are the authoritative run state, written only here.
     def advance(self, run_id: str, position: str, **extra) -> None: ...
 
     def pause(self, run_id: str, position: str, **extra) -> None: ...
@@ -61,12 +61,14 @@ class PMWorkflowStore(Protocol):
     def list_runs(
         self,
         product_id: Optional[str] = None,
-        status: Optional[str] = None,
         routing: Optional[str] = None,
         event: Optional[str] = None,
         since: Optional[datetime] = None,
         batch_id: Optional[str] = None,
         signal_id: Optional[str] = None,
+        lifecycle: Optional[str] = None,
+        position: Optional[str] = None,
+        outcome: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]: ...
 

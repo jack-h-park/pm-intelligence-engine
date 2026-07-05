@@ -13,6 +13,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -175,7 +176,7 @@ def _manual_run(engine, product_id="example-mobile-product", status="waiting_dir
         raw_content="Some MDM background-monitoring APIs are deprecated.",
     )
     run_id = engine.store.create_run(product_id, signal_id)
-    engine.store.update_run(run_id, status=status, current_stage="s2")
+    seed_run_state(engine.store, run_id, status)
     return run_id
 
 
@@ -260,7 +261,7 @@ def _open_batch_with_primary(engine, primary="prod-a", mode="decide") -> str:
     signal_id = _seed_signal(engine)
     batch_id = engine.store.create_batch(signal_id)
     run_id = engine.store.create_run(primary, signal_id, batch_id=batch_id)
-    engine.store.update_run(run_id, status="running", mode=mode)
+    seed_run_state(engine.store, run_id, "running", mode=mode)
     return batch_id
 
 
@@ -329,7 +330,7 @@ def test_close_batch_sets_membership_and_triggers_synthesis(client, engine, monk
     batch_id = engine.store.create_batch(signal_id)
     for pid in ("prod-a", "prod-b"):
         rid = engine.store.create_run(pid, signal_id, batch_id=batch_id)
-        engine.store.update_run(rid, status="completed")
+        seed_run_state(engine.store, rid, "completed")
 
     synth = AsyncMock(return_value=True)
     monkeypatch.setattr(

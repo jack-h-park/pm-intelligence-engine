@@ -94,17 +94,18 @@ async def finalize_run(
     failure_fields: dict = {}
     if status == "failed":
         failure_fields = {
-            "failed_stage": (run_before or {}).get("current_stage"),
+            # The live position is the stage that was executing when it failed
+            # (US-55: `position` replaced the retired `current_stage`).
+            "failed_stage": (run_before or {}).get("position"),
             "error": (event_detail or {}).get("error"),
         }
 
     ended_by = _derive_ended_by(status, event_action, (run_before or {}).get("mode"))
 
     # Translate the terminal status into the authoritative (outcome, position, reason)
-    # model; the store derives status/current_stage and stamps completed_at (US-55
-    # step 7b-2). ended_by/failed_stage/error ride along as legacy compat detail
-    # (dropped in 7d). position mirrors run_view.project: target for a completion,
-    # the failed stage for a failure, none for a kill.
+    # model; the store writes those columns and stamps completed_at (US-55). The
+    # ended_by/failed_stage/error diagnostics ride along via **extra. position is
+    # the target for a completion, the failed stage for a failure, none for a kill.
     _mode = (run_before or {}).get("mode")
     outcome = {"completed": "completed", "killed": "stopped", "failed": "failed"}[status]
     if status == "completed":

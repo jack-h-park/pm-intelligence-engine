@@ -222,9 +222,6 @@ class SignalRefreshRequest(BaseModel):
     force_gate1: bool = False
 
 
-_TERMINAL_RUN_STATUSES = {"completed", "killed", "failed"}
-
-
 @router.post("/{signal_id}/refresh", response_model=None, status_code=202)
 async def refresh_signal(
     signal_id: str,
@@ -258,13 +255,14 @@ async def refresh_signal(
     from app.api.runs import dispatch_start
 
     # 1. Void in-flight runs — they reasoned over the now-superseded content.
+    #    A terminal run (lifecycle=done) is left untouched (US-55).
     voided: list[str] = []
     for run in engine.store.list_runs(signal_id=signal_id):
-        if run["status"] in _TERMINAL_RUN_STATUSES:
+        if run.get("lifecycle") == "done":
             continue
         engine.store.record_approval(
             run_id=run["run_id"],
-            stage=run.get("current_stage") or "s1",
+            stage=run.get("position") or "s1",
             action="void",
             feedback_text="superseded by content refresh",
         )
@@ -272,7 +270,10 @@ async def refresh_signal(
         await finalize_run(
             run["run_id"], "killed", engine,
             event_action="voided",
-            event_detail={"reason": "content refreshed", "voided_from": run["status"]},
+            event_detail={
+                "reason": "content refreshed",
+                "voided_from": f"{run.get('lifecycle')}@{run.get('position')}",
+            },
         )
         voided.append(run["run_id"])
 

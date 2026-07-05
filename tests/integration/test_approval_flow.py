@@ -27,6 +27,8 @@ from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
 
+from tests.integration.conftest import run_status, seed_run_state
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -78,10 +80,9 @@ def _seed_run(engine: PMEngine, status: str, mode: str = "decide", routing: str 
         raw_content="Full signal text.",
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    updates = {"status": status, "mode": mode, "current_stage": "s4"}
+    seed_run_state(engine.store, run_id, status, mode=mode)
     if routing:
-        updates["routing"] = routing
-    engine.store.update_run(run_id, **updates)
+        engine.store.update_run(run_id, routing=routing)
     return run_id
 
 
@@ -141,7 +142,7 @@ def test_approve_requires_waiting_approval(client, engine):
     run_id = _seed_run(engine, status="running", mode="decide")
     resp = client.post(f"/runs/{run_id}/approve")
     assert resp.status_code == 409
-    assert "waiting_approval" in resp.json()["detail"]
+    assert "Gate 2" in resp.json()["detail"]
 
 
 def test_approve_404_on_missing_run(client):
@@ -171,8 +172,7 @@ def test_approve_transitions_run_to_running(client, engine):
 
     # Run must be set to running (background task not awaited, but status was set synchronously)
     run = engine.store.get_run(run_id)
-    assert run["status"] == "running"
-    assert run["current_stage"] == "s5"
+    assert (run["lifecycle"], run["position"]) == ("running", "s5")
 
 
 def test_approve_records_approval_event(client, engine):
@@ -186,7 +186,7 @@ def test_approve_records_approval_event(client, engine):
     # Verify via list_runs that the run exists; approval events are internal
     # (no public list endpoint), but we confirm the run transitioned correctly.
     run = engine.store.get_run(run_id)
-    assert run["status"] == "running"
+    assert run_status(run) == "running"
 
 
 # ---------------------------------------------------------------------------
@@ -221,8 +221,7 @@ def test_revise_sets_run_to_running_s4(client, engine):
         )
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "running"
-    assert run["current_stage"] == "s4"
+    assert (run["lifecycle"], run["position"]) == ("running", "s4")
 
 
 def test_revise_requires_feedback_field(client, engine):
@@ -253,8 +252,8 @@ def test_reject_kills_run(client, engine):
 
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(run["signal_id"])
-    assert run["status"] == "killed"
-    assert run["current_stage"] is None
+    assert run_status(run) == "killed"
+    assert run["position"] is None
     assert signal is not None
     assert signal["status"] == "done"
 
@@ -269,7 +268,7 @@ def test_reject_clears_routing(client, engine):
 
     run = engine.store.get_run(run_id)
     assert run["routing"] is None
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
 
 
 def test_reject_requires_reason_field(client, engine):
@@ -288,7 +287,7 @@ def test_reject_stamps_completed_at(client, engine):
             client.post(f"/runs/{run_id}/reject", json={"reason": "Not relevant."})
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
     assert run.get("completed_at") is not None, "completed_at must be stamped on killed runs"
 
 
@@ -313,8 +312,8 @@ def test_routing_review_confirm_kills_run(client, engine):
 
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(run["signal_id"])
-    assert run["status"] == "killed"
-    assert run["current_stage"] is None
+    assert run_status(run) == "killed"
+    assert run["position"] is None
     assert signal is not None
     assert signal["status"] == "done"
 
@@ -386,7 +385,7 @@ def test_routing_review_override_sets_new_routing(client, engine):
 
     run = engine.store.get_run(run_id)
     assert run["routing"] == "prd"
-    assert run["status"] == "running"
+    assert run_status(run) == "running"
 
 
 def test_routing_review_override_requires_routing_field(client, engine):
@@ -425,14 +424,15 @@ async def test_failed_run_does_not_stamp_completed_at(engine):
         raw_content="text",
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(run_id, status="running", mode="decide")
+    engine.store.update_run(run_id, mode="decide")
+    engine.store.advance(run_id, "s5")
 
     with patch("app.logging.emit_event"):
         await finalize_run(run_id, "failed", engine, event_detail={"error": "timeout"})
 
     run = engine.store.get_run(run_id)
     signal = engine.store.get_signal(signal_id)
-    assert run["status"] == "failed"
+    assert run["outcome"] == "failed"
     assert run.get("completed_at") is None, (
         "failed runs must NOT have completed_at stamped — they did not reach a meaningful endpoint"
     )

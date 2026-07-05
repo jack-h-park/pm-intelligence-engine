@@ -22,11 +22,11 @@ def test_updated_at_bumps_on_update(tmp_path):
     rid = s.create_run("p", sid)
     first = s.get_run(rid)["updated_at"]
     time.sleep(0.01)
-    s.update_run(rid, status="waiting_direction")
+    s.pause(rid, "s2")  # Gate 1
     second = s.get_run(rid)["updated_at"]
     assert second > first  # re-entering a state is detectable
 
     time.sleep(0.01)
-    s.update_run(rid, status="running")
+    s.advance(rid, "s3")
     third = s.get_run(rid)["updated_at"]
     assert third > second

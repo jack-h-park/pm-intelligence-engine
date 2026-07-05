@@ -29,10 +29,12 @@ def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict:
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    if run["status"] != "waiting_routing_review":
+    # Gate 3 = paused at s5 (canonical state; US-55).
+    if not (run.get("lifecycle") == "paused" and run.get("position") == "s5"):
         raise HTTPException(
             status_code=409,
-            detail=f"Run is '{run['status']}', expected 'waiting_routing_review'",
+            detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
+                   "expected paused at Gate 3 (s5)",
         )
     return run
 

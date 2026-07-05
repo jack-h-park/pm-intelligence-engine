@@ -18,6 +18,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -50,7 +51,7 @@ def test_reconcile_fixes_signal_stuck_at_in_run(client, engine):
         raw_content="Signal body.",
     )
     run_id = engine.store.create_run("enterprise-ai-agents", signal_id)
-    engine.store.update_run(run_id, status="completed")
+    seed_run_state(engine.store, run_id, "completed")
     engine.store.update_signal_status(signal_id, "in_run")  # the stale state
 
     assert engine.store.get_signal(signal_id)["status"] == "in_run"
@@ -78,7 +79,7 @@ def test_reconcile_is_idempotent(client, engine):
         raw_content="Signal body.",
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(run_id, status="completed")
+    seed_run_state(engine.store, run_id, "completed")
     engine.store.update_signal_status(signal_id, "done")
 
     first = client.post("/signals/reconcile").json()
@@ -98,9 +99,9 @@ def test_reconcile_keeps_signal_in_run_while_a_sibling_is_unsettled(client, engi
         raw_content="Signal body.",
     )
     done_run = engine.store.create_run("product-a", signal_id)
-    engine.store.update_run(done_run, status="completed")
+    seed_run_state(engine.store, done_run, "completed")
     live_run = engine.store.create_run("product-b", signal_id)
-    engine.store.update_run(live_run, status="running")
+    seed_run_state(engine.store, live_run, "running")
     engine.store.update_signal_status(signal_id, "in_run")
 
     resp = client.post("/signals/reconcile").json()

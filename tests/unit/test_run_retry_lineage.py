@@ -157,9 +157,10 @@ def test_failure_fields_round_trip(tmp_path):
     s = _store(tmp_path)
     sid = s.save_signal(title="t", raw_content="c")
     rid = s.create_run(product_id="p1", signal_id=sid)
-    s.update_run(rid, status="failed", failed_stage="s2", error="boom 400")
+    s.finish(rid, "failed", position="s2", reason="boom 400",
+             failed_stage="s2", error="boom 400")
     run = s.get_run(rid)
-    assert run["status"] == "failed"
+    assert run["outcome"] == "failed"
     assert run["failed_stage"] == "s2"
     assert run["error"] == "boom 400"
 

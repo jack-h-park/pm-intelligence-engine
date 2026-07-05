@@ -19,6 +19,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -59,8 +60,9 @@ def test_gate1_direction_decision_recorded(client, engine):
         original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
+    seed_run_state(engine.store, run_id, "waiting_direction")
     engine.store.update_run(
-        run_id, status="waiting_direction", current_stage="s2",
+        run_id,
         recommendation_json=json.dumps({"suggested_mode": "evaluate", "relevance_score": 5}),
     )
 
@@ -78,10 +80,8 @@ def test_gate3_confirm_decision_recorded(client, engine):
         original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(
-        run_id, status="waiting_routing_review", current_stage="s5",
-        mode="decide", routing="kill",
-    )
+    seed_run_state(engine.store, run_id, "waiting_routing_review", mode="decide")
+    engine.store.update_run(run_id, routing="kill")
     resp = client.post(f"/runs/{run_id}/routing-review", json={"action": "confirm"})
     assert resp.status_code == 202, resp.text
 
@@ -95,10 +95,8 @@ def test_gate3_override_decision_recorded(client, engine):
         original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(
-        run_id, status="waiting_routing_review", current_stage="s5",
-        mode="decide", routing="kill",
-    )
+    seed_run_state(engine.store, run_id, "waiting_routing_review", mode="decide")
+    engine.store.update_run(run_id, routing="kill")
     with patch("app.api.routing_review._execute_s6_s7_with_routing", new=AsyncMock()):
         resp = client.post(
             f"/runs/{run_id}/routing-review",
@@ -118,7 +116,8 @@ def test_decisions_queryable_by_event_filter(client, engine):
         original_product_id="example-security-product", title="Sig", raw_content="Text."
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(run_id, status="waiting_routing_review", routing="kill", mode="decide")
+    seed_run_state(engine.store, run_id, "waiting_routing_review", mode="decide")
+    engine.store.update_run(run_id, routing="kill")
     with patch("app.api.routing_review._execute_s6_s7_with_routing", new=AsyncMock()):
         client.post(f"/runs/{run_id}/routing-review", json={"action": "override", "routing": "prd"})
 
@@ -135,8 +134,8 @@ def test_decisions_queryable_by_event_filter(client, engine):
 def _seed_awaiting(engine):
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
-    engine.store.update_run(rid, status="waiting_direction", current_stage="s2",
-                            recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
+    seed_run_state(engine.store, rid, "waiting_direction")
+    engine.store.update_run(rid, recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
     return rid
 
 
@@ -162,7 +161,7 @@ def test_run_response_surfaces_depth_not_mode(client, engine):
     # canonical `depth` and no longer returns `mode` (US-43 deprecation complete).
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
-    engine.store.update_run(rid, status="completed", mode="decide")
+    seed_run_state(engine.store, rid, "completed", mode="decide")
     r = client.get(f"/runs/{rid}").json()
     assert r["depth"] == "decide" and "mode" not in r
 
@@ -174,7 +173,7 @@ def test_run_response_surfaces_depth_not_mode(client, engine):
 def test_gate1_review_payload_surfaces_s2_insight(client, engine):
     sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
     rid = engine.store.create_run("example-security-product", sid)
-    engine.store.update_run(rid, status="waiting_direction", current_stage="s2")
+    seed_run_state(engine.store, rid, "waiting_direction")
     engine.store.save_stage_output(run_id=rid, stage="s1", output_json=json.dumps(
         {"output": {"summary": "Android 16 enables MTE via APM."}}))
     engine.store.save_stage_output(run_id=rid, stage="s2", output_json=json.dumps({"output": {

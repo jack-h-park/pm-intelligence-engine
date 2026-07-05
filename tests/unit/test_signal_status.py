@@ -24,34 +24,37 @@ MAX = 3
 # ---------------------------------------------------------------------------
 
 
+# Canonical run-state shorthands (US-55): a run is described by (lifecycle,
+# outcome), not the retired `status` string.
+_RUNNING = {"lifecycle": "running", "outcome": None}
+_PAUSED = {"lifecycle": "paused", "outcome": None}
+
+
+def _done(outcome: str, attempt_no: int = 1) -> dict:
+    return {"lifecycle": "done", "outcome": outcome, "attempt_no": attempt_no}
+
+
 @pytest.mark.parametrize(
     ("runs", "expected"),
     [
         # no runs → never started
         ([], "new"),
         # any non-terminal run → in_run
-        ([{"status": "running"}], "in_run"),
-        ([{"status": "waiting_direction"}], "in_run"),
-        ([{"status": "pending"}], "in_run"),
-        # a completed/killed sibling alongside an unsettled one is still in_run
-        ([{"status": "completed", "attempt_no": 1}, {"status": "running"}], "in_run"),
+        ([_RUNNING], "in_run"),
+        ([_PAUSED], "in_run"),
+        # a resolved sibling alongside an unsettled one is still in_run
+        ([_done("completed"), _RUNNING], "in_run"),
         # all terminal with a resolved outcome → done
-        ([{"status": "completed", "attempt_no": 1}], "done"),
-        ([{"status": "killed", "attempt_no": 1}], "done"),
+        ([_done("completed")], "done"),
+        ([_done("stopped")], "done"),
         # completed wins over a failed sibling
-        (
-            [{"status": "completed", "attempt_no": 1}, {"status": "failed", "attempt_no": 1}],
-            "done",
-        ),
+        ([_done("completed"), _done("failed")], "done"),
         # all failed, below the cap → retryable new
-        ([{"status": "failed", "attempt_no": 1}], "new"),
-        ([{"status": "failed", "attempt_no": 2}], "new"),
+        ([_done("failed", 1)], "new"),
+        ([_done("failed", 2)], "new"),
         # all failed, a lineage hit the cap → blocked
-        ([{"status": "failed", "attempt_no": 3}], "blocked"),
-        (
-            [{"status": "failed", "attempt_no": 1}, {"status": "failed", "attempt_no": 3}],
-            "blocked",
-        ),
+        ([_done("failed", 3)], "blocked"),
+        ([_done("failed", 1), _done("failed", 3)], "blocked"),
     ],
 )
 def test_derive_signal_status(runs, expected):
@@ -60,7 +63,9 @@ def test_derive_signal_status(runs, expected):
 
 def test_derive_missing_attempt_no_defaults_to_one():
     """A failed run with no attempt_no is treated as attempt 1 (below the cap)."""
-    assert derive_signal_status([{"status": "failed"}], MAX) == "new"
+    assert derive_signal_status(
+        [{"lifecycle": "done", "outcome": "failed"}], MAX
+    ) == "new"
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +86,7 @@ def _engine_with(signal_status, runs, max_attempts=MAX):
 
 def test_reconcile_fixes_stuck_in_run():
     """The Glasswing regression: a completed run left the signal at in_run."""
-    engine = _engine_with("in_run", [{"status": "completed", "attempt_no": 1}])
+    engine = _engine_with("in_run", [_done("completed")])
     result = reconcile_signal_status("sig-1", engine)
     assert result == "done"
     engine.store.update_signal_status.assert_called_once_with("sig-1", "done")
@@ -89,7 +94,7 @@ def test_reconcile_fixes_stuck_in_run():
 
 def test_reconcile_noop_when_already_correct():
     """No write (and None returned) when the stored status already matches."""
-    engine = _engine_with("done", [{"status": "completed", "attempt_no": 1}])
+    engine = _engine_with("done", [_done("completed")])
     result = reconcile_signal_status("sig-1", engine)
     assert result is None
     engine.store.update_signal_status.assert_not_called()
@@ -117,8 +122,8 @@ def test_reconcile_all_reports_only_corrections():
         {"signal_id": "b", "title": "Fine", "status": "done"},      # already correct
     ]
     runs_by_signal = {
-        "a": [{"status": "completed", "attempt_no": 1}],
-        "b": [{"status": "completed", "attempt_no": 1}],
+        "a": [_done("completed")],
+        "b": [_done("completed")],
     }
     engine.store.list_runs.side_effect = lambda signal_id, limit: runs_by_signal[signal_id]
 

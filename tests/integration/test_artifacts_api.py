@@ -1,4 +1,5 @@
 import pytest
+from tests.integration.conftest import seed_run_state
 from unittest.mock import AsyncMock, MagicMock
 from fastapi.testclient import TestClient
 
@@ -53,7 +54,7 @@ def _seed_run(engine: PMEngine) -> str:
         raw_content="Full signal text.",
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
-    engine.store.update_run(run_id, status="completed", mode="decide", current_stage=None)
+    seed_run_state(engine.store, run_id, "completed", mode="decide")
     return run_id
 
 

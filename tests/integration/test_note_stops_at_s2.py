@@ -19,6 +19,7 @@ from app.services.context_loader import ContextLoader, FullContext
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -69,7 +70,7 @@ def _seed_waiting_direction(engine: PMEngine) -> str:
     )
     run_id = engine.store.create_run("example-security-product", signal_id)
     engine.store.save_stage_output(run_id, "s2", json.dumps(dict(_S2_OUTPUT, run_id=run_id)))
-    engine.store.update_run(run_id, status="waiting_direction", current_stage="s2")
+    seed_run_state(engine.store, run_id, "waiting_direction")
     return run_id
 
 
@@ -80,7 +81,7 @@ def test_note_direction_completes_at_s2_without_s7(client, engine):
     assert resp.status_code == 202, resp.text
 
     run = engine.store.get_run(run_id)
-    assert run["status"] == "completed"
+    assert run_status(run) == "completed"
     assert run["mode"] == "note"
     assert run["ended_by"] == "noted"
 

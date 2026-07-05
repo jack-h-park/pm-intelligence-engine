@@ -19,6 +19,7 @@ from app.services.context_loader import ContextLoader, FullContext
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import run_status, seed_run_state
 
 
 @pytest.fixture()
@@ -77,12 +78,9 @@ def _seed(engine: PMEngine, status: str, mode=None, routing=None, with_s2=True, 
                        "open_question_quality": 2, "persona_independence": 2, "passed": True, "issues": []},
         }}
         engine.store.save_stage_output(run_id, "s4", json.dumps(dict(s4, run_id=run_id)))
-    updates = {"status": status}
-    if mode:
-        updates["mode"] = mode
+    seed_run_state(engine.store, run_id, status, mode=mode)
     if routing:
-        updates["routing"] = routing
-    engine.store.update_run(run_id, **updates)
+        engine.store.update_run(run_id, routing=routing)
     engine.store.update_signal_status(signal_id, "in_run")
     return run_id, signal_id
 
@@ -135,7 +133,7 @@ def test_stop_at_gate2_rejects(client, engine):
     resp = client.post(f"/runs/{run_id}/decision", json={"action": "stop", "reason": "not now"})
     assert resp.status_code == 202, resp.text
     run = engine.store.get_run(run_id)
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
     assert run["ended_by"] == "rejected"
 
 
@@ -163,7 +161,7 @@ def test_stop_at_gate3_kills(client, engine):
     run_id, _ = _seed(engine, "waiting_routing_review", mode="decide", routing="prd")
     resp = client.post(f"/runs/{run_id}/decision", json={"action": "stop", "reason": "reconsidered"})
     assert resp.status_code == 202, resp.text
-    assert engine.store.get_run(run_id)["status"] == "killed"
+    assert run_status(engine.store.get_run(run_id)) == "killed"
 
 
 # --- Completed: deepen / reopen ------------------------------------------
@@ -183,7 +181,7 @@ def test_advance_on_completed_reopens_auto_triaged(client, engine):
     engine.store.record_approval(run_id=run_id, stage="s2", action="auto_triaged")
     resp = client.post(f"/runs/{run_id}/decision", json={"action": "advance"})
     assert resp.status_code == 202, resp.text
-    assert engine.store.get_run(run_id)["status"] == "waiting_direction"
+    assert run_status(engine.store.get_run(run_id)) == "waiting_direction"
 
 
 # --- Void (any non-terminal) ---------------------------------------------
@@ -194,7 +192,7 @@ def test_stop_on_running_voids(client, engine):
     resp = client.post(f"/runs/{run_id}/decision", json={"action": "stop", "reason": "started in error"})
     assert resp.status_code == 202, resp.text
     run = engine.store.get_run(run_id)
-    assert run["status"] == "killed"
+    assert run_status(run) == "killed"
     assert run["ended_by"] == "voided"
 
 

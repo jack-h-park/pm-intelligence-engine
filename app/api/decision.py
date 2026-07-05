@@ -53,20 +53,25 @@ async def decide(
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
-    status = run["status"]
+    # Discriminate the run's state from the canonical (lifecycle, position, outcome)
+    # columns (US-55 step 7d-1) rather than the retired `status` enum.
+    lifecycle = run.get("lifecycle")
+    position = run.get("position")
+    outcome = run.get("outcome")
+    state = f"{lifecycle}@{position}"  # human-readable label for error messages
     action = body.action
 
-    # --- Gate 1: pick the processing depth -------------------------------
-    if status == "waiting_direction":
+    # --- Gate 1 (paused@s2): pick the processing depth -------------------
+    if lifecycle == "paused" and position == "s2":
         if action == "advance_to":
             from app.api.direction import DirectionRequest, set_direction
             return await set_direction(
                 run_id, DirectionRequest(depth=body.target), background_tasks, engine
             )
-        raise _invalid(action, status, "advance_to {target}")
+        raise _invalid(action, state, "advance_to {target}")
 
-    # --- Gate 2: approve / revise / reject -------------------------------
-    if status == "waiting_approval":
+    # --- Gate 2 (paused@s4): approve / revise / reject -------------------
+    if lifecycle == "paused" and position == "s4":
         from app.api.approvals import (
             RejectRequest,
             ReviseRequest,
@@ -83,10 +88,10 @@ async def decide(
             )
         if action == "stop":
             return await reject_run(run_id, RejectRequest(reason=body.reason or ""), engine)
-        raise _invalid(action, status, "advance | revise | stop")
+        raise _invalid(action, state, "advance | revise | stop")
 
-    # --- Gate 3: confirm / override routing ------------------------------
-    if status == "waiting_routing_review":
+    # --- Gate 3 (paused@s5): confirm / override routing ------------------
+    if lifecycle == "paused" and position == "s5":
         from app.api.routing_review import RoutingReviewRequest, routing_review
         if action == "advance":
             return await routing_review(
@@ -106,10 +111,10 @@ async def decide(
                 RoutingReviewRequest(action="override", routing="kill", reason=body.reason),
                 background_tasks, engine,
             )
-        raise _invalid(action, status, "advance | advance_to {routing} | stop")
+        raise _invalid(action, state, "advance | advance_to {routing} | stop")
 
-    # --- Completed: deepen or reopen -------------------------------------
-    if status == "completed":
+    # --- Completed (done/completed): deepen or reopen -------------------
+    if lifecycle == "done" and outcome == "completed":
         if action == "advance_to":
             from app.api.deepen import DeepenRequest, deepen_run
             return await deepen_run(
@@ -120,18 +125,18 @@ async def decide(
             from app.api.runs import reopen_run
             resp = await reopen_run(run_id, engine)
             return resp.model_dump() if hasattr(resp, "model_dump") else resp
-        raise _invalid(action, status, "advance_to {target} (deepen) | advance (reopen)")
+        raise _invalid(action, state, "advance_to {target} (deepen) | advance (reopen)")
 
     # --- Any other non-terminal state: administrative void ---------------
-    if action == "stop" and status not in ("killed", "failed"):
+    if action == "stop" and lifecycle != "done":
         from app.api.void import VoidRequest, void_run
         return await void_run(run_id, VoidRequest(reason=body.reason or ""), engine)
 
-    raise _invalid(action, status, "(none — run is terminal or state has no such decision)")
+    raise _invalid(action, state, "(none — run is terminal or state has no such decision)")
 
 
-def _invalid(action: str, status: str, allowed: str) -> HTTPException:
+def _invalid(action: str, state: str, allowed: str) -> HTTPException:
     return HTTPException(
         status_code=409,
-        detail=f"action '{action}' is not valid for a run in '{status}'. Allowed here: {allowed}",
+        detail=f"action '{action}' is not valid for a run in '{state}'. Allowed here: {allowed}",
     )

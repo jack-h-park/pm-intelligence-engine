@@ -23,7 +23,6 @@ from app.models.stages import PortfolioSynthesisData
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
-_SETTLED = {"completed", "killed", "failed"}
 
 _JSON_SCHEMA = """{
   "priority_ranking": [{"product_id": "<id>", "rank": <int, 1=highest>, "rationale": "<one line>"}],
@@ -51,7 +50,7 @@ def _run_summary(run: dict, engine: PMEngine) -> str:
 
     return (
         f"### {run['product_id']}\n"
-        f"Outcome: {run['status']} · routing: {routing} · "
+        f"Outcome: {run.get('outcome') or '—'} · routing: {routing} · "
         f"composite: {composite_s} · relevance: {relevance}\n"
         f"What changed for this product: {what_changed}"
     )
@@ -105,7 +104,8 @@ def batch_ready_for_synthesis(batch_id: str, engine: PMEngine) -> bool:
     runs = engine.store.list_runs(batch_id=batch_id, limit=1000)
     if len(runs) <= 1:
         return False
-    return all(r["status"] in _SETTLED for r in runs)
+    # A run is settled once it is terminal (lifecycle=done; US-55).
+    return all(r.get("lifecycle") == "done" for r in runs)
 
 
 async def synthesize_batch(batch_id: str, engine: PMEngine) -> bool:
