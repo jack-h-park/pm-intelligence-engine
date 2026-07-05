@@ -190,3 +190,25 @@ def test_list_runs_lifecycle_position_filter(store):
     # lifecycle alone spans both gates; running is separate.
     assert {r["run_id"] for r in store.list_runs(lifecycle="paused")} == {g2, g3}
     assert [r["run_id"] for r in store.list_runs(lifecycle="running")] == [live]
+
+
+def test_init_backfills_legacy_null_columns(store, tmp_path):
+    """A row written before dual-write has NULL canonical columns; re-opening the
+    store must backfill them so the ?lifecycle= filter sees the row (US-55 7c)."""
+    run_id = _seed(store)
+    store.pause(run_id, "s4")
+    # Simulate a legacy row: NULL the canonical columns behind the store's back.
+    with store._engine.begin() as conn:
+        conn.execute(
+            text("UPDATE workflow_runs SET lifecycle=NULL, position=NULL, "
+                 "outcome=NULL, reason=NULL WHERE run_id=:r"),
+            {"r": run_id},
+        )
+    assert _raw(store, run_id)["lifecycle"] is None
+    assert store.list_runs(lifecycle="paused") == []   # invisible while NULL
+
+    reopened = SQLiteStore(f"sqlite:///{tmp_path}/test.db")   # _migrate → backfill
+    assert _raw(reopened, run_id) == {
+        "lifecycle": "paused", "position": "s4", "outcome": None, "reason": None,
+    }
+    assert [r["run_id"] for r in reopened.list_runs(lifecycle="paused")] == [run_id]

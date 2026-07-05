@@ -165,6 +165,20 @@ class SQLiteStore:
                 with self._engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} VARCHAR"))
 
+        # US-55 step 7c: backfill the canonical columns for rows written before the
+        # dual-write existed. They'd otherwise stay NULL and be invisible to the new
+        # ?lifecycle=/?position= filter (readers migrate to it in 7c/7d). Derives from
+        # each row's legacy status/mode/current_stage via _project_columns; only NULL
+        # rows are touched, so re-running on startup is a cheap no-op.
+        from sqlalchemy.orm import Session as _ORMSession
+
+        with _ORMSession(self._engine) as session:
+            stale = session.query(WorkflowRun).filter(WorkflowRun.lifecycle.is_(None)).all()
+            for r in stale:
+                self._project_columns(r)
+            if stale:
+                session.commit()
+
     @staticmethod
     def _project_columns(r: WorkflowRun) -> None:
         """Recompute the canonical (position, lifecycle) columns from the row's
