@@ -161,6 +161,19 @@ class SQLiteStore:
                 with self._engine.begin() as conn:
                     conn.execute(text(f"ALTER TABLE workflow_runs ADD COLUMN {col} VARCHAR"))
 
+        # US-55 step 7d-2: drop the legacy status/current_stage columns. Nothing reads
+        # or writes them anymore (7d-1) — the canonical (lifecycle, position, outcome,
+        # reason) columns are authoritative. Guarded → idempotent. SQLite DROP COLUMN
+        # needs >= 3.35 (prod is 3.37); if unsupported, no-op and leave them vestigial.
+        run_cols_after = {c["name"] for c in inspect(self._engine).get_columns("workflow_runs")}
+        for col in ("status", "current_stage"):
+            if col in run_cols_after:
+                try:
+                    with self._engine.begin() as conn:
+                        conn.execute(text(f"ALTER TABLE workflow_runs DROP COLUMN {col}"))
+                except Exception:  # noqa: BLE001 — pre-3.35 SQLite: leave column vestigial
+                    pass
+
     # --- Signal ---
 
     def save_signal(

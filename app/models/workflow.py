@@ -10,25 +10,9 @@ class Base(DeclarativeBase):
     pass
 
 
-class RunStatus(str, enum.Enum):
-    pending = "pending"
-    running = "running"
-    waiting_direction = "waiting_direction"
-    waiting_approval = "waiting_approval"
-    waiting_routing_review = "waiting_routing_review"
-    completed = "completed"
-    killed = "killed"
-    failed = "failed"
-
-    @classmethod
-    def _missing_(cls, value):
-        # Accept the legacy 'awaiting_direction' value (renamed → 'waiting_direction'
-        # for prefix consistency; state glossary 2026-06-14) so old in-code calls
-        # and pre-migration DB reads resolve. DB rows are migrated in
-        # SQLiteStore._migrate_schema.
-        if value == "awaiting_direction":
-            return cls.waiting_direction
-        return None
+# RunStatus (the legacy status enum) was removed in US-55 step 7d-2 — run state is
+# the canonical (lifecycle, position, outcome, reason) columns; the status /
+# current_stage columns are dropped by SQLiteStore._migrate.
 
 
 class RunMode(str, enum.Enum):
@@ -162,8 +146,6 @@ class WorkflowRun(Base):
     # Groups the runs created from one signal fan-out (US-49). NULL for legacy
     # single runs — treated as a batch of one (no portfolio synthesis).
     batch_id = Column(String, nullable=True)
-    status = Column(SAEnum(RunStatus), nullable=False, default=RunStatus.pending)
-    current_stage = Column(String, nullable=True)
     mode = Column(SAEnum(RunMode), nullable=True)
     recommendation_json = Column(Text, nullable=True)  # S2 suggested_mode + reasoning
     routing = Column(SAEnum(Routing), nullable=True)
