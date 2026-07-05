@@ -192,6 +192,20 @@ def test_list_runs_lifecycle_position_filter(store):
     assert [r["run_id"] for r in store.list_runs(lifecycle="running")] == [live]
 
 
+def test_list_runs_outcome_filter_distinguishes_terminals(store):
+    """?lifecycle=done alone spans all terminals; outcome splits them. Without the
+    outcome filter, the gate-watcher's three terminal queries each returned every
+    done run (each run keyed completed AND killed AND failed) — the 7c-2 deploy bug."""
+    done_c = _seed(store); store.finish(done_c, "completed", position="s7")
+    done_k = _seed(store); store.finish(done_k, "stopped", position=None)
+    done_f = _seed(store); store.finish(done_f, "failed", position="s3")
+
+    assert {r["run_id"] for r in store.list_runs(lifecycle="done")} == {done_c, done_k, done_f}
+    assert [r["run_id"] for r in store.list_runs(lifecycle="done", outcome="completed")] == [done_c]
+    assert [r["run_id"] for r in store.list_runs(lifecycle="done", outcome="stopped")] == [done_k]
+    assert [r["run_id"] for r in store.list_runs(lifecycle="done", outcome="failed")] == [done_f]
+
+
 def test_init_backfills_legacy_null_columns(store, tmp_path):
     """A row written before dual-write has NULL canonical columns; re-opening the
     store must backfill them so the ?lifecycle= filter sees the row (US-55 7c)."""

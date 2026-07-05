@@ -446,6 +446,7 @@ class SQLiteStore:
         signal_id: Optional[str] = None,
         lifecycle: Optional[str] = None,
         position: Optional[str] = None,
+        outcome: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -454,12 +455,16 @@ class SQLiteStore:
                 q = q.filter(WorkflowRun.product_id == product_id)
             if status:
                 q = q.filter(WorkflowRun.status == RunStatus(status))
-            # US-55 step 7c: filter on the canonical (lifecycle, position) columns.
-            # `status` stays as a compat filter until every reader has moved off it.
+            # US-55 step 7c: filter on the canonical (lifecycle, position, outcome)
+            # columns. `status` stays as a compat filter until every reader moves off
+            # it. `outcome` distinguishes the three terminal states (completed /
+            # stopped / failed) — without it, ?lifecycle=done returns all terminals.
             if lifecycle:
                 q = q.filter(WorkflowRun.lifecycle == lifecycle)
             if position:
                 q = q.filter(WorkflowRun.position == position)
+            if outcome:
+                q = q.filter(WorkflowRun.outcome == outcome)
             if routing:
                 q = q.filter(WorkflowRun.routing == Routing(routing))
             if batch_id:
