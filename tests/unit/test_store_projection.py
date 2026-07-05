@@ -136,3 +136,40 @@ def test_advance_pause_match_legacy_update_run(store):
     da, db = store.get_run(a), store.get_run(b)
     for k in ("status", "current_stage", "lifecycle", "position", "outcome", "reason"):
         assert da[k] == db[k], f"mismatch on {k}: advance/pause={da[k]} legacy={db[k]}"
+
+
+# --- step 7b-2: finish() is the terminal write, matches the legacy form ---------
+
+def test_finish_completed_matches_legacy(store):
+    a = _seed(store)
+    store.update_run(a, mode="decide")
+    store.finish(a, "completed", position="s7", reason=None, ended_by="decided")
+    b = _seed(store)
+    store.update_run(b, mode="decide")
+    store.update_run(b, status="completed", current_stage=None, ended_by="decided")
+    da, db = store.get_run(a), store.get_run(b)
+    for k in ("status", "current_stage", "lifecycle", "position", "outcome", "reason", "ended_by"):
+        assert da[k] == db[k], f"mismatch on {k}: finish={da[k]} legacy={db[k]}"
+    assert da["status"] == "completed" and da["completed_at"] is not None
+
+
+def test_finish_killed_records_reason(store):
+    run_id = _seed(store)
+    store.pause(run_id, "s4")
+    store.finish(run_id, "stopped", position=None, reason="rejected", ended_by="rejected")
+    d = store.get_run(run_id)
+    assert (d["status"], d["lifecycle"], d["outcome"], d["reason"]) == (
+        "killed", "done", "stopped", "rejected")
+    assert d["completed_at"] is not None
+
+
+def test_finish_failed_no_completed_at(store):
+    run_id = _seed(store)
+    store.advance(run_id, "s3")
+    store.finish(run_id, "failed", position="s3", reason="boom",
+                 ended_by="failed", failed_stage="s3", error="boom")
+    d = store.get_run(run_id)
+    assert (d["status"], d["outcome"], d["position"], d["reason"]) == (
+        "failed", "failed", "s3", "boom")
+    assert d["failed_stage"] == "s3" and d["error"] == "boom"
+    assert d["completed_at"] is None      # failed never gets completed_at

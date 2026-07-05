@@ -384,6 +384,43 @@ class SQLiteStore:
                 setattr(r, key, value)
             session.commit()
 
+    def finish(
+        self,
+        run_id: str,
+        outcome: str,
+        position: str | None = None,
+        reason: str | None = None,
+        **extra,
+    ) -> None:
+        """Apply a terminal state (US-55 step 7b-2).
+
+        ``(lifecycle=done, position, outcome, reason)`` is the authoritative write;
+        ``status``/``current_stage`` are DERIVED, and ``completed_at`` is stamped for
+        ``completed``/``stopped`` outcomes (not ``failed``) — reproducing the store's
+        legacy terminal behaviour exactly. ``extra`` carries the legacy compat detail
+        the finalizer still supplies (``ended_by``/``failed_stage``/``error`` — dropped
+        in 7d) plus token totals.
+        """
+        from app import run_view
+
+        with self._Session() as session:
+            r = session.get(WorkflowRun, run_id)
+            if not r:
+                return
+            # Authoritative terminal write.
+            r.lifecycle = "done"
+            r.position = position
+            r.outcome = outcome
+            r.reason = reason
+            # Derived legacy compat columns.
+            r.status = RunStatus(run_view.status_of("done", position, outcome))
+            r.current_stage = None
+            if outcome in ("completed", "stopped") and r.completed_at is None:
+                r.completed_at = datetime.now(UTC)
+            for key, value in extra.items():
+                setattr(r, key, value)
+            session.commit()
+
     def list_runs(
         self,
         product_id: Optional[str] = None,

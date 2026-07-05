@@ -53,6 +53,11 @@ class PMWorkflowStore(Protocol):
 
     def pause(self, run_id: str, position: str, **extra) -> None: ...
 
+    def finish(
+        self, run_id: str, outcome: str, position: str | None = None,
+        reason: str | None = None, **extra,
+    ) -> None: ...
+
     def list_runs(
         self,
         product_id: Optional[str] = None,

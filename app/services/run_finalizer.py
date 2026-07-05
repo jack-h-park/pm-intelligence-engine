@@ -100,12 +100,28 @@ async def finalize_run(
 
     ended_by = _derive_ended_by(status, event_action, (run_before or {}).get("mode"))
 
-    # Apply terminal state (store layer handles completed_at stamping). Roll up
-    # per-stage token usage into run-level totals at the same time (Phase 2).
+    # Translate the terminal status into the authoritative (outcome, position, reason)
+    # model; the store derives status/current_stage and stamps completed_at (US-55
+    # step 7b-2). ended_by/failed_stage/error ride along as legacy compat detail
+    # (dropped in 7d). position mirrors run_view.project: target for a completion,
+    # the failed stage for a failure, none for a kill.
+    _mode = (run_before or {}).get("mode")
+    outcome = {"completed": "completed", "killed": "stopped", "failed": "failed"}[status]
+    if status == "completed":
+        position = pipeline.position_for_depth(_mode) if _mode else None
+        reason = None
+    elif status == "failed":
+        position = failure_fields.get("failed_stage")
+        reason = failure_fields.get("error")
+    else:  # killed
+        position = None
+        reason = ended_by
+
+    # Roll up per-stage token usage into run-level totals at the same time (Phase 2).
     token_totals = _sum_run_tokens(run_id, engine)
-    engine.store.update_run(
-        run_id, status=status, current_stage=None, ended_by=ended_by,
-        **token_totals, **failure_fields,
+    engine.store.finish(
+        run_id, outcome, position=position, reason=reason,
+        ended_by=ended_by, **token_totals, **failure_fields,
     )
     _sync_signal_status(run_id, status, engine)
 

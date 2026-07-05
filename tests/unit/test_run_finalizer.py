@@ -1,7 +1,7 @@
 """Unit tests for run_finalizer — single exit point for terminal run transitions.
 
 Covers:
-  - await finalize_run() calls store.update_run with the right status
+  - await finalize_run() calls store.finish with the right (outcome, position, reason)
   - completed_at is stamped by the store for completed/killed (store-layer contract)
   - export is triggered for completed runs at exportable depth (note and above)
   - export is NOT triggered for completed 'archive' depth (set-aside)
@@ -40,8 +40,8 @@ def _make_engine(mode: str = "decide", status: str = "running") -> MagicMock:
 
 
 @pytest.mark.asyncio
-async def test_finalize_run_calls_store_update_with_status():
-    """finalize_run must call store.update_run with the given status."""
+async def test_finalize_run_calls_store_finish_with_state():
+    """finalize_run must call store.finish with the terminal (outcome, position, reason)."""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine()
@@ -49,30 +49,30 @@ async def test_finalize_run_calls_store_update_with_status():
         with patch("app.logging.emit_event"):
             await finalize_run("run-abc", "completed", engine)
 
-    # mode=decide + completed -> ended_by="decided".
-    engine.store.update_run.assert_called_once_with(
-        "run-abc", status="completed", current_stage=None, ended_by="decided"
+    # completed + mode=decide -> outcome=completed, position=s7 (target), ended_by=decided.
+    engine.store.finish.assert_called_once_with(
+        "run-abc", "completed", position="s7", reason=None, ended_by="decided"
     )
 
 
 @pytest.mark.asyncio
-async def test_finalize_run_killed_calls_store_update():
-    """finalize_run with 'killed' must call store.update_run(status='killed')."""
+async def test_finalize_run_killed_calls_store_finish():
+    """finalize_run with 'killed' -> store.finish(outcome='stopped')."""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine()
     with patch("app.logging.emit_event"):
         await finalize_run("run-abc", "killed", engine)
 
-    # killed with no semantic event_action -> ended_by falls back to "killed".
-    engine.store.update_run.assert_called_once_with(
-        "run-abc", status="killed", current_stage=None, ended_by="killed"
+    # killed -> outcome=stopped, position=None, reason=ended_by ("killed" fallback).
+    engine.store.finish.assert_called_once_with(
+        "run-abc", "stopped", position=None, reason="killed", ended_by="killed"
     )
 
 
 @pytest.mark.asyncio
-async def test_finalize_run_failed_calls_store_update():
-    """finalize_run with 'failed' records failed_stage + error alongside status."""
+async def test_finalize_run_failed_calls_store_finish():
+    """finalize_run with 'failed' records failed_stage + error alongside the state."""
     from app.services.run_finalizer import finalize_run
 
     engine = _make_engine()
@@ -80,8 +80,8 @@ async def test_finalize_run_failed_calls_store_update():
         await finalize_run("run-abc", "failed", engine)
 
     # No current_stage on the mock run and no error in event_detail -> both None.
-    engine.store.update_run.assert_called_once_with(
-        "run-abc", status="failed", current_stage=None, ended_by="failed",
+    engine.store.finish.assert_called_once_with(
+        "run-abc", "failed", position=None, reason=None, ended_by="failed",
         failed_stage=None, error=None,
     )
 
@@ -103,8 +103,9 @@ async def test_finalize_run_failed_persists_stage_and_error():
             "run-abc", "failed", engine, event_detail={"error": "boom 400"}
         )
 
-    engine.store.update_run.assert_called_once_with(
-        "run-abc", status="failed", current_stage=None, ended_by="failed",
+    # failed -> position = failed stage (s2), reason = error.
+    engine.store.finish.assert_called_once_with(
+        "run-abc", "failed", position="s2", reason="boom 400", ended_by="failed",
         failed_stage="s2", error="boom 400",
     )
 
@@ -453,5 +454,5 @@ async def test_finalize_persists_ended_by_on_run():
                 "run-abc", "completed", engine, event_action="auto_triaged"
             )
 
-    _, kwargs = engine.store.update_run.call_args
+    _, kwargs = engine.store.finish.call_args
     assert kwargs["ended_by"] == "auto_triaged"
