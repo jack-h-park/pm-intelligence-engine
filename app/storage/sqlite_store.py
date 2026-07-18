@@ -16,10 +16,18 @@ from app.models.workflow import (
     RunMode,
     Signal,
     SignalCategory,
+    SignalNote,
     SignalStatus,
+    SignalTag,
     SourceType,
     StageOutput,
     WorkflowRun,
+)
+from app.services.signal_tags import (
+    MAX_TAGS_PER_SIGNAL,
+    TagError,
+    normalize_tag,
+    normalize_tags,
 )
 
 
@@ -36,7 +44,8 @@ class SQLiteStore:
         ``create_all`` creates new tables but never alters existing ones, so
         columns added to a model are missing from a pre-existing SQLite file.
         Add them here, guarded by a column-existence check. New tables
-        (run_batches, portfolio_syntheses) are handled by ``create_all``.
+        (run_batches, portfolio_syntheses, signal_notes, signal_tags) are handled
+        by ``create_all``.
         """
         inspector = inspect(self._engine)
         run_columns = {c["name"] for c in inspector.get_columns("workflow_runs")}
@@ -237,6 +246,7 @@ class SQLiteStore:
         self,
         original_product_id: Optional[str] = None,
         status: Optional[str] = None,
+        tag: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -245,8 +255,109 @@ class SQLiteStore:
                 q = q.filter(Signal.original_product_id == original_product_id)
             if status:
                 q = q.filter(Signal.status == SignalStatus(status))
+            if tag:
+                # Normalised at the boundary so a caller can pass the tag as typed.
+                q = q.filter(
+                    Signal.signal_id.in_(
+                        session.query(SignalTag.signal_id).filter(
+                            SignalTag.tag == normalize_tag(tag)
+                        )
+                    )
+                )
             q = q.order_by(Signal.ingested_at.desc()).limit(limit)
             return [self._signal_to_dict(s) for s in q.all()]
+
+    # --- Signal notes (append-only) & tags (mutable set) ---
+
+    def add_signal_note(
+        self,
+        signal_id: str,
+        body: str,
+        author: str,
+        context: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> Optional[dict]:
+        """Append a review note. Returns None if the signal does not exist.
+
+        There is deliberately no update/delete counterpart — see ``SignalNote``.
+        """
+        with self._Session() as session:
+            if session.get(Signal, signal_id) is None:
+                return None
+            note = SignalNote(
+                signal_id=signal_id,
+                body=body,
+                author=author,
+                context=context,
+                run_id=run_id,
+            )
+            session.add(note)
+            session.commit()
+            return self._signal_note_to_dict(note)
+
+    def list_signal_notes(
+        self, signal_id: str, include_superseded: bool = False
+    ) -> list[dict]:
+        """Notes oldest-first — the order the judgments were actually made in."""
+        with self._Session() as session:
+            q = session.query(SignalNote).filter(SignalNote.signal_id == signal_id)
+            if not include_superseded:
+                q = q.filter(SignalNote.superseded_by.is_(None))
+            q = q.order_by(SignalNote.created_at.asc(), SignalNote.note_id.asc())
+            return [self._signal_note_to_dict(n) for n in q.all()]
+
+    def add_signal_tags(
+        self, signal_id: str, tags: list[str], author: str
+    ) -> Optional[list[str]]:
+        """Add tags (idempotent). Returns the signal's full tag set, or None if
+        the signal does not exist.
+
+        Re-adding an existing tag is a no-op that keeps the original author and
+        timestamp — the first person to apply a label is the one who judged it.
+        """
+        with self._Session() as session:
+            if session.get(Signal, signal_id) is None:
+                return None
+            existing = {
+                t.tag
+                for t in session.query(SignalTag).filter(
+                    SignalTag.signal_id == signal_id
+                )
+            }
+            for tag in normalize_tags(tags):
+                if tag in existing:
+                    continue
+                if len(existing) >= MAX_TAGS_PER_SIGNAL:
+                    raise TagError(
+                        f"signal already carries {MAX_TAGS_PER_SIGNAL} tags "
+                        "— remove one before adding another"
+                    )
+                session.add(
+                    SignalTag(signal_id=signal_id, tag=tag, author=author)
+                )
+                existing.add(tag)
+            session.commit()
+            return sorted(existing)
+
+    def remove_signal_tags(
+        self, signal_id: str, tags: list[str]
+    ) -> Optional[list[str]]:
+        """Remove tags (idempotent). Returns the remaining set, or None if the
+        signal does not exist. Removing an absent tag is not an error."""
+        with self._Session() as session:
+            if session.get(Signal, signal_id) is None:
+                return None
+            for tag in normalize_tags(tags):
+                session.query(SignalTag).filter(
+                    SignalTag.signal_id == signal_id, SignalTag.tag == tag
+                ).delete()
+            session.commit()
+            return sorted(
+                t.tag
+                for t in session.query(SignalTag).filter(
+                    SignalTag.signal_id == signal_id
+                )
+            )
 
     # --- WorkflowRun ---
 
@@ -641,6 +752,26 @@ class SQLiteStore:
             "source_type": s.source_type.value,
             "ingested_at": s.ingested_at.isoformat(),
             "refreshed_at": s.refreshed_at.isoformat() if s.refreshed_at else None,
+            # Labels ride along on every signal read — they are the cheap facet
+            # consumers filter on. Note *bodies* do not: they are unbounded text,
+            # so the list endpoint carries only the count and GET
+            # /signals/{id}/notes serves the contents (same reasoning that keeps
+            # raw_content off the list response).
+            "tags": sorted(t.tag for t in s.tags),
+            "note_count": sum(1 for n in s.notes if n.superseded_by is None),
+        }
+
+    @staticmethod
+    def _signal_note_to_dict(n: SignalNote) -> dict:
+        return {
+            "note_id": n.note_id,
+            "signal_id": n.signal_id,
+            "body": n.body,
+            "author": n.author,
+            "context": n.context,
+            "run_id": n.run_id,
+            "created_at": n.created_at.isoformat(),
+            "superseded_by": n.superseded_by,
         }
 
     @staticmethod

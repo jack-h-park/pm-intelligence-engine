@@ -10,6 +10,7 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 from app.factory import PMEngine
 from app.api.deps import get_engine
 from app.models.workflow import SourceType
+from app.services.signal_tags import TagError
 
 router = APIRouter(prefix="/signals", tags=["signals"])
 
@@ -45,6 +46,11 @@ class SignalResponse(BaseModel):
     ingested_at: str
     # Set when the signal's content was re-ingested via POST /signals/{id}/refresh.
     refreshed_at: Optional[str] = None
+    # Review labels (mutable set) and the number of live review notes. Note
+    # bodies are served by GET /signals/{id}/notes, not here — see
+    # _signal_to_dict. Defaulted so pre-existing consumers keep working.
+    tags: list[str] = []
+    note_count: int = 0
 
 
 class SignalDetailResponse(SignalResponse):
@@ -187,12 +193,18 @@ async def list_signals(
     # origin product (original_product_id).
     product_id: Optional[str] = None,
     status: Optional[str] = None,
+    # Filter to signals carrying this review label. Normalised server-side, so
+    # "Gate-1 Blocked" and "gate-1-blocked" find the same rows.
+    tag: Optional[str] = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[SignalResponse]:
-    signals = engine.store.list_signals(
-        original_product_id=product_id, status=status, limit=limit
-    )
+    try:
+        signals = engine.store.list_signals(
+            original_product_id=product_id, status=status, tag=tag, limit=limit
+        )
+    except TagError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return [SignalResponse(**s) for s in signals]
 
 
@@ -307,3 +319,126 @@ async def refresh_signal(
         "category": category,
         "started": started.model_dump(),
     }
+
+
+# --- Review notes & tags ---------------------------------------------------
+# Signal-scoped annotation, so a review leaves a durable record instead of
+# living only in a Telegram/Discord scrollback. Notes are append-only (the
+# judgment trail); tags are a mutable set (what the signal is now). Both follow
+# the POST-with-a-verb-suffix convention used everywhere else in this API — there
+# is no PATCH anywhere in the app.
+#
+# These paths have three segments, so they never collide with the /{signal_id}
+# route regardless of declaration order (unlike the literal /reconcile above).
+
+
+class SignalNoteCreate(BaseModel):
+    body: str
+    # Required, not defaulted: an unattributed note cannot be told apart from an
+    # agent-written one later, and agents write here far more often than humans.
+    author: str
+    # Lifecycle capture point — gate0 / triage / gate1 / terminal / manual.
+    context: Optional[str] = None
+    run_id: Optional[str] = None
+
+
+class SignalNoteResponse(BaseModel):
+    note_id: str
+    signal_id: str
+    body: str
+    author: str
+    context: Optional[str]
+    run_id: Optional[str]
+    created_at: str
+    # Reserved for a future retract/correct path; always NULL today.
+    superseded_by: Optional[str] = None
+
+
+@router.post(
+    "/{signal_id}/notes", response_model=SignalNoteResponse, status_code=201
+)
+async def add_signal_note(
+    signal_id: str,
+    body: SignalNoteCreate,
+    engine: PMEngine = Depends(get_engine),
+) -> SignalNoteResponse:
+    """Append a review note. Notes are never edited or deleted — to correct one,
+    add another."""
+    if not body.body.strip():
+        raise HTTPException(status_code=422, detail="body must be non-empty")
+    if not body.author.strip():
+        raise HTTPException(status_code=422, detail="author must be non-empty")
+    note = engine.store.add_signal_note(
+        signal_id,
+        body=body.body.strip(),
+        author=body.author.strip(),
+        context=body.context,
+        run_id=body.run_id,
+    )
+    if note is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return SignalNoteResponse(**note)
+
+
+@router.get("/{signal_id}/notes", response_model=list[SignalNoteResponse])
+async def list_signal_notes(
+    signal_id: str,
+    include_superseded: bool = False,
+    engine: PMEngine = Depends(get_engine),
+) -> list[SignalNoteResponse]:
+    """Notes oldest-first. 404s on an unknown signal rather than returning an
+    empty list, so a typo'd id is not mistaken for "no notes yet"."""
+    if engine.store.get_signal(signal_id) is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    notes = engine.store.list_signal_notes(
+        signal_id, include_superseded=include_superseded
+    )
+    return [SignalNoteResponse(**n) for n in notes]
+
+
+class SignalTagsRequest(BaseModel):
+    tags: list[str]
+    author: str = "unknown"  # unused on remove
+
+
+class SignalTagsResponse(BaseModel):
+    signal_id: str
+    tags: list[str]
+
+
+@router.post("/{signal_id}/tags", response_model=SignalTagsResponse)
+async def add_signal_tags(
+    signal_id: str,
+    body: SignalTagsRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> SignalTagsResponse:
+    """Add labels (idempotent). Returns the resulting full tag set."""
+    try:
+        tags = engine.store.add_signal_tags(
+            signal_id, body.tags, author=body.author
+        )
+    except TagError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if tags is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return SignalTagsResponse(signal_id=signal_id, tags=tags)
+
+
+@router.post("/{signal_id}/tags/remove", response_model=SignalTagsResponse)
+async def remove_signal_tags(
+    signal_id: str,
+    body: SignalTagsRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> SignalTagsResponse:
+    """Remove labels (idempotent — removing an absent tag is not an error).
+
+    A POST rather than a DELETE: the house convention is POST-with-a-verb-suffix,
+    and a body carries a batch of tags without URL-encoding each one.
+    """
+    try:
+        tags = engine.store.remove_signal_tags(signal_id, body.tags)
+    except TagError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if tags is None:
+        raise HTTPException(status_code=404, detail="Signal not found")
+    return SignalTagsResponse(signal_id=signal_id, tags=tags)

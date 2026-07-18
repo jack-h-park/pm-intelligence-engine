@@ -135,6 +135,74 @@ class Signal(Base):
     refreshed_at = Column(DateTime, nullable=True)
 
     runs = relationship("WorkflowRun", back_populates="signal")
+    notes = relationship("SignalNote", back_populates="signal")
+    tags = relationship("SignalTag", back_populates="signal")
+
+
+class SignalNote(Base):
+    """A free-text review note on a signal — the human/agent record of *why* a
+    signal was judged the way it was at a point in time.
+
+    APPEND-ONLY BY DESIGN. Notes are never edited or deleted in place. The value
+    here is the trail of judgment, not a current-state field: overwriting a note
+    would erase the fact that an assessment changed, which is exactly the
+    information that is hardest to reconstruct afterwards. It also closes a
+    structural hazard — cron-driven agents write to this table far more often
+    than a human does, so a mutable note would let a sweep silently clobber a
+    hand-written one. ``author`` keeps the two distinguishable.
+
+    Tags (``SignalTag``) are the mutable counterpart: they describe what a signal
+    *is now*, so they are a set that is added to and removed from.
+
+    ``superseded_by`` is reserved and currently always NULL — no endpoint writes
+    it. It exists so that retracting/correcting a note can later be added as a
+    forward pointer to a replacement note (preserving both) rather than as an
+    UPDATE, without needing a second migration on the always-on DB.
+    """
+
+    __tablename__ = "signal_notes"
+
+    note_id = Column(String, primary_key=True, default=_new_uuid)
+    signal_id = Column(String, ForeignKey("signals.signal_id"), nullable=False)
+    body = Column(Text, nullable=False)
+    # Who wrote it — "jack" for a human note, an agent label ("ops") for an
+    # automated one. Required: an unattributed judgment record is near-useless.
+    author = Column(String, nullable=False)
+    # Where in the lifecycle the note was captured (gate0 / triage / gate1 /
+    # terminal / manual). Free-form on purpose — the capture points are still
+    # settling; promote to an enum once they stop moving.
+    context = Column(String, nullable=True)
+    # The run being reviewed, when the note was occasioned by one. NULL for notes
+    # about the signal itself (e.g. a Gate 0 intake rationale, before any run).
+    run_id = Column(String, ForeignKey("workflow_runs.run_id"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+    superseded_by = Column(String, nullable=True)
+
+    signal = relationship("Signal", back_populates="notes")
+
+
+class SignalTag(Base):
+    """A label on a signal. Mutable set semantics — add and remove.
+
+    The vocabulary is deliberately NOT an enum: it is normalised (lowercase
+    kebab) and bounded in size, but any tag string is accepted. Fixing a
+    vocabulary before observing which labels are actually used in practice would
+    freeze it around guesses; ``policies/signal-tag-vocabulary.md`` in the
+    control plane is the (advisory) SSOT, and the enum can follow once real usage
+    has accumulated.
+
+    Tags are orthogonal to ``Signal.status`` — lifecycle state is never expressed
+    as a tag.
+    """
+
+    __tablename__ = "signal_tags"
+
+    signal_id = Column(String, ForeignKey("signals.signal_id"), primary_key=True)
+    tag = Column(String, primary_key=True)
+    author = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+
+    signal = relationship("Signal", back_populates="tags")
 
 
 class WorkflowRun(Base):
