@@ -121,7 +121,7 @@ Rules:
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="prd",
-        content_md=_build_prd_artifact(output_data),
+        content_md=build_prd(output_data),
         content_json=output.model_dump_json(),
         source_stage="s6b",
     )
@@ -135,7 +135,7 @@ Rules:
     return output
 
 
-def _build_prd_artifact(data: S6BOutputData) -> str:
+def build_prd(data: S6BOutputData) -> str:
     def _fmt_list(items: list[str]) -> str:
         return "\n".join(f"- {item}" for item in items) if items else "—"
 

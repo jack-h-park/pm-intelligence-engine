@@ -30,7 +30,6 @@ from app.models.stages import (
     S6AOutputData,
     S6BOutputData,
     S7OutputData,
-    render_value_horizon,
 )
 from app.storage.protocol import PMWorkflowStore
 
@@ -89,6 +88,33 @@ def export_run(
 # ---------------------------------------------------------------------------
 
 
+def _sections_of(memo_md: str) -> str:
+    """The body of a stage's canonical markdown, from its first `## ` heading.
+
+    The archive file and the DB artifact are two presentations of one stage
+    output. Rendering them from separate templates meant the same facts were
+    phrased three different ways, and the Observatory could not tell they were
+    the same document — its duplicate check compares from the first `## `
+    onward, so differing section headings kept both copies on screen as if the
+    reader had a choice to make. The stage module now owns the body; the archive
+    file adds only its own heading and metadata block above it, which sits above
+    that comparison point and so stays free to differ.
+    """
+    i = memo_md.find("\n## ")
+    return memo_md[i + 1 :] if i >= 0 else memo_md
+
+
+def _archive_doc(heading: str, meta_lines: list[str], memo_md: str) -> str:
+    meta = "\n".join(meta_lines)
+    return f"""# {heading}
+
+{meta}
+
+---
+
+{_sections_of(memo_md)}"""
+
+
 def _render_s1(s1: S1OutputData, date_str: str) -> str:
     return f"""# Stage 1: Signal Ingestion
 
@@ -112,62 +138,23 @@ def _render_s1(s1: S1OutputData, date_str: str) -> str:
 
 
 def _render_s2(s2: S2OutputData, s1: S1OutputData, date_str: str) -> str:
-    pillars = ", ".join(s2.pillar_references) if s2.pillar_references else "N/A"
-    return f"""# Stage 2: Insight Extraction
+    from app.stages.s2_insight import build_insight_memo
 
-**Signal ref:** {s1.signal_id} ({s1.title})
-**Date:** {date_str}
-**Relevance score:** {s2.relevance_score}/5
-
----
-
-## What Changed?
-
-{s2.what_changed}
-
-## Reframing Check
-
-{s2.reframing}
-
-## Why Does This Matter?
-
-{s2.relevance_explanation}
-
-**Strategy pillars referenced:** {pillars}
-"""
+    return _archive_doc(
+        "Stage 2: Insight Extraction",
+        [
+            f"**Signal ref:** {s1.signal_id} ({s1.title})",
+            f"**Date:** {date_str}",
+            f"**Relevance score:** {s2.relevance_score}/5",
+        ],
+        build_insight_memo(s1.title, s1.category, s2),
+    )
 
 
 def _render_s3(s3: S3OutputData, date_str: str) -> str:
-    return f"""# Stage 3: Opportunity Creation
+    from app.stages.s3_opportunity import build_opportunity_memo
 
-**Date:** {date_str}
-
----
-
-## Problem Statement
-
-{s3.problem_statement}
-
-## Target User
-
-{s3.target_user}
-
-## Core Hypothesis
-
-{s3.hypothesis}
-
-## Assumed Value
-
-**For the customer:**
-{s3.assumed_value_user}
-
-**For Samsung:**
-{s3.assumed_value_business}
-
-## Value Horizon
-
-{render_value_horizon(getattr(s3, "value_horizon", "durable"))}
-"""
+    return _archive_doc("Stage 3: Opportunity Creation", [f"**Date:** {date_str}"], build_opportunity_memo(s3))
 
 
 def _render_s4(s4: S4OutputData, date_str: str) -> str:
@@ -218,177 +205,21 @@ def _render_s4_rubric(s4: S4OutputData, date_str: str) -> str:
 
 
 def _render_s5(s5: S5OutputData, date_str: str) -> str:
-    # Scores table
-    score_rows = [
-        f"| Impact | 0.35 | {s5.impact_score} | |",
-        f"| Strategic Fit | 0.30 | {s5.strategic_fit_score} | |",
-        f"| Feasibility | 0.20 | {s5.feasibility_score} | |",
-        f"| Confidence | 0.15 | {s5.confidence_score} | |",
-    ]
-    scores_table = "\n".join(score_rows)
+    from app.stages.s5_prioritization import build_decision_memo
 
-    # Assumptions table
-    if s5.assumptions:
-        assumption_rows = "\n".join(
-            f"| {a.statement} | {a.severity} | {a.reason} |"
-            for a in s5.assumptions
-        )
-        assumptions_section = f"""## Step 2 — Assumption Classification
-
-| Assumption | Severity | Reason |
-|------------|----------|--------|
-{assumption_rows}
-"""
-    else:
-        assumptions_section = "## Step 2 — Assumption Classification\n\nNo critical assumptions identified.\n"
-
-    return f"""# Stage 5: Prioritization
-
-**Date:** {date_str}
-
----
-
-## Step 1 — Scoring
-
-| Dimension | Weight | Score (1–5) | Rationale |
-|-----------|--------|-------------|-----------|
-{scores_table}
-
-Composite = ({s5.impact_score} × 0.35) + ({s5.strategic_fit_score} × 0.30) + ({s5.feasibility_score} × 0.20) + ({s5.confidence_score} × 0.15) = **{s5.composite_score}**
-
----
-
-{assumptions_section}
----
-
-## Step 3 — Routing Decision
-
-**Routing: {s5.routing.upper()}**
-
-{s5.rationale}
-
----
-
-## Step 4 — Decision Record
-
-| Field | Value |
-|-------|-------|
-| Composite Score | {s5.composite_score} |
-| Track | {s5.routing.upper()} |
-| Blocking assumptions | {s5.blocking_count} |
-| Date | {date_str} |
-"""
+    return _archive_doc("Stage 5: Prioritization", [f"**Date:** {date_str}"], build_decision_memo(s5))
 
 
 def _render_s6a(s6a: S6AOutputData, date_str: str) -> str:
-    assumptions_list = "\n".join(f"{i+1}. {a}" for i, a in enumerate(s6a.blocking_assumptions_addressed))
-    return f"""# Stage 6A: PoC Plan
+    from app.stages.s6a_poc_plan import build_poc_plan
 
-**Date:** {date_str}
-
----
-
-## Experiment Goal
-
-{s6a.experiment_goal}
-
-## Assumptions Being Tested
-
-{assumptions_list}
-
-## Experiment Design
-
-{s6a.experiment_design}
-
-## Success Criteria
-
-{s6a.success_criteria}
-
-## Time and Resources
-
-| Item | Value |
-|------|-------|
-| Duration | {s6a.timeline_weeks} weeks |
-| Resources | {s6a.resources_needed} |
-"""
+    return _archive_doc("Stage 6A: PoC Plan", [f"**Date:** {date_str}"], build_poc_plan(s6a))
 
 
 def _render_s6b(s6b: S6BOutputData, date_str: str) -> str:
-    user_stories = "\n".join(f"- {s}" for s in s6b.user_stories)
-    success_metrics = "\n".join(f"- {m}" for m in s6b.success_metrics)
-    in_scope = "\n".join(f"- {s}" for s in s6b.in_scope)
-    out_of_scope = "\n".join(f"- {s}" for s in s6b.out_of_scope)
-    tech_deps = "\n".join(f"- {d}" for d in s6b.technical_dependencies)
-    open_qs = "\n".join(f"- {q}" for q in s6b.open_questions)
-    risks = "\n".join(f"- {r}" for r in s6b.risks)
+    from app.stages.s6b_prd import build_prd
 
-    c = s6b.completeness
-    return f"""# Stage 6B: PRD
-
-**Date:** {date_str}
-
----
-
-## Problem Statement
-
-{s6b.problem_statement}
-
-## Target User
-
-{s6b.target_user}
-
-## Success Metrics
-
-{success_metrics}
-
-## User Stories
-
-{user_stories}
-
-## Scope
-
-**In scope:**
-{in_scope}
-
-**Out of scope:**
-{out_of_scope}
-
-## Technical Dependencies
-
-{tech_deps}
-
-## Open Questions
-
-{open_qs}
-
-## Risks
-
-{risks}
-
----
-
-## Completeness Check — {c.score}/12
-
-| Check | Status |
-|-------|--------|
-| Problem statement | {"✓" if c.problem_statement else "✗"} |
-| Target user | {"✓" if c.target_user else "✗"} |
-| Hypothesis | {"✓" if c.hypothesis else "✗"} |
-| Success metrics (≥2) | {"✓" if c.success_metrics else "✗"} |
-| User stories (≥3) | {"✓" if c.user_stories else "✗"} |
-| In-scope list | {"✓" if c.in_scope else "✗"} |
-| Out-of-scope list (≥2) | {"✓" if c.out_of_scope else "✗"} |
-| Technical dependencies | {"✓" if c.technical_dependencies else "✗"} |
-| Open questions | {"✓" if c.open_questions else "✗"} |
-| Non-goals | {"✓" if c.non_goals else "✗"} |
-| Rollout phases | {"✓" if c.rollout_phases else "✗"} |
-| Risks | {"✓" if c.risks else "✗"} |
-"""
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+    return _archive_doc("Stage 6B: PRD", [f"**Date:** {date_str}"], build_prd(s6b))
 
 
 def _load_stage(

@@ -104,7 +104,7 @@ Rules:
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="opportunity_memo",
-        content_md=_build_opportunity_memo(output_data),
+        content_md=build_opportunity_memo(output_data),
         content_json=output.model_dump_json(),
         source_stage="s3",
     )
@@ -115,7 +115,7 @@ Rules:
 
 
 
-def _build_opportunity_memo(data: S3OutputData) -> str:
+def build_opportunity_memo(data: S3OutputData) -> str:
     from app.models.stages import render_value_horizon
 
     return f"""# Opportunity Memo

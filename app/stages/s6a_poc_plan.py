@@ -120,7 +120,7 @@ Rules:
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="poc_plan",
-        content_md=_build_poc_plan_artifact(output_data),
+        content_md=build_poc_plan(output_data),
         content_json=output.model_dump_json(),
         source_stage="s6a",
     )
@@ -129,7 +129,7 @@ Rules:
     return output
 
 
-def _build_poc_plan_artifact(data: S6AOutputData) -> str:
+def build_poc_plan(data: S6AOutputData) -> str:
     assumptions = "\n".join(f"- {a}" for a in data.blocking_assumptions_addressed)
     return f"""# PoC Plan
 

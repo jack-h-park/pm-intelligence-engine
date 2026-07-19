@@ -89,6 +89,8 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
         reframing="This is a managed API change.",
         relevance_explanation="Relevant to Knox controls.",
         pillar_references=["Attack Surface Reduction"],
+        suggested_mode="structure",
+        claims=[],
     )
     s3 = SimpleNamespace(
         problem_statement="Admins cannot control NFC safely.",
@@ -96,6 +98,7 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
         hypothesis="If admins can allowlist NFC, policy control improves.",
         assumed_value_user="Stronger control.",
         assumed_value_business="More enterprise readiness.",
+        value_horizon="durable",
     )
     s4 = SimpleNamespace(
         personas=[
@@ -122,6 +125,8 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
         routing="prd",
         rationale="High enough to ship a PRD.",
         blocking_count=0,
+        governing_heuristics=[],
+        closing_window=False,
     )
     s6b = SimpleNamespace(
         problem_statement="Admins need NFC allowlist controls.",
@@ -245,3 +250,48 @@ def test_export_run_does_not_write_legacy_path(tmp_path):
     assert canonical_path == canonical_root / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
     assert (canonical_path / "s7-report.md").read_text(encoding="utf-8") == "# Final report"
     assert not legacy_path.exists()
+
+
+def test_archive_body_matches_the_stage_artifact_body():
+    """The archive file and the DB artifact are one document, not two.
+
+    Both are renderings of a single stage output. They used to come from
+    separate templates, so the same facts were phrased three ways and every
+    consumer had to guess whether the difference was meaningful. The stage
+    module now owns the body; the archive adds only a heading and metadata
+    block above the first `## `, which is exactly where the Observatory's
+    duplicate check starts, so the two collapse into one document there.
+    """
+    from app.models.stages import S2OutputData, S3OutputData
+    from app.services.run_exporter import _render_s2, _render_s3, _sections_of
+    from app.stages.s2_insight import build_insight_memo
+    from app.stages.s3_opportunity import build_opportunity_memo
+
+    s1 = SimpleNamespace(signal_id="sig-123", title="Android 16 NFC Allowlist", category="platform")
+    s2 = S2OutputData(
+        what_changed="Android added NFC allowlist support.",
+        reframing="This is a managed API change.",
+        relevance_explanation="Relevant to Knox controls.",
+        relevance_score=4,
+        suggested_mode="structure",
+        suggestion_reasoning="Directly touches a named pillar.",
+        pillar_references=["Attack Surface Reduction"],
+    )
+    s3 = S3OutputData(
+        problem_statement="Admins cannot control NFC safely.",
+        target_user="Enterprise admin",
+        hypothesis="If admins can allowlist NFC, policy control improves.",
+        assumed_value_user="Stronger control.",
+        assumed_value_business="More enterprise readiness.",
+        value_horizon="durable",
+    )
+
+    memo2 = build_insight_memo(s1.title, s1.category, s2)
+    memo3 = build_opportunity_memo(s3)
+    assert _sections_of(_render_s2(s2, s1, FIXED_DATE)) == _sections_of(memo2)
+    assert _sections_of(_render_s3(s3, FIXED_DATE)) == _sections_of(memo3)
+
+    # The archive still carries its own heading + metadata above that point —
+    # that part is allowed to differ, and the run matcher depends on it.
+    assert _render_s2(s2, s1, FIXED_DATE).startswith("# Stage 2: Insight Extraction")
+    assert f"**Signal ref:** {s1.signal_id}" in _render_s2(s2, s1, FIXED_DATE)

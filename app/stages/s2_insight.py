@@ -146,7 +146,7 @@ Rules:
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="insight_memo",
-        content_md=_build_insight_memo(input.s1_output.title, input.s1_output.category, output_data),
+        content_md=build_insight_memo(input.s1_output.title, input.s1_output.category, output_data),
         content_json=output.model_dump_json(),
         source_stage="s2",
     )
@@ -178,7 +178,7 @@ def _render_claims(data: S2OutputData) -> str:
 
 
 
-def _build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
+def build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
     pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
     return f"""# Insight Memo
 

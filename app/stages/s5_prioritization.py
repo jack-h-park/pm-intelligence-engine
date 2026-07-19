@@ -311,7 +311,7 @@ Rules:
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="decision_memo",
-        content_md=_build_decision_memo(output_data),
+        content_md=build_decision_memo(output_data),
         content_json=output.model_dump_json(),
         source_stage="s5",
     )
@@ -331,7 +331,7 @@ Rules:
 
 
 
-def _build_decision_memo(data: S5OutputData) -> str:
+def build_decision_memo(data: S5OutputData) -> str:
     routing_label = data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
 
     blocking = [a for a in data.assumptions if a.severity == "Blocking"]
