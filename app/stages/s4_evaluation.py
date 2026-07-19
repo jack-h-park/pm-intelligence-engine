@@ -90,7 +90,7 @@ async def run(
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="evaluation_brief",
-        content_md=_build_evaluation_brief(personas, rubric),
+        content_md=build_evaluation_brief(personas, rubric),
         source_stage="s4",
     )
 
@@ -115,7 +115,7 @@ _PERSONA_LABELS = {
 }
 
 
-def _build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult) -> str:
+def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult) -> str:
     rows = []
     for p in personas:
         label, icon = _PERSONA_LABELS.get(p.persona, (p.dimension, ""))
@@ -129,6 +129,14 @@ def _build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResul
 
     rubric_status = "✅ Passed" if rubric.passed else "❌ Failed"
 
+    # The per-dimension breakdown and the issue list used to exist only in the
+    # archive's separate rubric file, so "the brief" and "the archive" were not
+    # two renderings of one document — one of them was strictly missing facts.
+    # Folding them in makes this the single canonical S4 document.
+    issues_md = ""
+    if rubric.issues:
+        issues_md = "\n\n## Rubric Issues\n" + "\n".join(f"- {i}" for i in rubric.issues)
+
     return f"""# Evaluation Brief
 
 ## Persona Scores
@@ -141,6 +149,13 @@ def _build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResul
 
 ## Rubric
 **{rubric_status}** ({rubric.total_score}/12)
+
+| Dimension | Score |
+|-----------|-------|
+| Score Grounding | {rubric.score_grounding}/3 |
+| Skeptic Quality | {rubric.skeptic_quality}/3 |
+| Open Question Quality | {rubric.open_question_quality}/3 |
+| Persona Independence | {rubric.persona_independence}/3 |{issues_md}
 """
 
 

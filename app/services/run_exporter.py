@@ -6,7 +6,6 @@ Canonical output directory structure:
   ├── s2-insight.md
   ├── s3-opportunity.md
   ├── s4-evaluation.md
-  ├── s4-evaluation-rubric-score.md
   ├── s5-prioritization.md
   ├── s6-poc-plan.md  (routing == poc)
   ├── s6-prd.md       (routing == prd)
@@ -158,50 +157,13 @@ def _render_s3(s3: S3OutputData, date_str: str) -> str:
 
 
 def _render_s4(s4: S4OutputData, date_str: str) -> str:
-    sections = []
-    for p in s4.personas:
-        dim_label = p.dimension
-        sections.append(f"""## {p.persona.capitalize()} — Dimension: {dim_label}
+    from app.stages.s4_evaluation import build_evaluation_brief
 
-{p.key_argument}
-
-**Score: {p.score}/5**
-**Open question:** {p.open_question}
-""")
-
-    body = "\n---\n\n".join(sections)
-    return f"""# Stage 4: Persona Evaluation
-
-**Date:** {date_str}
-
----
-
-{body}"""
-
-
-def _render_s4_rubric(s4: S4OutputData, date_str: str) -> str:
-    r = s4.rubric
-    issues_md = ""
-    if r.issues:
-        issues_lines = "\n".join(f"- {i}" for i in r.issues)
-        issues_md = f"\n### Issues\n\n{issues_lines}\n"
-
-    status = "Pass" if r.passed else "Fail"
-    return f"""# Stage 4: Persona Evaluation — Rubric Score
-
-**Date:** {date_str}
-
----
-
-| Dimension | Score |
-|-----------|-------|
-| Score Grounding | {r.score_grounding}/3 |
-| Skeptic Quality | {r.skeptic_quality}/3 |
-| Open Question Quality | {r.open_question_quality}/3 |
-| Persona Independence | {r.persona_independence}/3 |
-
-**Total: {r.total_score}/12 — {status}**
-{issues_md}"""
+    return _archive_doc(
+        "Stage 4: Persona Evaluation",
+        [f"**Date:** {date_str}"],
+        build_evaluation_brief(s4.personas, s4.rubric),
+    )
 
 
 def _render_s5(s5: S5OutputData, date_str: str) -> str:
@@ -263,7 +225,6 @@ def _write_run_artifacts(
         (run_dir / "s3-opportunity.md").write_text(_render_s3(s3, date_str), encoding="utf-8")
     if s4:
         (run_dir / "s4-evaluation.md").write_text(_render_s4(s4, date_str), encoding="utf-8")
-        (run_dir / "s4-evaluation-rubric-score.md").write_text(_render_s4_rubric(s4, date_str), encoding="utf-8")
     if s5:
         (run_dir / "s5-prioritization.md").write_text(_render_s5(s5, date_str), encoding="utf-8")
     if s6a:

@@ -174,7 +174,6 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
             "s2-insight.md",
             "s3-opportunity.md",
             "s4-evaluation.md",
-            "s4-evaluation-rubric-score.md",
             "s5-prioritization.md",
             "s6-prd.md",
             "s7-report.md",
@@ -295,3 +294,32 @@ def test_archive_body_matches_the_stage_artifact_body():
     # that part is allowed to differ, and the run matcher depends on it.
     assert _render_s2(s2, s1, FIXED_DATE).startswith("# Stage 2: Insight Extraction")
     assert f"**Signal ref:** {s1.signal_id}" in _render_s2(s2, s1, FIXED_DATE)
+
+
+def test_s4_archive_body_matches_the_evaluation_brief():
+    """S4 is one document in two stores, like every other stage.
+
+    It used to be three partial ones: the brief held the persona table and the
+    rubric verdict, `s4-evaluation.md` held per-persona prose, and a separate
+    `s4-evaluation-rubric-score.md` held the per-dimension breakdown and issues
+    that neither of the others carried. The brief is now the union, so the
+    archive renders from it and the rubric file is gone.
+    """
+    from app.models.stages import PersonaOutput, S4OutputData, S4RubricResult
+    from app.services.run_exporter import _render_s4, _sections_of
+    from app.stages.s4_evaluation import build_evaluation_brief
+
+    s4 = S4OutputData(
+        personas=[
+            PersonaOutput(persona="explorer", dimension="Impact", key_argument="Large impact.",
+                          score=4, open_question="How often used?"),
+        ],
+        rubric=S4RubricResult(score_grounding=3, skeptic_quality=2, open_question_quality=2,
+                              persona_independence=3, total_score=10, passed=True,
+                              issues=["Skeptic leaned on the explorer's framing."]),
+    )
+    brief = build_evaluation_brief(s4.personas, s4.rubric)
+    assert _sections_of(_render_s4(s4, FIXED_DATE)) == _sections_of(brief)
+    # The facts that lived only in the deleted rubric file survive in the brief.
+    assert "Score Grounding | 3/3" in brief
+    assert "Skeptic leaned on the explorer's framing." in brief
