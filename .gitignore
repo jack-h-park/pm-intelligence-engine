@@ -11,6 +11,18 @@ __pycache__/
 dist/
 *.egg-info/
 
+# Run archive — engine-generated output, rewritten by run_exporter on every
+# completed run. It was tracked historically but committed only 3 times (last
+# 2026-07-04), so the tree was always a stale snapshot of whatever the host had
+# produced; every run since sat untracked. Each host regenerates it from its own
+# database, so it is host state, not source.
+archive/runs/
+
+# Database backups. `*.db` above does not match `pm_platform.db.bak-<date>`,
+# so snapshots taken before a migration were showing up as untracked files
+# waiting to be committed by accident.
+*.db.bak-*
+
 # Server process management
 .pid
 logs/server.log
