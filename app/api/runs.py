@@ -4,6 +4,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
+from app.services import runtime_overrides
 from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -320,7 +321,7 @@ async def _start_fanout_runs(
         summary=signal["raw_content"],
         profiles=engine.context_loader.load_portfolio_profiles(),
         llm=engine.llm,
-        threshold=settings.TRIAGE_RELEVANCE_THRESHOLD,
+        threshold=runtime_overrides.triage_relevance_threshold(),
         pm_identity=engine.context_loader.load_pm_identity(),
     )
 
@@ -582,7 +583,7 @@ async def scan_portfolio(
         summary=signal["raw_content"],
         profiles=engine.context_loader.load_portfolio_profiles(exclude=(origin_product,)),
         llm=engine.llm,
-        threshold=settings.TRIAGE_RELEVANCE_THRESHOLD,
+        threshold=runtime_overrides.triage_relevance_threshold(),
         pm_identity=engine.context_loader.load_pm_identity(),
     )
 
@@ -834,7 +835,7 @@ async def _execute_s1_s2(
             # PM explicitly specified a depth at run-start — always honor it.
             # Skip auto-triage: PM's stated intent overrides the S2 relevance score.
             chosen_mode = requested_mode
-        elif not force_gate1 and s2_out.output.relevance_score < _cfg.AUTO_TRIAGE_THRESHOLD:
+        elif not force_gate1 and s2_out.output.relevance_score < runtime_overrides.auto_triage_threshold():
             # No depth specified, not force_gate1, and relevance is below threshold —
             # auto-triage. (force_gate1 from a PM-initiated interactive start
             # suppresses this so the run always pauses at Gate 1 below.)
@@ -852,7 +853,7 @@ async def _execute_s1_s2(
                 event_action="auto_triaged",
                 event_detail={
                     "relevance_score": s2_out.output.relevance_score,
-                    "threshold": _cfg.AUTO_TRIAGE_THRESHOLD,
+                    "threshold": runtime_overrides.auto_triage_threshold(),
                     "reasoning": s2_out.output.suggestion_reasoning,
                 },
             )

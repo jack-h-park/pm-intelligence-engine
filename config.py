@@ -81,6 +81,25 @@ class Settings(BaseSettings):
     # string (default) disables the check; the engine is permissive.
     GATE0_STATE_FILE: str = ""
 
+    # Runtime overrides for per-product scoring (S5 weights + routing thresholds),
+    # written by PM Observatory. The git-managed scoring.yaml in decision-context
+    # stays the baseline and is never written; this file layers on top of it, so
+    # a weight can be retuned from the dashboard without a commit and without the
+    # baseline losing its meaning as the declared intent.
+    #
+    # Shape: {"<product_id>": {"impact": 0.4, "kill_threshold": 1.6, ...}}
+    # Empty (default) or absent file = baseline only, i.e. exactly the behaviour
+    # before this existed.
+    SCORING_OVERRIDES_FILE: str = ""
+
+    # Runtime overrides for engine policy thresholds, written by PM Observatory
+    # and read per call by app/services/runtime_overrides.py. Same rationale as
+    # SCORING_OVERRIDES_FILE: settings stay the baseline, this layers deltas, and
+    # unset or absent means the configured values apply unchanged.
+    #
+    # Shape: {"AUTO_TRIAGE_THRESHOLD": 4}
+    POLICY_OVERRIDES_FILE: str = ""
+
     @model_validator(mode="after")
     def _resolve_decision_root_aliases(self) -> "Settings":
         if self.DECISION_CONTEXT_ROOT != DEFAULT_DECISION_CONTEXT_ROOT:

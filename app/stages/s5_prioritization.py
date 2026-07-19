@@ -53,30 +53,66 @@ def _value_horizon_from_store(store: PMWorkflowStore, run_id: str) -> str:
         return "durable"
 
 
+def _load_scoring_config(product_id: str) -> dict:
+    """Merged scoring config for a product: git baseline, then runtime override.
+
+    The baseline is {DECISION_CONTEXT_ROOT}/products/{id}/scoring.yaml, which is
+    version-controlled and stays the declared intent. SCORING_OVERRIDES_FILE, if
+    configured and present, layers per-product keys on top — that is how PM
+    Observatory retunes a weight without a commit.
+
+    Returns {} when neither source yields a usable mapping, which makes every
+    caller fall back to its defaults exactly as before this existed.
+    """
+    import json
+    import pathlib
+    import yaml
+    from config import settings
+
+    merged: dict = {}
+
+    path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
+    if path.exists():
+        try:
+            raw = yaml.safe_load(path.read_text())
+            if isinstance(raw, dict):
+                merged.update(raw)
+        except Exception:  # noqa: BLE001 — a malformed baseline must not stop S5
+            pass
+
+    override_path = settings.SCORING_OVERRIDES_FILE
+    if override_path:
+        try:
+            data = json.loads(pathlib.Path(override_path).read_text())
+            product = data.get(product_id) if isinstance(data, dict) else None
+            if isinstance(product, dict):
+                merged.update(product)
+        except FileNotFoundError:
+            pass
+        except Exception:  # noqa: BLE001 — same posture as the baseline
+            pass
+
+    return merged
+
+
 def _load_weights(product_id: str) -> dict:
-    """Load per-product scoring weights from pm-decision-context.
+    """Per-product S4-persona weights, normalised to sum to 1.0.
 
-    Reads {DECISION_CONTEXT_ROOT}/products/{product_id}/scoring.yaml.
-    Falls back to _DEFAULT_WEIGHTS if the file is absent or malformed.
+    Falls back to _DEFAULT_WEIGHTS unless all four keys are present and positive
+    — a partial set is ambiguous about what the missing ones should be, so it is
+    rejected rather than half-applied.
 
-    scoring.yaml format:
+    Config keys:
       impact: 0.35
       strategic_fit: 0.30
       feasibility: 0.20
       confidence: 0.15
     """
-    import pathlib
-    import yaml
-    from config import settings
-
-    path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
-    if not path.exists():
+    raw = _load_scoring_config(product_id)
+    if not raw:
         return _DEFAULT_WEIGHTS.copy()
 
     try:
-        raw = yaml.safe_load(path.read_text())
-        if not isinstance(raw, dict):
-            return _DEFAULT_WEIGHTS.copy()
         weights = {}
         for yaml_key, persona_key in _WEIGHT_KEYS.items():
             val = raw.get(yaml_key)
@@ -92,29 +128,22 @@ def _load_weights(product_id: str) -> dict:
 
 
 def _load_thresholds(product_id: str) -> dict:
-    """Load per-product routing thresholds from pm-decision-context.
+    """Per-product routing thresholds, from the same merged config as the weights.
 
-    Reads the same {DECISION_CONTEXT_ROOT}/products/{product_id}/scoring.yaml
-    as _load_weights. Falls back to _DEFAULT_THRESHOLDS for any key that is
-    absent or malformed.
+    Unlike the weights, these fall back key by key: each threshold is independent,
+    so a config that sets only `kill_threshold` means exactly that and the rest
+    keep their defaults.
 
-    scoring.yaml keys (all optional):
+    Keys (all optional):
       kill_threshold: 1.5
       prd_threshold: 3.5
       confidence_gate: 4
     """
-    import pathlib
-    import yaml
-    from config import settings
-
-    path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
-    if not path.exists():
+    raw = _load_scoring_config(product_id)
+    if not raw:
         return _DEFAULT_THRESHOLDS.copy()
 
     try:
-        raw = yaml.safe_load(path.read_text())
-        if not isinstance(raw, dict):
-            return _DEFAULT_THRESHOLDS.copy()
         thresholds = _DEFAULT_THRESHOLDS.copy()
         for key in _DEFAULT_THRESHOLDS:
             val = raw.get(key)
