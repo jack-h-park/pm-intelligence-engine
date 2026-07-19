@@ -147,7 +147,6 @@ Rules:
         run_id=context.run_id,
         artifact_type="insight_memo",
         content_md=build_insight_memo(input.s1_output.title, input.s1_output.category, output_data),
-        content_json=output.model_dump_json(),
         source_stage="s2",
     )
 

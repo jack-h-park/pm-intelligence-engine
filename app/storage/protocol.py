@@ -126,7 +126,6 @@ class PMWorkflowStore(Protocol):
         run_id: str,
         artifact_type: str,
         content_md: str,
-        content_json: str,
         source_stage: Optional[str] = None,
     ) -> str: ...
 

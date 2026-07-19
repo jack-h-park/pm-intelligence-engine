@@ -179,6 +179,21 @@ class SQLiteStore:
                 except Exception:  # noqa: BLE001 — pre-3.35 SQLite: leave column vestigial
                     pass
 
+        # Drop artifacts.content_json. Every stage wrote it as the same
+        # `output.model_dump_json()` string it had just saved to stage_outputs, so
+        # the column was a verbatim second copy of the canonical row — measured on
+        # the live DB, all 252 artifact rows matched their stage output byte for
+        # byte. Nothing ever read it back: not the pipeline (which loads
+        # stage_outputs), not the observatory, not hermes. Same guarded, idempotent
+        # DROP COLUMN as the sweep above.
+        artifact_cols = {c["name"] for c in inspect(self._engine).get_columns("artifacts")}
+        if "content_json" in artifact_cols:
+            try:
+                with self._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE artifacts DROP COLUMN content_json"))
+            except Exception:  # noqa: BLE001 — pre-3.35 SQLite: leave column vestigial
+                pass
+
     # --- Signal ---
 
     def save_signal(
@@ -635,7 +650,6 @@ class SQLiteStore:
         run_id: str,
         artifact_type: str,
         content_md: str,
-        content_json: str,
         source_stage: Optional[str] = None,
     ) -> str:
         with self._Session() as session:
@@ -643,7 +657,6 @@ class SQLiteStore:
                 run_id=run_id,
                 type=ArtifactType(artifact_type),
                 content_md=content_md,
-                content_json=content_json,
                 source_stage=source_stage,
             )
             session.add(artifact)
@@ -818,7 +831,6 @@ class SQLiteStore:
             "run_id": a.run_id,
             "type": a.type.value,
             "content_md": a.content_md,
-            "content_json": a.content_json,
             "source_stage": a.source_stage,
             "created_at": a.created_at.isoformat(),
         }

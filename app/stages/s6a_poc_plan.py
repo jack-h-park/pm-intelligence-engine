@@ -121,7 +121,6 @@ Rules:
         run_id=context.run_id,
         artifact_type="poc_plan",
         content_md=build_poc_plan(output_data),
-        content_json=output.model_dump_json(),
         source_stage="s6a",
     )
 

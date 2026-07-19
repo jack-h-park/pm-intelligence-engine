@@ -64,7 +64,6 @@ def test_list_artifacts_returns_saved_artifacts(client, engine):
         run_id=run_id,
         artifact_type="executive_summary",
         content_md="# Summary",
-        content_json='{"markdown":"# Summary"}',
     )
 
     resp = client.get(f"/runs/{run_id}/artifacts")
@@ -82,13 +81,11 @@ def test_list_artifacts_filters_by_type(client, engine):
         run_id=run_id,
         artifact_type="executive_summary",
         content_md="# Summary",
-        content_json='{"markdown":"# Summary"}',
     )
     engine.store.save_artifact(
         run_id=run_id,
         artifact_type="prd",
         content_md="# PRD",
-        content_json='{"title":"PRD"}',
     )
 
     resp = client.get(f"/runs/{run_id}/artifacts", params={"artifact_type": "executive_summary"})
@@ -112,7 +109,6 @@ def test_list_artifacts_legacy_type_alias_resolves(client, engine):
         run_id=run_id,
         artifact_type="opportunity_memo",
         content_md="# Opportunity",
-        content_json='{"markdown":"# Opportunity"}',
     )
 
     resp = client.get(f"/runs/{run_id}/artifacts", params={"artifact_type": "structure_memo"})

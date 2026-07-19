@@ -49,7 +49,6 @@ class ArtifactResponse(BaseModel):
     run_id: str
     type: str
     content_md: str
-    content_json: str
     created_at: str
 
 

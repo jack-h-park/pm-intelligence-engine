@@ -122,7 +122,6 @@ Rules:
         run_id=context.run_id,
         artifact_type="prd",
         content_md=build_prd(output_data),
-        content_json=output.model_dump_json(),
         source_stage="s6b",
     )
 

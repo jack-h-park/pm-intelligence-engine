@@ -312,7 +312,6 @@ Rules:
         run_id=context.run_id,
         artifact_type="decision_memo",
         content_md=build_decision_memo(output_data),
-        content_json=output.model_dump_json(),
         source_stage="s5",
     )
 
