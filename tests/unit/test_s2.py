@@ -194,3 +194,19 @@ async def test_s2_low_relevance_score_sets_archive_mode():
         )
     assert out.output.relevance_score == 1
     assert out.output.suggested_mode == "archive"  # fixture sends legacy "file"; normalized
+
+
+@pytest.mark.asyncio
+async def test_s2_writes_only_the_insight_memo_artifact():
+    """No `checkpoint` artifact — see test_s3 counterpart for the rationale."""
+    store = _make_store()
+    with patch("app.stages.s2_insight.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        await s2_insight.run(
+            input=S2Input(signal_id="sig-001", s1_output=_make_s1_output(), product_id="test"),
+            context=_make_context(),
+            llm=_make_llm_returning(_CLAIMS_S2_RESPONSE),
+            store=store,
+        )
+    types = [c.kwargs.get("artifact_type") for c in store.save_artifact.call_args_list]
+    assert types == ["insight_memo"]

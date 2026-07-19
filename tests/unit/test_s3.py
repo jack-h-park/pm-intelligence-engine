@@ -105,3 +105,23 @@ async def test_s3_saves_to_store():
             store=store,
         )
     store.save_stage_output.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_s3_writes_only_the_opportunity_memo_artifact():
+    """No `checkpoint` artifact: it re-rendered the same S3OutputData the memo
+    already carries, nothing ever read it back, and pipeline.py documents it as
+    dropped. Guards against the write being reintroduced."""
+    store = _make_store()
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=json.dumps(_VALID_S3_RESPONSE))
+    with patch("app.stages.s3_opportunity.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        await s3_opportunity.run(
+            input=S3Input(signal_id="sig-001", s2_output=_make_s2_output(), product_id="test"),
+            context=_make_context(),
+            llm=llm,
+            store=store,
+        )
+    types = [c.kwargs.get("artifact_type") for c in store.save_artifact.call_args_list]
+    assert types == ["opportunity_memo"]

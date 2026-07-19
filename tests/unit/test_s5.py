@@ -553,3 +553,30 @@ async def test_value_horizon_defaults_durable_when_s3_absent():
     store.get_stage_output = MagicMock(return_value=None)  # no S3 output stored
     out = await _run_s5(_LLM_RESPONSE_NO_BLOCKING, store, explorer=5, strategist=5, builder=5, skeptic=5)
     assert out.output.closing_window is False
+
+
+@pytest.mark.asyncio
+async def test_s5_writes_only_the_decision_memo_artifact():
+    """No `checkpoint` artifact — see test_s3 counterpart for the rationale."""
+    from app.stages import s5_prioritization
+
+    resp = json.dumps({
+        "assumptions": [
+            {"statement": "Admins want unified enforcement", "severity": "Adjusting",
+             "reason": "Scope narrows if false"},
+        ],
+        "rationale": "Strong fit, no blocking assumptions.",
+    })
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=resp)
+    store = _make_store()
+    with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output(explorer=4, strategist=5, builder=4, skeptic=4)),
+            _make_context(),
+            llm,
+            store,
+        )
+    types = [c.kwargs.get("artifact_type") for c in store.save_artifact.call_args_list]
+    assert types == ["decision_memo"]
