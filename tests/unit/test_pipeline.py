@@ -88,8 +88,7 @@ def test_valid_modes_sets_derive_from_registry():
 
 
 def test_artifact_types_are_valid_artifact_type_values():
-    # Every artifact a stage produces must be a real ArtifactType (minus the
-    # dropped `checkpoint`, which the registry intentionally omits).
+    # Every artifact a stage produces must be a real ArtifactType.
     from app.models.workflow import ArtifactType
     valid = {t.value for t in ArtifactType}
     for s in pipeline.STAGES:

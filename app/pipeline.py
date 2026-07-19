@@ -17,9 +17,7 @@ Positions
 (s1–s4, s7) are valid depths; s5/s6a/s6b are intermediate steps of a ``decide``
 run, never a stop point — so they carry no depth and no completion ``ended_by``.
 
-The ``checkpoint`` artifact is deliberately absent: it duplicates the stage output
-and is dropped under the redesign (see §2.5). This registry lists only the primary
-rendered artifact per position.
+This registry lists the primary rendered artifact per position.
 """
 
 from __future__ import annotations

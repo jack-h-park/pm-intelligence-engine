@@ -11,7 +11,7 @@ router = APIRouter(prefix="/runs", tags=["artifacts"])
 # Canonical artifact types (mirror app.models.workflow.ArtifactType).
 _ARTIFACT_TYPES = {
     "poc_plan", "prd", "executive_summary", "insight_memo",
-    "opportunity_memo", "evaluation_brief", "decision_memo", "checkpoint",
+    "opportunity_memo", "evaluation_brief", "decision_memo",
 }
 # Depth-named guesses a client may send. The artifact types kept their pre-US-43
 # names when the depth ladder was renamed (opportunity→structure), so a caller

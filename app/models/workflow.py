@@ -95,7 +95,6 @@ class ArtifactType(str, enum.Enum):
     opportunity_memo = "opportunity_memo"
     evaluation_brief = "evaluation_brief"
     decision_memo = "decision_memo"
-    checkpoint = "checkpoint"
 
 
 def _new_uuid() -> str:
