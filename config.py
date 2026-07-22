@@ -11,11 +11,14 @@ class Settings(BaseSettings):
     DECISION_SYSTEM_ROOT: str | None = None
     WIKI_ROOT: str = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
 
-    LLM_PROVIDER: str = "claude"
+    # These defaults must match the deployed `.env`. A default that lags the live
+    # value does not fail — it silently runs a different provider or an older
+    # model, and only `metadata.model_used` on a finished run reveals it.
+    LLM_PROVIDER: str = "openai"
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
-    OPENAI_MODEL: str = "gpt-4o"
+    OPENAI_MODEL: str = "gpt-5.4"
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 

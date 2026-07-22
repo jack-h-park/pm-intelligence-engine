@@ -1,4 +1,13 @@
 from app.llm.protocol import Message, Usage
+from app.llm.retry import with_retries
+
+
+def _is_retryable(exc: Exception) -> bool:
+    from anthropic import APIConnectionError, APITimeoutError, InternalServerError, RateLimitError
+
+    return isinstance(
+        exc, RateLimitError | APIConnectionError | APITimeoutError | InternalServerError
+    )
 
 
 class ClaudeProvider:
@@ -31,12 +40,15 @@ class ClaudeProvider:
         if temperature is not None:
             kwargs["temperature"] = temperature
 
-        response = await self._client.messages.create(**kwargs)
-        if usage_sink is not None and response.usage is not None:
-            usage_sink.append(
-                {
-                    "input_tokens": response.usage.input_tokens or 0,
-                    "output_tokens": response.usage.output_tokens or 0,
-                }
-            )
-        return response.content[0].text
+        async def _call() -> str:
+            response = await self._client.messages.create(**kwargs)
+            if usage_sink is not None and response.usage is not None:
+                usage_sink.append(
+                    {
+                        "input_tokens": response.usage.input_tokens or 0,
+                        "output_tokens": response.usage.output_tokens or 0,
+                    }
+                )
+            return response.content[0].text
+
+        return await with_retries(_call, _is_retryable, "Anthropic")
