@@ -8,7 +8,11 @@ import re
 from app.llm.protocol import LLMProvider
 from app.logging import emit_event
 from app.models.stages import RunContext, S1Input, S1Output, S1OutputData, StageMetadata
+from app.stages.chrome import strip_chrome
 from app.storage.protocol import PMWorkflowStore
+
+# Length of the verbatim excerpt S1 keeps as the signal summary.
+_SUMMARY_CHARS = 800
 
 _VALID_CATEGORIES = {"competitor", "platform", "regulation", "technology", "other"}
 
@@ -37,14 +41,22 @@ async def run(
     llm: LLMProvider,
     store: PMWorkflowStore,
 ) -> S1Output:
+    # Strip site chrome (nav banners, "Skip to main content", cookie/consent
+    # furniture) before excerpting, so the summary starts at the article rather
+    # than the page's navigation band. strip_chrome returns the original when it
+    # would leave too little to be the article, so genuinely short signals are
+    # unaffected.
+    body = strip_chrome(input.raw_content)
     summary = (
-        input.raw_content[:800].rsplit(" ", 1)[0] + " …"
-        if len(input.raw_content) > 800
-        else input.raw_content
+        body[:_SUMMARY_CHARS].rsplit(" ", 1)[0] + " …"
+        if len(body) > _SUMMARY_CHARS
+        else body
     )
 
-    # Infer category from title/content keywords when not provided
-    category = _infer_category(input.title + " " + input.raw_content)
+    # Infer category from title/content keywords when not provided. Match against
+    # the stripped body so chrome text can't fire a keyword (site chrome once
+    # mis-tagged an Android signal "regulation" via "disa" in "disables").
+    category = _infer_category(input.title + " " + body)
 
     output_data = S1OutputData(
         signal_id=input.signal_id,

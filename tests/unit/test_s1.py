@@ -120,6 +120,31 @@ async def test_s1_category_matches_whole_words_not_substrings():
     assert out.output.category == "platform"
 
 
+@pytest.mark.asyncio
+async def test_s1_summary_skips_leading_site_chrome():
+    """Regression for run 116b5fee: a captured docs page whose first 800 chars
+    are navigation furniture must yield a summary that starts at the article,
+    not at the documentation-index banner."""
+    raw = (
+        "> ## Documentation Index\n"
+        "> Fetch the complete documentation index at: [/llms.txt](https://x.io/llms.txt)\n"
+        "[Skip to main content](https://x.io/docs#content-area)\n"
+        "## Introduction\n"
+        "This document provides security considerations for the Model Context "
+        "Protocol, complementing the MCP Authorization specification and giving "
+        "implementers the attack vectors and mitigations they need to build safely.\n"
+    )
+    out = await s1_signal.run(
+        input=S1Input(signal_id="sig-006", title="MCP Security Best Practices", raw_content=raw),
+        context=_make_context(),
+        llm=AsyncMock(),
+        store=_make_store(),
+    )
+    assert "Documentation Index" not in out.output.summary
+    assert "Skip to main content" not in out.output.summary
+    assert "security considerations for the Model Context Protocol" in out.output.summary
+
+
 def test_infer_category_substring_does_not_leak():
     # 'disa' inside 'disables' / 'api' inside 'therapist' must not fire.
     assert s1_signal._infer_category("the system disables a therapist account") == "other"
