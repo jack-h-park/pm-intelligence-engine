@@ -1,3 +1,4 @@
+import json
 from datetime import UTC, datetime
 from typing import Optional
 
@@ -31,6 +32,19 @@ from app.services.signal_tags import (
 )
 
 
+
+def _loads_or_none(raw):
+    """Parse stored JSON, or None. A malformed blob reads as absent rather than
+    raising: the caller's fallback is "not recorded", which is safe, whereas a
+    500 on a batch read would take a gate message down with it."""
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None
+
+
 class SQLiteStore:
     def __init__(self, database_url: str) -> None:
         self._engine = create_engine(database_url, connect_args={"check_same_thread": False})
@@ -49,6 +63,14 @@ class SQLiteStore:
         """
         inspector = inspect(self._engine)
         run_columns = {c["name"] for c in inspector.get_columns("workflow_runs")}
+        # Portfolio Triage's per-product scores. Nullable ADD COLUMN — batches
+        # created before it stay NULL, which reads correctly as "not recorded"
+        # rather than "no other product was relevant". Guarded, so idempotent.
+        if inspector.has_table("run_batches"):
+            batch_columns = {c["name"] for c in inspector.get_columns("run_batches")}
+            if "triage_json" not in batch_columns:
+                with self._engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE run_batches ADD COLUMN triage_json TEXT"))
         if "batch_id" not in run_columns:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN batch_id VARCHAR"))
@@ -678,9 +700,19 @@ class SQLiteStore:
 
     # --- RunBatch (US-49) ---
 
-    def create_batch(self, signal_id: str) -> str:
+    def create_batch(self, signal_id: str, triage: Optional[list] = None) -> str:
+        """Create a fan-out batch, recording Triage's verdict when one is given.
+
+        ``triage`` is the full per-product score list. It is stored at creation
+        because that is the only moment it exists — the call that produces it is
+        not repeated, and reconstructing it later would mean re-scoring against
+        profiles that may since have changed.
+        """
         with self._Session() as session:
-            batch = RunBatch(signal_id=signal_id)
+            batch = RunBatch(
+                signal_id=signal_id,
+                triage_json=json.dumps(triage, ensure_ascii=False) if triage else None,
+            )
             session.add(batch)
             session.commit()
             return batch.batch_id
@@ -695,6 +727,9 @@ class SQLiteStore:
                 "signal_id": b.signal_id,
                 "membership_closed": b.membership_closed,
                 "created_at": b.created_at.isoformat(),
+                # None when the batch predates the column, or when triage was not
+                # recorded. A caller must not read that as "nothing else scored".
+                "triage": _loads_or_none(b.triage_json),
             }
 
     def close_batch_membership(self, batch_id: str) -> None:

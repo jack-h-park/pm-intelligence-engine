@@ -350,3 +350,102 @@ def test_close_batch_idempotent_and_unknown_404(client, engine):
     # second close is a no-op success
     assert client.post(f"/runs/batch/{batch_id}/close").status_code == 200
     assert client.post("/runs/batch/nope/close").status_code == 404
+
+
+# ── Triage's verdict is persisted, not just returned (#63) ──────────────────
+#
+# The score vector was computed once, handed to the caller in the response, and
+# dropped. Afterwards nothing could tell a routing decision that was a coin flip
+# from one that was settled — and the control plane's Gate 1 message has to say
+# whether the product diverged from the Gate 0 hint, without being able to say
+# whether the divergence was close.
+
+
+def _start_with_triage(client, engine, monkeypatch, scores):
+    signal_id = _seed_signal(engine)
+
+    async def fake_triage(**kwargs):
+        return _triage_returning("prod-a", "prod-b", scores=scores)
+
+    async def _noop(*a, **k):
+        return None
+
+    monkeypatch.setattr("app.stages.portfolio_triage.run", fake_triage)
+    monkeypatch.setattr("app.api.runs._execute_s1_s2", _noop)
+    resp = client.post("/runs/start", json={"signal_id": signal_id})
+    assert resp.status_code == 202, resp.text
+    return resp.json()
+
+
+def test_the_batch_records_every_products_score(client, engine, monkeypatch):
+    body = _start_with_triage(client, engine, monkeypatch, {"prod-a": 5, "prod-b": 4})
+
+    batch = engine.store.get_batch(body["batch_id"])
+    stored = {p["product_id"]: p["relevance_score"] for p in batch["triage"]}
+
+    assert stored == {"prod-a": 5, "prod-b": 4, "prod-c": 2}
+    assert all("reason" in p for p in batch["triage"])
+
+
+def test_a_close_call_is_distinguishable_from_a_settled_one(client, engine, monkeypatch):
+    """The whole point. Both of these route to prod-a; only one of them is a
+    decision worth revisiting at Gate 1."""
+    # Every product scored explicitly, so the runner-up is unambiguous — the
+    # helper's default of 2 for unlisted products would otherwise BE the runner-up
+    # and the fixture would not say what it looks like it says.
+    close = _start_with_triage(client, engine, monkeypatch,
+                               {"prod-a": 5, "prod-b": 4, "prod-c": 1})
+    settled = _start_with_triage(client, engine, monkeypatch,
+                                 {"prod-a": 5, "prod-b": 1, "prod-c": 1})
+
+    def spread(body):
+        s = sorted((p["relevance_score"] for p in engine.store.get_batch(body["batch_id"])["triage"]),
+                   reverse=True)
+        return s[0] - s[1]
+
+    assert spread(close) == 1
+    assert spread(settled) == 4
+
+
+def test_the_run_payload_carries_the_verdict(client, engine, monkeypatch):
+    """Stored but unreadable at the gate would repeat the defect: the judgement
+    exists and the decision surface cannot see it."""
+    body = _start_with_triage(client, engine, monkeypatch, {"prod-a": 5, "prod-b": 4})
+    run_id = body["runs"][0]["run_id"]
+
+    run = client.get(f"/runs/{run_id}").json()
+
+    assert run["triage"] is not None
+    assert {p["product_id"] for p in run["triage"]} == {"prod-a", "prod-b", "prod-c"}
+
+
+def test_a_run_with_no_batch_reports_none_not_empty(client, engine, monkeypatch):
+    """None means "not recorded". An empty list would read as "nothing else
+    scored", which is a different and wrong claim."""
+    assert _batch_triage_is_none(engine)
+
+
+def _batch_triage_is_none(engine):
+    from app.api.runs import _batch_triage
+    return _batch_triage(None, engine) is None
+
+
+def test_a_batch_predating_the_column_reads_as_not_recorded(engine):
+    """Existing batches keep NULL. The reader must not take that for "no other
+    product was relevant"."""
+    signal_id = _seed_signal(engine)
+    batch_id = engine.store.create_batch(signal_id)      # no triage given
+
+    assert engine.store.get_batch(batch_id)["triage"] is None
+
+
+def test_a_malformed_blob_reads_as_absent_rather_than_raising(engine):
+    """A 500 on a batch read would take a gate message down with it."""
+    from sqlalchemy import text
+    signal_id = _seed_signal(engine)
+    batch_id = engine.store.create_batch(signal_id, triage=[{"product_id": "prod-a"}])
+    with engine.store._engine.begin() as conn:
+        conn.execute(text("UPDATE run_batches SET triage_json='{ not json' WHERE batch_id=:b"),
+                     {"b": batch_id})
+
+    assert engine.store.get_batch(batch_id)["triage"] is None

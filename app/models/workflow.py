@@ -327,6 +327,15 @@ class RunBatch(Base):
     signal_id = Column(String, ForeignKey("signals.signal_id"), nullable=False)
     membership_closed = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime, nullable=False, default=_utc_now)
+    # The full Portfolio Triage verdict for this batch: every product's
+    # relevance_score and reason, as returned by the single triage call, as JSON.
+    #
+    # It was computed and thrown away. The response carried it to the caller and
+    # nothing stored it, so afterwards there was no way to tell a routing decision
+    # that was a coin flip from one that was settled — and a mis-routed run cannot
+    # be judged at Gate 1 without that. Nullable: batches created before this
+    # column stay NULL, which reads correctly as "not recorded".
+    triage_json = Column(Text, nullable=True)
 
 
 class PortfolioSynthesis(Base):

@@ -77,6 +77,13 @@ class RunResponse(BaseModel):
     stage_outputs: list[dict] | None = None
     gate1_review: dict | None = None
     gate3_review: dict | None = None
+    # Portfolio Triage's verdict for this run's batch: every product's
+    # relevance_score and reason, and which one it picked. The score vector was
+    # computed once and discarded, so a reader at Gate 1 could see that the
+    # product differed from the Gate 0 hint but not whether that was a close call
+    # or a settled one. None when the batch predates the column or the run has no
+    # batch — which must read as "not recorded", never as "nothing else scored".
+    triage: list[dict] | None = None
     # Absolute link to the engine-served browser review page, built from BASE_URL
     # (the iMac's Tailscale address in production). Exposed so the delivery owner
     # (Iris) can include it in Gate 2 messages without knowing the engine's
@@ -179,6 +186,20 @@ def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
         if rubric.get("total_score") is not None:
             review["rubric_total"] = f"{rubric['total_score']}/12"
     return review
+
+
+def _batch_triage(batch_id: str | None, engine: PMEngine) -> list[dict] | None:
+    """Triage's per-product verdict for a run's batch, or None.
+
+    Surfaced on the run because that is where the routing question is asked. A
+    score vector that is stored but not readable at the gate would repeat the
+    defect this fixes — the judgement existed and the decision surface could not
+    see it.
+    """
+    if not batch_id:
+        return None
+    batch = engine.store.get_batch(batch_id)
+    return (batch or {}).get("triage")
 
 
 def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
@@ -325,7 +346,12 @@ async def _start_fanout_runs(
         pm_identity=engine.context_loader.load_pm_identity(),
     )
 
-    batch_id = engine.store.create_batch(signal_id)
+    # Record Triage's verdict with the batch. This is the only moment it exists:
+    # the call is not repeated, and re-scoring later would run against profiles
+    # that may since have changed.
+    batch_id = engine.store.create_batch(
+        signal_id, triage=[_triage_dict_with_family(p) for p in triage.products]
+    )
 
     # Conservative fan-out (US-49 §0): spawn ONLY the primary product — the
     # highest-relevance product (within the most-relevant family). Other relevant
@@ -594,7 +620,9 @@ async def scan_portfolio(
             triage=[p.model_dump() for p in triage.products],
         )
 
-    batch_id = engine.store.create_batch(run["signal_id"])
+    batch_id = engine.store.create_batch(
+        run["signal_id"], triage=[_triage_dict_with_family(p) for p in triage.products]
+    )
     engine.store.update_run(run_id, batch_id=batch_id)  # pull the origin run in
     runs = _spawn_runs_in_batch(
         triage.relevant_product_ids, run["signal_id"], batch_id, None,
@@ -633,6 +661,7 @@ async def get_run(
         stage_outputs=stage_outputs,
         gate1_review=_build_gate1_review(run_id, engine),
         gate3_review=_build_gate3_review(run_id, engine),
+        triage=_batch_triage(run.get("batch_id"), engine),
     )
 
 
