@@ -19,6 +19,7 @@ _JSON_SCHEMA = """{
     {"text": "<one claim, single provenance>", "source": "signal | product_context | inference", "grounds": [<1-based positions of the claims this is derived from; required & non-empty when source is inference, else []>]}
   ],
   "relevance_score": <integer 1–5>,
+  "depth_basis": "<one of: no_product_surface | trend_only | named_gap | options_exist | commit_ready>",
   "suggested_mode": "<one of: archive | note | structure | evaluate | decide>",
   "suggestion_reasoning": "<one sentence explaining why this depth is appropriate>"
 }"""
@@ -39,25 +40,53 @@ Score the strategic relevance of this signal for this specific product:
 Signals scored 1–2 must use `suggested_mode: archive`.
 Signals scored 3–5 warrant PM attention at minimum.
 
-## Suggested Pipeline Depth
+Relevance does **not** decide the depth. Score it here, then classify the depth
+basis below on its own evidence — the two questions have different answers often
+enough that treating the second as a consequence of the first is the main way this
+stage goes wrong.
 
-After scoring relevance, recommend how deeply to process this signal:
+## Depth basis — decide this BEFORE the depth, and on different grounds
 
-Modes are a depth ladder (shallow → deep). Pick the minimum depth needed.
+Relevance answers *how much this matters to the product*. Depth answers *what there
+is to work on*, which is a different question, and answering it in relevance's
+vocabulary makes the second answer a restatement of the first.
 
-| Mode | When to suggest |
-|------|----------------|
-| archive | Signal is noise — wrong product, wrong segment, or purely informational with no action possible (set aside, not pursued) |
-| note | Signal is interesting but low urgency — worth recording the insight but no opportunity to pursue now |
-| structure | Signal warrants structuring into an opportunity, but the team should decide before investing in full evaluation |
-| evaluate | Signal is clearly relevant and an opportunity exists — run full 4-persona evaluation before deciding |
-| decide | Signal is directly actionable, opportunity is obvious, and the team is ready to commit to a path |
+So first classify what the signal actually **contains**. Judge only what is on the
+page — not how important the topic feels, not how relevant you scored it:
 
-Choose the minimum depth needed given the signal's relevance, urgency, and actionability.
-When torn between two adjacent depths, suggest the SHALLOWER one: a shallow run
-can always be deepened later at no re-work cost, whereas an over-deep suggestion
-wastes PM review time. Suggest `structure` or deeper only when the signal names a
-concrete, product-specific opportunity — "relevant and worth watching" is `note`.
+| depth_basis | The signal… |
+|---|---|
+| no_product_surface | does not touch anything this product owns or would have to answer for |
+| trend_only | is about this product's space, but names no specific mechanism, incident, or capability gap — it describes a direction, not a thing |
+| named_gap | names a specific mechanism, incident, CVE or capability that this product would have to answer |
+| options_exist | names that gap **and** there is more than one distinguishable way the product could respond |
+| commit_ready | the response is already clear, and the open question is only whether to do it |
+
+A signal can be highly relevant and still be `trend_only` — an important article
+about a direction the product cares about, naming nothing it must answer, is
+`trend_only`. That combination is common and is not a contradiction.
+
+## Suggested depth follows from the basis
+
+| depth_basis | suggested_mode |
+|---|---|
+| no_product_surface | archive |
+| trend_only | note |
+| named_gap | structure |
+| options_exist | evaluate |
+| commit_ready | decide |
+
+Two constraints override the table:
+
+1. A signal scored 1–2 on relevance is `archive` regardless of basis — nobody should
+   spend a decision on it.
+2. When torn between two adjacent bases, choose the SHALLOWER. A shallow run can be
+   deepened later at no re-work cost; an over-deep suggestion spends PM review time
+   that cannot be refunded.
+
+State the basis in `suggestion_reasoning` by naming the specific thing you found —
+or by saying that you found none. "Clearly relevant, but no concrete product
+implication yet" is a complete and correct reason for `note` on a 4.
 Canonical definition: pm-decision-context/core/02-workflow.md ("Processing Depth — 5 modes")."""
 
 
@@ -113,7 +142,8 @@ Rules:
   - "product_context": a fact drawn from the Product Context above.
   - "inference": a conclusion you derive — it MUST list in "grounds" the 1-based positions of the signal/product_context claims it rests on.
   - Include at least one "inference" claim. Never mix provenances within a single claim — split them into separate claims instead.
-- "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide.
+- "depth_basis" must be exactly one of: no_product_surface, trend_only, named_gap, options_exist, commit_ready — and must describe what the signal CONTAINS, not how relevant it is.
+- "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide, and must follow from "depth_basis" per the table above.
 - Do not hallucinate facts not present in the signal or product context."""
 
     usage_sink: list = []
@@ -179,12 +209,17 @@ def _render_claims(data: S2OutputData) -> str:
 
 def build_insight_memo(title: str, category: str, data: S2OutputData) -> str:
     pillars = ", ".join(data.pillar_references) if data.pillar_references else "—"
+    # Runs stored before `depth_basis` existed do not carry it, and this renderer
+    # is used to export them. Omit the line rather than printing a default that
+    # would read as a judgement the run never made.
+    basis = getattr(data, "depth_basis", None)
+    basis_line = f"\n**Depth Basis:** {basis}" if basis else ""
     return f"""# Insight Memo
 
 **Signal:** {title}
 **Category:** {category}
 **Relevance Score:** {data.relevance_score}/5
-**Suggested Mode:** {data.suggested_mode}
+**Suggested Mode:** {data.suggested_mode}{basis_line}
 
 ## What Changed
 {data.what_changed}

@@ -236,6 +236,16 @@ class S2OutputData(BaseModel):
             "1–2: noise; 3: borderline; 4–5: clearly relevant"
         ),
     )
+    depth_basis: Literal[
+        "no_product_surface", "trend_only", "named_gap", "options_exist", "commit_ready"
+    ] = Field(
+        default="trend_only",
+        description=(
+            "What the signal actually contains, decided BEFORE the depth and on "
+            "different grounds from relevance: does it name something this product "
+            "would have to answer? The depth follows from this."
+        ),
+    )
     suggested_mode: Literal["archive", "note", "structure", "evaluate", "decide"] = Field(
         description="Recommended processing depth (archive<note<structure<evaluate<decide)"
     )
