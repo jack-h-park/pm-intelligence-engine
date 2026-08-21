@@ -849,9 +849,18 @@ async def _execute_s1_s2(
             store=engine.store,
         )
 
-        # Store S2 recommendation so the API caller can display it
+        # Store S2 recommendation so the API caller can display it.
+        #
+        # `depth_basis` belongs here as much as the mode it produced. #67 split the
+        # depth decision off relevance precisely so the GROUNDS could be stated and
+        # checked; dropping the grounds at the one moment they exist leaves only the
+        # conclusion, and a conclusion with no basis cannot be audited or graded.
+        # It is also the marker that tells a post-#67 recommendation from a pre-#67
+        # one — without it, a suggester that has been replaced and one that has not
+        # average into a single number (control-plane `decision-ledger.py`).
         recommendation = {
             "suggested_mode": s2_out.output.suggested_mode,
+            "depth_basis": s2_out.output.depth_basis,
             "reasoning": s2_out.output.suggestion_reasoning,
             "relevance_score": s2_out.output.relevance_score,
         }

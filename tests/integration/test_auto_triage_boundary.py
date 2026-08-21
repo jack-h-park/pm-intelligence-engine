@@ -73,7 +73,12 @@ def _seed_signal(engine: PMEngine) -> str:
     )
 
 
-def _s2_output(run_id: str, relevance_score: int, suggested_mode: str) -> S2Output:
+def _s2_output(
+    run_id: str,
+    relevance_score: int,
+    suggested_mode: str,
+    depth_basis: str = "trend_only",
+) -> S2Output:
     return S2Output(
         run_id=run_id,
         output=S2OutputData(
@@ -82,6 +87,7 @@ def _s2_output(run_id: str, relevance_score: int, suggested_mode: str) -> S2Outp
             pillar_references=[],
             relevance_explanation="No connection to product strategy pillars.",
             relevance_score=relevance_score,
+            depth_basis=depth_basis,
             suggested_mode=suggested_mode,
             suggestion_reasoning="Boundary-test reasoning.",
         ),
@@ -97,11 +103,12 @@ def _start_run_with_s2_score(
     *,
     force_gate1: bool = False,
     depth: str | None = None,
+    depth_basis: str = "trend_only",
 ) -> str:
     signal_id = _seed_signal(engine)
 
     async def fake_s2(input, context, llm, store):  # noqa: A002 - matches stage signature
-        return _s2_output(context.run_id, relevance_score, suggested_mode)
+        return _s2_output(context.run_id, relevance_score, suggested_mode, depth_basis)
 
     body = {"signal_id": signal_id, "product_id": "example-security-product"}
     if force_gate1:
@@ -271,3 +278,43 @@ def test_reopen_twice_rejected(client, engine):
     run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
     assert client.post(f"/runs/{run_id}/reopen").status_code == 200
     assert client.post(f"/runs/{run_id}/reopen").status_code == 409
+
+
+# ── the stored recommendation carries the GROUNDS, not just the conclusion ───
+#
+# #67 split the depth decision off relevance so the basis could be stated and checked.
+# The basis was then dropped when the recommendation was persisted, so every stored
+# recommendation held a conclusion with no grounds — unauditable, and indistinguishable
+# from one produced by the suggester #67 replaced. The control-plane decision ledger
+# averaged 46 pre-#67 decisions with 8 post-#67 ones into a single agreement rate
+# because nothing in the row said which suggester made it.
+
+
+@pytest.mark.parametrize("basis", ["named_gap", "commit_ready", "no_product_surface"])
+def test_the_recorded_recommendation_carries_the_depth_basis(client, engine, basis):
+    """Parametrised so a hardcoded default cannot pass: each run must persist the basis
+    S2 actually emitted."""
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=4, suggested_mode="brief", depth_basis=basis,
+    )
+
+    rec = json.loads(engine.store.get_run(run_id)["recommendation_json"])
+    assert rec["depth_basis"] == basis
+
+
+def test_the_basis_is_recorded_even_when_the_run_auto_triages(client, engine):
+    """The runs that never reach Gate 1 are exactly the ones nobody sees, so their
+    grounds are the ones most worth having on record."""
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=2, suggested_mode="file",
+        depth_basis="no_product_surface",
+    )
+
+    run = engine.store.get_run(run_id)
+    assert run_status(run) == "completed"
+    rec = json.loads(run["recommendation_json"])
+    assert rec["depth_basis"] == "no_product_surface"
+    # Stored normalised, not raw: the model maps the legacy ladder names on input
+    # (US-43 file→archive). The control-plane ledger carries the same alias map, and
+    # comparing the two raw would count a rename as a disagreement.
+    assert rec["suggested_mode"] == "archive"
