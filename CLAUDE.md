@@ -62,6 +62,18 @@ See `docs/EXPORT_AND_SYNC_CONTRACT.md` for the full ownership table.
 
 ---
 
+## Hosting
+
+pm-engine runs on an always-on **iMac**. Running on a MacBook is not recommended — closing
+the lid suspends the FastAPI process, breaking Hermes polling and making review links
+unreachable from iPhone.
+
+**Tailscale** is installed on the iMac and the PM's iPhone. `BASE_URL` in `.env` should be
+set to the iMac's Tailscale IP (e.g. `http://100.x.x.x:8000`) so Gate 2 Telegram
+notifications include a working review page link regardless of network location.
+
+---
+
 ## Project Structure
 
 ```
@@ -174,7 +186,9 @@ pip install -e ".[dev,anthropic]"
 
 # Environment
 cp .env.example .env
-# Set: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
+# Required for notifications: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000
 
 # Start API
 uvicorn app.api.main:app --reload
