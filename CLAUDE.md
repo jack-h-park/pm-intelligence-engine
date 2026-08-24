@@ -110,7 +110,7 @@ app/
 └── logging.py             emit_event() — structured JSON logging
 
 eval/
-├── scenarios.json        Golden dataset (R01–R07 historical runs)
+├── scenarios.json        Regression fixtures (R04–R07 historical runs)
 ├── runner.py             Full scenario regression runner
 └── rubrics/              Stage-specific quality evaluators
 
@@ -237,7 +237,7 @@ pytest tests/integration/ -m "not slow"
 
 ## Eval Harness Notes
 
-**Golden dataset location:** `eval/scenarios.json`
+**Regression fixtures location:** `eval/scenarios.json`
 
 **Expected routing (from historical manual runs):**
 

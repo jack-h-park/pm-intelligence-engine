@@ -1,6 +1,6 @@
 """Eval harness — Phase 2.
 
-Runs S1–S5 against the golden scenarios in scenarios.json and verifies:
+Runs S1–S5 against the regression scenarios in scenarios.json and verifies:
   - All outputs are valid Pydantic models
   - S3 hypothesis passes the falsifiability rubric
   - S4 rubric score >= 9/12

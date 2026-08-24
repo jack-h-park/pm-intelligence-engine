@@ -409,7 +409,7 @@ eval/
     └── s5_routing.py      Routing accuracy checker
 ```
 
-**Golden dataset:** R01–R07 from `example-security-product`:
+**Regression fixtures:** R04–R07 from `example-security-product`:
 
 | Run | Signal | Expected Routing | Expected Composite |
 |---|---|---|---|

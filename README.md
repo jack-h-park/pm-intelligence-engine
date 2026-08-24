@@ -69,7 +69,7 @@ Each signal runs through a sequential pipeline:
 1. **Judgment traceability over speed** — every recommendation ships with its evidence chain
 2. **PM approves, system executes** — automation never bypasses human judgment
 3. **Vendor-agnostic LLM** — `LLMProvider` protocol; swap Claude / OpenAI / Gemini via config
-4. **Measure from day one** — eval harness built before feature code, using real historical runs as golden data
+4. **Measure from day one** — eval harness built before feature code, using real historical runs as regression fixtures
 5. **Stage functions, not conversational agents** — each stage has a typed input/output contract
 
 ## Ownership Boundaries
@@ -111,7 +111,7 @@ pm-intelligence-engine/
 │   ├── factory.py             # build_engine(runtime) dependency wiring
 │   └── logging.py             # Structured JSON event logging
 ├── eval/
-│   ├── scenarios.json         # Golden dataset from historical runs (R01–R07)
+│   ├── scenarios.json         # Regression fixtures from historical runs (R04–R07)
 │   ├── runner.py              # Full scenario regression runner
 │   └── rubrics/               # Stage-specific quality evaluators
 ├── tests/

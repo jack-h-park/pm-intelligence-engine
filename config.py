@@ -118,7 +118,7 @@ settings = Settings()
 
 
 # Product families (US-49 conservative fan-out). A routing/grouping layer only —
-# NOT the workflow unit: per-product decision-context, the eval golden set, and the
+# NOT the workflow unit: per-product decision-context, the eval regression fixtures, and the
 # observatory schema are unchanged. Used to (1) pick the fan-out primary within the
 # most-relevant family and (2) group deferred candidates so ops can offer "same
 # family" promotions. See docs/MULTI_PRODUCT_SIGNAL_FANOUT.md §0.
