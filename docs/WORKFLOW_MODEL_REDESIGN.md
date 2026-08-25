@@ -219,7 +219,7 @@ cost.
 
 **Live consumers (the real cost — coupling measured 2026-07-02):**
 
-*Observatory* (`code/core/jackhpark-pm-observatory`, Next.js) — reads the engine
+*Observatory* (`code/core/jackhpark-pm-console`, Next.js) — reads the engine
 SQLite directly + the API. Bounded to the adapter/format layer:
 - `lib/adapters/engine-db.ts` — direct reads of `workflow_runs`, `signals`,
   `approval_events`, `stage_outputs`, `artifacts`, `run_batches`; references
