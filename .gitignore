@@ -21,7 +21,15 @@ archive/runs/
 # Database backups. `*.db` above does not match `pm_platform.db.bak-<date>`,
 # so snapshots taken before a migration were showing up as untracked files
 # waiting to be committed by accident.
-*.db.bak-*
+#
+# The pattern is `.bak` + ANYTHING, not `.bak-` specifically, because the two
+# repair scripts in scripts/sql/ both instruct
+#   cp pm_platform.db "pm_platform.db.bak.$(date +%Y%m%d-%H%M%S)"
+# — a DOT, not a hyphen. Following this repo's own documented procedure therefore
+# left a 2.5 MB database sitting untracked, one `git add -A` away from the history
+# the rest of this block exists to keep it out of. Covering both spellings is
+# cheaper than trusting everyone to notice which separator the recipe used.
+*.db.bak*
 
 # Server process management
 .pid
