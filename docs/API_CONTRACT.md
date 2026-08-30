@@ -64,7 +64,7 @@ version bump.
 | `POST` | `/runs/{id}/reject` | Gate 2 reject | Bridge PM rejection |
 | `POST` | `/runs/{id}/routing-review` | Gate 3 confirm/override | Bridge PM routing decision |
 | `POST` | `/runs/{id}/void` | Cancel an improperly-started run (→ killed) | Bridge PM void at any gate |
-| `POST` | `/runs/{id}/reopen` | Revive an auto-triaged run | Auto-triage digest follow-up |
+| `POST` | `/runs/{id}/reopen` | Revive a run the **system** decided for (auto-triaged, or advanced by `gate1-timeout`) | Auto-triage digest follow-up; undoing a timeout advance |
 | `POST` | `/runs/{id}/deepen` | Resume a completed run at a deeper depth | Bridge PM depth pull |
 | `POST` | `/runs/{id}/decision` | **Unified gate decision** (advance/advance_to/revise/stop) | Preferred single entry (US-55) |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
@@ -209,7 +209,7 @@ List runs. Hermes uses this for polling actionable queues.
 - Every run object carries `review_url` — an absolute link to the engine-served
   browser review page (`{BASE_URL}/runs/{id}/review`), built from the engine's
   `BASE_URL` so delivery consumers never need the engine's network config.
-- `event` — filter by recorded decision event (`auto_triaged`, `reopen`, `approve`,
+- `event` — filter by recorded decision event (`auto_triaged`, `timeout`, `reopen`, `approve`,
   `revise`, `reject`, `direction`, `confirm`, `override`, `void`, `deepen`). Every human gate decision is
   now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
   `reject`), Gate 3 routing (`confirm`/`override`) — each records the system suggestion
@@ -502,7 +502,16 @@ Gate 2 like any decide run. Records a `deepen` decision event
 (`feedback_text: "from=<old>; to=<new>"`), clears `completed_at`, and returns the
 signal to `in_run` until the resumed run settles.
 
-Distinct from `reopen`: reopen revives an *auto-triaged* run back to Gate 1 with
+**`origin` on a Gate 1 advance.** `POST /runs/{id}/decision` and
+`POST /runs/{id}/direction` accept an optional `origin`. Omit it for a human decision —
+that is every caller that predates the field. Pass `gate1-timeout` when the ops timeout
+job is advancing a run the PM did not answer; the event is then recorded as `timeout`
+rather than `direction`, which is what makes it (a) revivable by `reopen` and (b)
+excludable from any measure of PM agreement. An unrecognised value is a 422 rather than
+a silent fallback to `direction`, because falling back would restore both problems
+without saying so.
+
+Distinct from `reopen`: reopen revives a run the *system* decided for back to Gate 1 with
 no depth; deepen acts on any completed run *with* a depth and carries the new
 depth directly (no second Gate 1 pause).
 
@@ -531,7 +540,7 @@ verbs, interpreted against the run's current state:
 
 | `action` | Gate 1 (`waiting_direction`) | Gate 2 (`waiting_approval`) | Gate 3 (`waiting_routing_review`) | `completed` |
 |----------|------------------------------|------------------------------|------------------------------------|-------------|
-| `advance` | — | approve | confirm routing | reopen (auto-triaged only) |
+| `advance` | — | approve | confirm routing | reopen (system-decided runs only) |
 | `advance_to` | pick depth (`target`) | — | override routing (`routing`) | deepen (`target`) |
 | `revise` | — | re-run S4 (`feedback`) | — | — |
 | `stop` | *(any non-terminal → void `reason`)* | reject (`reason`) | kill (`reason`) | — |

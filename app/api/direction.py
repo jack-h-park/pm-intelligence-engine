@@ -21,10 +21,23 @@ from app import pipeline
 _VALID_MODES = set(pipeline.depths())  # single source of truth (app/pipeline.py)
 
 
+# Origins that are NOT a human answering the gate. An advance from one of these is
+# recorded under its own action so that (a) `reopen` can revive it — a human decision is
+# never undone by reopen, an automated one must be — and (b) anything grading Gate 1
+# agreement can exclude it. Without this the two are byte-identical rows and a job that
+# advances at S2's own suggested depth reads as a run of perfect human agreement.
+#
+# Kept as an explicit allow-list rather than free text: an unrecognised origin is a
+# deployment mistake, and defaulting it to "human" is the flattering direction.
+AUTOMATED_ORIGINS = {"gate1-timeout": "timeout"}
+
+
 class DirectionRequest(BaseModel):
     # `depth` is canonical (US-43); `mode` accepted as a deprecated alias.
     model_config = ConfigDict(populate_by_name=True)
     depth: str = Field(validation_alias=AliasChoices("depth", "mode"))  # archive|note|structure|evaluate|decide
+    # Who is answering. Absent = a human, which is every caller that predates this field.
+    origin: str | None = None
 
 
 @router.post("/{run_id}/direction", status_code=202)
@@ -35,6 +48,12 @@ async def set_direction(
     engine: PMEngine = Depends(get_engine),
 ) -> dict:
     from app.modes import normalize_mode
+    if body.origin is not None and body.origin not in AUTOMATED_ORIGINS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown origin '{body.origin}'. Must be one of: "
+                   f"{', '.join(sorted(AUTOMATED_ORIGINS))} (omit it for a human decision)",
+        )
     body.depth = normalize_mode(body.depth)  # accept legacy file/brief/opportunity (US-43)
     if body.depth not in _VALID_MODES:
         raise HTTPException(
@@ -67,11 +86,13 @@ async def set_direction(
             suggested = _json.loads(run["recommendation_json"]).get("suggested_mode")
         except Exception:  # noqa: BLE001
             suggested = None
+    action = AUTOMATED_ORIGINS.get(body.origin, "direction") if body.origin else "direction"
     engine.store.record_approval(
         run_id=run_id,
         stage="s2",
-        action="direction",
-        feedback_text=f"chose={body.depth}; suggested={suggested}",
+        action=action,
+        feedback_text=f"chose={body.depth}; suggested={suggested}"
+                      + (f"; origin={body.origin}" if body.origin else ""),
     )
 
     engine.store.advance(run_id, "s2", mode=body.depth)

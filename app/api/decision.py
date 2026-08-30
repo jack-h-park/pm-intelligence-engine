@@ -35,6 +35,7 @@ class DecisionRequest(BaseModel):
     routing: str | None = None       # prd|poc|kill for advance_to at Gate 3 (override)
     reason: str | None = None        # for stop (reject / kill / void)
     feedback: str | None = None      # for revise
+    origin: str | None = None        # who is deciding; absent = a human (see direction.py)
 
 
 @router.post("/{run_id}/decision", status_code=202)
@@ -66,7 +67,8 @@ async def decide(
         if action == "advance_to":
             from app.api.direction import DirectionRequest, set_direction
             return await set_direction(
-                run_id, DirectionRequest(depth=body.target), background_tasks, engine
+                run_id, DirectionRequest(depth=body.target, origin=body.origin),
+                background_tasks, engine,
             )
         raise _invalid(action, state, "advance_to {target}")
 

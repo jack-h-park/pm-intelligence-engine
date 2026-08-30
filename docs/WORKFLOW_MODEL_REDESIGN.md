@@ -22,7 +22,7 @@ plus **six gate/terminal endpoints**:
 | depth / `RunMode` | archive, note, structure, evaluate, decide | `app/modes.py`, `models/workflow.py` |
 | `RunStatus` | pending, running, waiting_direction, waiting_approval, waiting_routing_review, completed, killed, failed | `models/workflow.py` |
 | `ended_by` | auto_triaged, archived, noted, structured, evaluated, decided, rejected, kill_confirmed, kill_overridden, voided, failed | `services/run_finalizer.py` |
-| `ApprovalAction` | direction, approve, revise, reject, confirm, override, void, reopen, deepen, auto_triaged | `models/workflow.py` |
+| `ApprovalAction` | direction, approve, revise, reject, confirm, override, void, reopen, deepen, auto_triaged, timeout | `models/workflow.py` |
 | `ArtifactType` | insight_memo, opportunity_memo, evaluation_brief, decision_memo, poc_plan, prd, executive_summary, checkpoint | `models/workflow.py` |
 
 Almost all of it is a projection of **two underlying facts**:

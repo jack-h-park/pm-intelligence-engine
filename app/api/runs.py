@@ -7,6 +7,10 @@ from app.api.deps import get_engine
 from app.services import runtime_overrides
 from app.factory import PMEngine
 
+# Actions that mean "the system chose this depth, not the PM". Both are revivable by
+# `reopen`; a PM's own `direction` never is.
+REVIVABLE_ACTIONS = {"auto_triaged", "timeout"}
+
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
@@ -690,7 +694,7 @@ async def list_runs(
     if event is not None:
         valid_events = {
             "approve", "revise", "reject", "auto_triaged", "reopen",
-            "direction", "confirm", "override", "deepen",
+            "direction", "confirm", "override", "deepen", "timeout",
         }
         if event not in valid_events:
             raise HTTPException(
@@ -715,11 +719,21 @@ async def reopen_run(
     run_id: str,
     engine: PMEngine = Depends(get_engine),
 ) -> RunResponse:
-    """Revive an auto-triaged run to waiting_direction (US-31).
+    """Revive a run the system decided for, back to waiting_direction (US-31).
 
-    Only runs that were silently filed by the relevance gate are revivable —
-    a deliberate PM decision (file at Gate 1, reject at Gate 2, kill at Gate 3)
-    is not undone by this endpoint.
+    Two ways a run can reach a depth without the PM choosing it, and both are
+    revivable:
+
+      auto_triaged   the relevance gate filed it silently
+      timeout        `gate1-timeout` advanced it at S2's suggested depth after the
+                     PM did not answer
+
+    A deliberate PM decision (direction at Gate 1, reject at Gate 2, kill at Gate 3)
+    is still never undone by this endpoint — that is the whole boundary.
+
+    Reopen is also the only way back to a SHALLOWER depth: it clears the depth and
+    returns the run to Gate 1, from which any depth may be chosen. `deepen` refuses
+    anything not strictly deeper, so `structure -> note` is reachable only this way.
     """
     from app.logging import emit_event
 
@@ -728,10 +742,12 @@ async def reopen_run(
         raise HTTPException(status_code=404, detail="Run not found")
 
     events = engine.store.get_approval_events(run_id)
-    if not any(e["action"] == "auto_triaged" for e in events):
+    revivable = [e["action"] for e in events if e["action"] in REVIVABLE_ACTIONS]
+    if not revivable:
         raise HTTPException(
             status_code=409,
-            detail="Only auto-triaged runs can be reopened",
+            detail="Only runs the system decided for can be reopened "
+                   f"({', '.join(sorted(REVIVABLE_ACTIONS))}); this run carries a PM decision",
         )
     if not (run.get("lifecycle") == "done" and run.get("outcome") == "completed"):
         raise HTTPException(
@@ -746,7 +762,7 @@ async def reopen_run(
     engine.store.pause(run_id, "s2")
     engine.store.update_run(run_id, mode=None, completed_at=None)
     engine.store.update_signal_status(run["signal_id"], "in_run")
-    emit_event("run", "reopened", run_id, {"from": "auto_triaged"})
+    emit_event("run", "reopened", run_id, {"from": revivable[-1]})
 
     updated = engine.store.get_run(run_id)
     return RunResponse(**updated, gate3_review=None)

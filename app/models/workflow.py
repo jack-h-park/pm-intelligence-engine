@@ -85,6 +85,12 @@ class ApprovalAction(str, enum.Enum):
     override = "override"          # PM overrides S5 routing at Gate 3 (US-44)
     void = "void"                  # PM voids an improperly-started run (any non-terminal state)
     deepen = "deepen"              # PM resumes a completed run at a deeper depth (human-pull)
+    timeout = "timeout"            # gate1-timeout advanced a run the PM did not answer.
+                                   # Distinct from `direction` so the row says WHO decided:
+                                   # `reopen` can revive it (a PM decision it never can),
+                                   # and Gate 1 agreement can exclude it — the job advances
+                                   # at S2's own suggested depth, so it agrees by
+                                   # construction and would otherwise read as the PM.
 
 
 class ArtifactType(str, enum.Enum):
