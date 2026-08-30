@@ -189,6 +189,42 @@ def test_force_gate1_does_not_affect_above_threshold(client, engine):
     engine.notifier.send_gate1.assert_awaited_once()
 
 
+def test_depth_stated_at_start_is_recorded_as_a_decision(client, engine):
+    """A depth passed at run-start is a decision and belongs in the audit log.
+
+    It is the third way a run acquires a depth, and it used to be the only one
+    leaving no trace: Gate 1 writes `direction`, the relevance gate writes
+    `auto_triaged`, and a preset depth wrote nothing — so a fan-out or scripted
+    start reached S3+ with an empty audit log and read as a run that had skipped
+    its gate.
+
+    `preset`, not `direction`: the choice was made before S2 produced a
+    suggestion, so scoring it as agreement with that suggestion measures nothing
+    — the same reason `timeout` is its own action. The suggestion is recorded
+    alongside for the different question of whether the preset matched it.
+    """
+    run_id = _start_run_with_s2_score(
+        client, engine, relevance_score=4, suggested_mode="brief", depth="evaluate",
+    )
+
+    events = engine.store.get_approval_events(run_id)
+    actions = [e["action"] for e in events]
+    assert "preset" in actions
+    assert "direction" not in actions  # not a Gate 1 answer, and not counted as one
+
+    # "brief" is the legacy spelling; S2's output normalises it to "note" (US-43),
+    # and the audit row records the normalised value the rest of the system uses.
+    fb = next(e["feedback_text"] for e in events if e["action"] == "preset")
+    assert "chose=evaluate" in fb and "suggested=note" in fb
+
+
+def test_auto_triaged_run_is_not_also_recorded_as_preset(client, engine):
+    """Regression guard: the three depth paths stay mutually exclusive."""
+    run_id = _start_run_with_s2_score(client, engine, relevance_score=1, suggested_mode="file")
+    actions = [e["action"] for e in engine.store.get_approval_events(run_id)]
+    assert actions == ["auto_triaged"]
+
+
 def test_force_gate1_with_explicit_depth_still_skips_gate1(client, engine):
     """An explicit depth always wins: force_gate1 has no effect when the PM stated a
     depth, so the run processes immediately rather than pausing at Gate 1."""

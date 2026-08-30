@@ -210,10 +210,14 @@ List runs. Hermes uses this for polling actionable queues.
   browser review page (`{BASE_URL}/runs/{id}/review`), built from the engine's
   `BASE_URL` so delivery consumers never need the engine's network config.
 - `event` — filter by recorded decision event (`auto_triaged`, `timeout`, `reopen`, `approve`,
-  `revise`, `reject`, `direction`, `confirm`, `override`, `void`, `deepen`). Every human gate decision is
+  `revise`, `reject`, `direction`, `preset`, `confirm`, `override`, `void`, `deepen`). Every human gate decision is
   now persisted (US-44): Gate 1 mode choice (`direction`), Gate 2 (`approve`/`revise`/
   `reject`), Gate 3 routing (`confirm`/`override`) — each records the system suggestion
   vs the PM's choice in `feedback_text`, forming the labeled human-decision dataset.
+  `preset` is a depth passed at run-start, which never reaches Gate 1: the same
+  decision taken earlier, kept as its own event because it was made before S2 had a
+  suggestion and so cannot be scored as agreement with one (the reason `timeout` is
+  separate too). Exclude `preset` and `timeout` when measuring Gate 1 agreement.
   `event=auto_triaged` is the canonical query for the Hermes auto-triage digest (US-31).
 - `since` — ISO 8601 timestamp; only runs created at or after this time
 - `limit` — max results (default 50)

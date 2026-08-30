@@ -125,7 +125,8 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
 
     The single home for per-stage I/O, shared by every advance segment. S3/S4 are
     reused when already computed (what makes ``POST /deepen`` cheap); S5–S7 always
-    run. S5 additionally records the routing it computes onto the run.
+    run. S5 additionally records the routing AND the composite score it computes
+    onto the run.
     """
     import json
 
@@ -176,7 +177,17 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         s5_out = await s5_prioritization.run(
             S5Input(s4_output=s4_output_data), context, engine.llm, store,
         )
-        store.update_run(run_id, routing=s5_out.output.routing)
+        # Both halves of S5's verdict, not just the routing. `composite_score` is a
+        # column on the run and the only write to it is here, so leaving it out left
+        # it NULL on every run that ever reached S5 — while the routing beside it
+        # landed, which is what made the gap look like an edge case instead of the
+        # whole population. Portfolio synthesis reads it off the run row and had been
+        # printing "composite: —" for every product since the column existed.
+        store.update_run(
+            run_id,
+            routing=s5_out.output.routing,
+            composite_score=s5_out.output.composite_score,
+        )
     elif position == "s6a":
         from app.stages import s6a_poc_plan
         await s6a_poc_plan.run(

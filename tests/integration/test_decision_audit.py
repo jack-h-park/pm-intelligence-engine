@@ -4,6 +4,10 @@ Every human gate decision must be persisted as a labeled calibration datapoint:
 - Gate 1 (direction): the mode the PM chose vs the mode S2 suggested
 - Gate 3 (routing-review): the routing the PM chose vs what S5 recommended
 (Gate 2 approve/revise/reject was already recorded.)
+
+A depth stated at run-start never reaches a gate but is the same kind of decision;
+it is recorded as `preset` and covered in test_auto_triage_boundary.py, which owns
+the S1–S2 harness that path needs.
 """
 
 import json

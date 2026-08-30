@@ -889,6 +889,18 @@ async def _execute_s1_s2(
             # PM explicitly specified a depth at run-start — always honor it.
             # Skip auto-triage: PM's stated intent overrides the S2 relevance score.
             chosen_mode = requested_mode
+            # …and log it. This is the third way a run acquires a depth, and it was
+            # the only one leaving no trace: Gate 1 records `direction`, the
+            # relevance gate records `auto_triaged`, and a depth stated at start
+            # recorded nothing — so a fan-out or scripted start reached S3+ with an
+            # empty audit log and read as a run that had skipped its gate. The
+            # decision is no less real for having been made a minute earlier.
+            engine.store.record_approval(
+                run_id=run_id,
+                stage="s2",
+                action="preset",
+                feedback_text=f"chose={requested_mode}; suggested={s2_out.output.suggested_mode}",
+            )
         elif not force_gate1 and s2_out.output.relevance_score < runtime_overrides.auto_triage_threshold():
             # No depth specified, not force_gate1, and relevance is below threshold —
             # auto-triage. (force_gate1 from a PM-initiated interactive start

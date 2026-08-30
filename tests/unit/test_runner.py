@@ -5,6 +5,10 @@ gates fire, and how the S6 branch resolves — in one place, replacing the impli
 coverage that was spread across the per-gate execution functions.
 """
 
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 from app import runner
@@ -120,3 +124,33 @@ def test_full_decide_journey_reconstructs_every_stage():
 
     assert ran == ["s3", "s4", "s5", "s6a", "s7"]
     assert pauses == ["s4", "s5"]  # Gate 2, Gate 3
+
+
+# ---------------------------------------------------------------------------
+# S5 writes BOTH halves of its verdict onto the run
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_s5_persists_routing_and_composite_score_to_the_run():
+    """The routing used to land alone, leaving `composite_score` NULL on every run
+    that ever reached S5 — including the ones that finished the whole pipeline.
+    Portfolio synthesis reads the score off the run row, so it read "—" forever."""
+    from tests.unit.test_s5 import _make_context, _make_s4_output
+
+    context = _make_context()
+    s4_output = _make_s4_output()
+
+    store = MagicMock()
+    store.get_stage_output.return_value = {
+        "output_json": json.dumps({"output": s4_output.model_dump()})
+    }
+    engine = SimpleNamespace(store=store, llm=AsyncMock())
+
+    s5_out = SimpleNamespace(output=SimpleNamespace(routing="poc", composite_score=4.25))
+    with patch("app.stages.s5_prioritization.run", new=AsyncMock(return_value=s5_out)):
+        await runner.run_stage("s5", context.run_id, engine, context)
+
+    store.update_run.assert_called_once_with(
+        context.run_id, routing="poc", composite_score=4.25
+    )

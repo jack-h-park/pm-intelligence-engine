@@ -85,6 +85,16 @@ class ApprovalAction(str, enum.Enum):
     override = "override"          # PM overrides S5 routing at Gate 3 (US-44)
     void = "void"                  # PM voids an improperly-started run (any non-terminal state)
     deepen = "deepen"              # PM resumes a completed run at a deeper depth (human-pull)
+    preset = "preset"              # depth stated at run start, before Gate 1 existed for
+                                   # this run. A real decision — the caller passed a depth
+                                   # and S2's relevance score is explicitly overridden — so
+                                   # it belongs in the audit log. Distinct from `direction`
+                                   # for the same reason as `timeout` below: the choice was
+                                   # made BEFORE S2 produced a suggestion, so scoring it as
+                                   # agreement-with-the-suggestion measures nothing. The
+                                   # suggestion is still recorded in the feedback text, for
+                                   # anyone asking the different question of whether the
+                                   # preset matched what S2 would have said.
     timeout = "timeout"            # gate1-timeout advanced a run the PM did not answer.
                                    # Distinct from `direction` so the row says WHO decided:
                                    # `reopen` can revive it (a PM decision it never can),
