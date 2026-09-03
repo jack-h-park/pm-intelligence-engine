@@ -71,7 +71,7 @@ def _make_store(has_prior_stages: bool = False) -> MagicMock:
                         "stage": "s2", "run_id": run_id, "version": 1,
                         "output": {
                             "what_changed": "NFC admin allowlist is now natively supported.",
-                            "reframing": "Knox can offer first-class NFC control before AMAPI.",
+                            "reframing": "The platform can offer first-class NFC control first.",
                             "relevance_explanation": (
                                 "Directly addresses Attack Surface Reduction pillar."
                             ),
@@ -87,15 +87,15 @@ def _make_store(has_prior_stages: bool = False) -> MagicMock:
                     "output_json": json.dumps({
                         "stage": "s3", "run_id": run_id, "version": 1,
                         "output": {
-                            "problem_statement": "Knox lacks native NFC admin control.",
-                            "target_user": "IT admin at enterprise running KPE Ultra.",
+                            "problem_statement": "The platform lacks native NFC admin control.",
+                            "target_user": "IT admin at an enterprise running managed devices.",
                             "hypothesis": (
-                                "If Knox exposes NFC allowlist, then admins will mandate it."
+                                "If the platform exposes an NFC allowlist, admins will mandate it."
                             ),
                             "assumed_value_user": (
                                 "Full NFC policy control without MDM workarounds."
                             ),
-                            "assumed_value_business": "Knox ships before AMAPI deprecation.",
+                            "assumed_value_business": "The platform ships ahead of the OS.",
                         },
                         "metadata": _meta,
                     })
@@ -166,7 +166,7 @@ def _make_s5_output() -> S5OutputData:
         routing="prd",
         assumptions=[
             Assumption(
-                statement="AMAPI NFC deprecation applies to KPE Ultra",
+                statement="Platform API NFC deprecation applies to this device line",
                 severity="Adjusting",
                 reason="Narrows urgency if false.",
             ),
@@ -179,8 +179,8 @@ def _make_s5_output() -> S5OutputData:
 def _make_s6b_output() -> S6BOutputData:
     from app.models.stages import PRDCompletenessCheck
     return S6BOutputData(
-        problem_statement="Knox lacks native NFC admin control.",
-        target_user="IT admin at enterprise running KPE Ultra.",
+        problem_statement="The platform lacks native NFC admin control.",
+        target_user="IT admin at an enterprise running managed devices.",
         success_metrics=["NFC policy deployed on 80% of devices within 60 days."],
         user_stories=[
             "As an IT admin, I want to allowlist NFC apps so devices comply.",
@@ -188,10 +188,10 @@ def _make_s6b_output() -> S6BOutputData:
             "As a security officer, I want audit reports for NFC compliance.",
         ],
         in_scope=["NFC allowlist API", "MDM integration"],
-        out_of_scope=["Consumer NFC UX", "Non-Knox devices"],
+        out_of_scope=["Consumer NFC UX", "devices outside the platform"],
         technical_dependencies=["Android 16 NFC admin API"],
-        open_questions=["AMAPI deprecation date? (owner: Platform PM)"],
-        risks=["AMAPI may not deprecate NFC APIs on schedule."],
+        open_questions=["What is the underlying platform API's deprecation date?"],
+        risks=["The underlying platform API may not deprecate NFC APIs on schedule."],
         completeness=PRDCompletenessCheck(
             problem_statement=True, target_user=True, hypothesis=True,
             success_metrics=True, user_stories=True, in_scope=True,
@@ -204,7 +204,7 @@ def _make_s6b_output() -> S6BOutputData:
 _VALID_S7_FULL_RESPONSE = {
     "what_we_saw": (
         "Android 16 introduced a native NFC admin allowlist, "
-        "a platform change Knox does not yet support."
+        "a platform change not yet supported here."
     ),
     "what_it_means": (
         "This creates an enterprise compliance gap in the Attack Surface Reduction pillar."
@@ -224,7 +224,7 @@ _VALID_S7_FULL_RESPONSE = {
 
 _VALID_S7_PARTIAL_RESPONSE = {
     "what_we_saw": "Android 16 introduced a native NFC admin allowlist.",
-    "what_it_means": "This may affect the Knox admin model.",
+    "what_it_means": "This may affect the platform's admin model.",
     "what_we_decided": "Filed as brief insight — no actionable opportunity identified at this time.",
     "what_we_will_do_next": "No further action required.",
     "markdown": "# Brief Summary\n\nFiled for reference.",

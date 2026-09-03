@@ -87,7 +87,7 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
         relevance_score=4,
         what_changed="Android added NFC allowlist support.",
         reframing="This is a managed API change.",
-        relevance_explanation="Relevant to Knox controls.",
+        relevance_explanation="Relevant to enterprise MDM controls.",
         pillar_references=["Attack Surface Reduction"],
         suggested_mode="structure",
         claims=[],
@@ -270,7 +270,7 @@ def test_archive_body_matches_the_stage_artifact_body():
     s2 = S2OutputData(
         what_changed="Android added NFC allowlist support.",
         reframing="This is a managed API change.",
-        relevance_explanation="Relevant to Knox controls.",
+        relevance_explanation="Relevant to enterprise MDM controls.",
         relevance_score=4,
         suggested_mode="structure",
         suggestion_reasoning="Directly touches a named pillar.",

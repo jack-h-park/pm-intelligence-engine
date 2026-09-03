@@ -28,11 +28,11 @@ def _make_context(product_context: str = "") -> RunContext:
 
 def _make_s3_output() -> S3OutputData:
     return S3OutputData(
-        problem_statement="No admin enforcement for APM.",
+        problem_statement="No admin enforcement for the policy.",
         target_user="IT admin at government agency.",
-        hypothesis="If Knox enforces APM, then admins can mandate posture.",
+        hypothesis="If the platform enforces the policy, then admins can mandate posture.",
         assumed_value_user="Admin-enforced security posture.",
-        assumed_value_business="Knox ships before Google AMAPI.",
+        assumed_value_business="The platform ships enforcement before the OS's native equivalent.",
     )
 
 
@@ -79,8 +79,8 @@ def test_rubric_perfect_score():
     personas = [
         _make_persona("explorer", 4, "attack surface reduction is key here", "What would an interview reveal?", "Impact"),
         _make_persona("strategist", 5, "attack surface reduction aligns with Pillar 1", "Can legal review confirm the strategy?", "Strategic Fit"),
-        _make_persona("builder", 4, "attack surface reduction feasible via composite Knox APIs", "Needs an engineering spike to confirm.", "Feasibility"),
-        _make_persona("skeptic", 2, "attack surface reduction already covered by existing policies — this adds no new protection. Customers configuring KPE Ultra individually may not benefit at all.", "Would a customer interview reveal redundancy?", "Confidence"),
+        _make_persona("builder", 4, "attack surface reduction feasible via the platform's existing APIs", "Needs an engineering spike to confirm.", "Feasibility"),
+        _make_persona("skeptic", 2, "attack surface reduction already covered by existing policies — this adds no new protection. Customers configuring the platform individually may not benefit at all.", "Would a customer interview reveal redundancy?", "Confidence"),
     ]
     result = check_rubric(personas, product_context)
     assert result.total_score >= 9
@@ -132,7 +132,7 @@ def test_rubric_no_actionable_questions_penalizes():
         _make_persona("explorer", 4, "attack surface", "How will this work?", "Impact"),
         _make_persona("strategist", 5, "attack surface", "Is this the right direction?", "Strategic Fit"),
         _make_persona("builder", 4, "attack surface", "Can we build this?", "Feasibility"),
-        _make_persona("skeptic", 2, "This assumes customers need it but they already enforce each control individually. The unified posture adds zero security value for sophisticated KPE Ultra customers.", "Will this matter?", "Confidence"),
+        _make_persona("skeptic", 2, "This assumes customers need it but they already enforce each control individually. The unified posture adds zero security value for sophisticated customers.", "Will this matter?", "Confidence"),
     ]
     result = check_rubric(personas, product_context)
     assert result.open_question_quality < 3
@@ -149,9 +149,9 @@ async def test_s4_runs_4_agents_independently():
     from app.stages import s4_evaluation
 
     explorer_resp = json.dumps({"score": 4, "key_argument": "Strong attack surface reduction opportunity referenced from Pillar 1.", "open_question": "What would a customer interview with IT admins reveal about their current configuration?"})
-    strategist_resp = json.dumps({"score": 5, "key_argument": "Directly maps to attack surface Pillar 1 and Knox competitive moat.", "open_question": "Can legal review confirm DISA STIG alignment?"})
-    builder_resp = json.dumps({"score": 4, "key_argument": "attack surface composite policy feasible with existing Knox APIs, no new OS hooks needed.", "open_question": "Engineering spike needed: does Android expose APM system flag?"})
-    skeptic_resp = json.dumps({"score": 2, "key_argument": "Steelman counter: KPE Ultra customers already configure each APM sub-control individually via Knox policies. attack surface may already be covered. Admin APM adds only marketing value, not security value.", "open_question": "Would a customer interview reveal that IT admins consider per-control Knox config sufficient?"})
+    strategist_resp = json.dumps({"score": 5, "key_argument": "Directly maps to attack surface Pillar 1 and the platform's competitive moat.", "open_question": "Can legal review confirm regulatory alignment?"})
+    builder_resp = json.dumps({"score": 4, "key_argument": "attack surface composite policy feasible with existing platform APIs, no new OS hooks needed.", "open_question": "Engineering spike needed: does the OS expose the needed system flag?"})
+    skeptic_resp = json.dumps({"score": 2, "key_argument": "Steelman counter: customers already configure each policy sub-control individually via the platform's existing tools. attack surface may already be covered. Admin enforcement adds only marketing value, not security value.", "open_question": "Would a customer interview reveal that IT admins consider per-control config sufficient?"})
 
     call_count = 0
     responses = [explorer_resp, strategist_resp, builder_resp, skeptic_resp]

@@ -43,7 +43,7 @@ def _make_llm_returning(data: dict) -> AsyncMock:
 
 _VALID_S2_RESPONSE = {
     "what_changed": "Android 16 introduces APM but without admin enforcement.",
-    "reframing": "Market frames this as consumer feature; for KPE Ultra it is a compliance gap.",
+    "reframing": "Market frames this as consumer feature; for the platform it is a compliance gap.",
     "pillar_references": ["Reduce attack surface (Ingress & Egress)"],
     "relevance_explanation": "Aligns directly with Pillar 1 — attack surface reduction.",
     "relevance_score": 4,
@@ -55,7 +55,7 @@ _LOW_RELEVANCE_S2_RESPONSE = {
     "what_changed": "A consumer app added dark mode support.",
     "reframing": "Market frames this as a UX improvement; no implication for enterprise security.",
     "pillar_references": [],
-    "relevance_explanation": "This signal has no connection to Knox enterprise security.",
+    "relevance_explanation": "This signal has no connection to enterprise security.",
     "relevance_score": 1,
     "suggested_mode": "file",
     "suggestion_reasoning": "Signal is consumer-focused with no actionable implication for this product.",
@@ -125,11 +125,11 @@ async def test_s2_includes_relevance_score():
 
 _CLAIMS_S2_RESPONSE = {
     "what_changed": "Android 16 introduces APM but without admin enforcement.",
-    "reframing": "Market frames this as consumer feature; for KPE Ultra it is a compliance gap.",
+    "reframing": "Market frames this as consumer feature; for the platform it is a compliance gap.",
     "pillar_references": ["Reduce attack surface (Ingress & Egress)"],
     "claims": [
         {"text": "APM ships with no admin enforcement API.", "source": "signal", "grounds": []},
-        {"text": "KPE Ultra's Pillar 1 is attack-surface reduction.", "source": "product_context", "grounds": []},
+        {"text": "The platform's Pillar 1 is attack-surface reduction.", "source": "product_context", "grounds": []},
         {"text": "The missing API blocks enforcing Pillar 1 on managed fleets.", "source": "inference", "grounds": [1, 2]},
     ],
     "relevance_score": 4,

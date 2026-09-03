@@ -58,14 +58,14 @@ def _make_s4_output(
 
 _LLM_RESPONSE_NO_BLOCKING = json.dumps({
     "assumptions": [
-        {"statement": "KPE Ultra customers need unified APM policy", "severity": "Adjusting", "reason": "If false, scope narrows but value proposition survives"},
+        {"statement": "Customers need a unified policy", "severity": "Adjusting", "reason": "If false, scope narrows but value proposition survives"},
     ],
     "rationale": "High composite score with no Blocking assumptions. PRD track is appropriate.",
 })
 
 _LLM_RESPONSE_BLOCKING = json.dumps({
     "assumptions": [
-        {"statement": "MTD integration is within KPE Ultra scope", "severity": "Blocking", "reason": "If false, entire opportunity is out-of-scope for this team"},
+        {"statement": "Integration is within the platform's scope", "severity": "Blocking", "reason": "If false, entire opportunity is out-of-scope for this team"},
         {"statement": "Partner agreement is achievable", "severity": "Blocking", "reason": "If false, no product can be built"},
         {"statement": "Government mandates our specific MTD", "severity": "Blocking", "reason": "If false, customer will use a competitor"},
     ],
@@ -400,7 +400,7 @@ async def test_verifier_downgrades_overeager_blocking(capsys):
 
     stmt = "No native admin-enforcement API exists"
     verifier = json.dumps({"verdicts": [
-        {"statement": stmt, "keep_blocking": False, "reason": "Knox provides an alternative path"}
+        {"statement": stmt, "keep_blocking": False, "reason": "An alternative path exists"}
     ]})
     llm = AsyncMock()
     llm.complete = AsyncMock(side_effect=[_classification(stmt), verifier])

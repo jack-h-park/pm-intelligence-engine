@@ -21,7 +21,7 @@ def _make_context() -> RunContext:
 def _make_s2_output() -> S2OutputData:
     return S2OutputData(
         what_changed="Android 16 APM lacks admin enforcement API.",
-        reframing="Consumer feature → compliance gap for KPE Ultra segment.",
+        reframing="Consumer feature → compliance gap for the enterprise segment.",
         pillar_references=["Reduce attack surface (Ingress & Egress)"],
         relevance_explanation="Directly addresses Pillar 1.",
         relevance_score=4,
@@ -37,11 +37,11 @@ def _make_store() -> MagicMock:
 
 
 _VALID_S3_RESPONSE = {
-    "problem_statement": "KPE Ultra lacks admin enforcement for APM.",
-    "target_user": "IT security admin at US government agency running KPE Ultra.",
-    "hypothesis": "If Knox exposes an APM enforcement policy, then government admins will mandate APM across their fleet, because admin-enforced posture is the only acceptable security configuration in this segment.",
-    "assumed_value_user": "Eliminates compliance gap — APM becomes admin-enforced, not user-optional.",
-    "assumed_value_business": "Knox ships APM enforcement before Google's native AMAPI solution.",
+    "problem_statement": "The platform lacks admin enforcement for a security policy.",
+    "target_user": "IT security admin at a regulated organization.",
+    "hypothesis": "If the platform exposes an admin-enforced policy, then IT admins will mandate it across their fleet, because admin-enforced posture is the only acceptable configuration in this segment.",
+    "assumed_value_user": "Eliminates a compliance gap — the policy becomes admin-enforced, not user-optional.",
+    "assumed_value_business": "The platform ships enforcement ahead of the OS's native equivalent.",
 }
 
 

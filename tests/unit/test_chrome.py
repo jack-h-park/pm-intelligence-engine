@@ -72,7 +72,7 @@ def test_drops_link_bars_with_several_links():
 def test_short_prose_is_returned_unchanged():
     """A genuinely short signal must pass through untouched rather than be
     blanked by aggressive stripping."""
-    text = "Android 16 ships a new attestation API that changes how Knox verifies device integrity."
+    text = "Android 16 ships a new attestation API that changes how MDM verifies device integrity."
     assert strip_chrome(text) == text
 
 

@@ -26,7 +26,7 @@ from app.models.stages import S2OutputData
 def _make_s2_output(
     relevance_score: int = 2,
     what_changed: str = "NFC policy changed.",
-    reframing: str = "Affects Knox admin model.",
+    reframing: str = "Affects the platform's admin model.",
     reasoning: str = "Score below threshold.",
     pillars: list | None = None,
 ) -> S2OutputData:
@@ -34,7 +34,7 @@ def _make_s2_output(
         relevance_score=relevance_score,
         what_changed=what_changed,
         reframing=reframing,
-        relevance_explanation="This signal affects the Knox admin API surface.",
+        relevance_explanation="This signal affects the platform's admin API surface.",
         suggestion_reasoning=reasoning,
         pillar_references=pillars or ["Attack Surface Reduction"],
         suggested_mode="file",
@@ -45,7 +45,7 @@ FIXED_DATE = "2026-05-24"
 
 
 def test_archive_auto_triaged_if_enabled_skips_when_flag_disabled():
-    """The transitional local archive path can be disabled for Hermes cutover."""
+    """The transitional local archive path can be disabled for an ops cutover."""
     from app.api.runs import _archive_auto_triaged_if_enabled
 
     settings_obj = MagicMock()
@@ -285,8 +285,8 @@ def test_archive_auto_triaged_content_includes_key_fields(tmp_path):
     s2 = _make_s2_output(
         relevance_score=1,
         what_changed="DISA published new STIG requirements.",
-        reframing="Requires competing MTD solution.",
-        reasoning="Score too low; no Knox-specific impact.",
+        reframing="Requires a competing solution.",
+        reasoning="Score too low; no platform-specific impact.",
     )
 
     with patch("app.services.wiki_sync.datetime") as mock_dt:

@@ -54,7 +54,7 @@ def _make_s5_output(routing: str = "prd") -> S5OutputData:
         routing=routing,
         assumptions=[
             Assumption(
-                statement="AMAPI deprecation timeline is confirmed",
+                statement="Platform API deprecation timeline is confirmed",
                 severity="Adjusting",
                 reason="Affects urgency but not core value.",
             ),
@@ -65,28 +65,28 @@ def _make_s5_output(routing: str = "prd") -> S5OutputData:
 
 
 _VALID_S6B_RESPONSE = {
-    "problem_statement": "KPE Ultra admins cannot enforce APM policy via Knox.",
-    "target_user": "IT security admin at a US government agency running KPE Ultra on Android 16.",
+    "problem_statement": "Admins cannot enforce the policy via the platform's existing tools.",
+    "target_user": "IT security admin at a regulated organization running Android 16.",
     "success_metrics": [
-        "APM enforcement policy deployed in >80% of managed devices within 60 days of GA.",
-        "Zero DISA STIG violations related to APM in audit reports within 90 days.",
+        "Enforcement policy deployed in >80% of managed devices within 60 days of GA.",
+        "Zero compliance violations related to the policy in audit reports within 90 days.",
     ],
     "user_stories": [
         "As an IT admin, I want to set APM as mandatory so that all fleet devices comply.",
-        "As a security officer, I want to audit APM enforcement status so that I can generate compliance reports.",
-        "As a Knox developer, I want an API for APM policy so that I can build admin enforcement into our MDM.",
+        "As a security officer, I want to audit enforcement status so that I can generate compliance reports.",
+        "As a platform developer, I want an API for the policy so that I can build admin enforcement into our MDM.",
     ],
     "in_scope": [
-        "Knox APM enforcement policy API",
-        "MDM integration hooks for APM status reporting",
+        "Platform enforcement policy API",
+        "MDM integration hooks for status reporting",
     ],
     "out_of_scope": [
-        "Consumer-facing APM UX changes",
-        "APM enforcement on non-Knox Android devices",
+        "Consumer-facing UX changes",
+        "Enforcement on devices outside the platform",
     ],
-    "technical_dependencies": ["Android 16 APM admin API (released)", "KPE Ultra firmware cycle"],
-    "open_questions": ["What is the AMAPI deprecation date? (owner: Platform PM)"],
-    "risks": ["DISA STIG may mandate a competing MTD solution instead of Knox-native APM."],
+    "technical_dependencies": ["Android 16 admin API (released)", "the platform's firmware cycle"],
+    "open_questions": ["What is the underlying platform API's deprecation date?"],
+    "risks": ["A compliance standard may mandate a competing solution instead of this one."],
 }
 
 
