@@ -35,3 +35,8 @@ archive/runs/
 .pid
 logs/server.log
 
+
+# Claude Code worktrees. Local-only checkouts a session creates for parallel
+# work; excluded here (not just in .git/info/exclude) so a fresh clone or CI
+# checkout on any machine gets the same protection.
+.claude/worktrees/

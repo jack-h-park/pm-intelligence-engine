@@ -1,189 +1,59 @@
-# pm-intelligence-engine
+# PM Intelligence Engine
 
-> **Planned rename:** This repository will be renamed to `pm-intelligence-engine`.
+A provider-neutral Python service that turns incoming signals into a
+traceable, human-gated decision workflow. It is designed to work with
+operator-supplied context and integrations; no private context or credentials
+are included in this repository.
 
-A personal PM intelligence platform that executes a structured signal-to-decision workflow, so a PM can focus on judgment instead of manual orchestration.
+## Workflow
 
-## What It Does
+`SENSE → DECIDE → LEARN`
 
-This platform executes the decision workflow and exposes the public surface that external operators use:
+- **SENSE** normalizes an incoming signal.
+- **DECIDE** runs seven typed stages, including four independent evaluations
+  and explicit human approval gates.
+- **LEARN** persists the run and exports structured artifacts for downstream
+  systems.
 
-```
-SENSE ──▶ DECIDE ──▶ LEARN
-```
+The engine supports Claude and OpenAI through the `LLMProvider` protocol,
+SQLite persistence, a FastAPI API, and a regression/evaluation harness.
 
-- **SENSE**: Accepts signals through the API
-- **DECIDE**: Runs signals through a structured 7-stage analysis workflow (S1–S7) with a multi-agent persona evaluation and human gates
-- **LEARN**: Exports decision artifacts and exposes terminal run state for external sync
-
-## Related Projects
-
-| Project | Role |
-|---|---|
-| [`decision-context-companion-repo`](../../ai-assets/decision-context-companion-repo/) | Source of workflow design, prompt templates, product contexts, and run history |
-| [`product-management-wiki-repo`](../../ai-assets/product-management-wiki-repo/) | Source of external signals; destination for completed decision ingest |
-| [`jackhpark-hermes-control-plane`](../../ai-assets/jackhpark-hermes-control-plane/) | External operations plane: harvesting, notifications, wiki sync, scheduling |
-| [`jackhpark-notion-cms-backup`](../../data/jackhpark-notion-cms-backup/) | Notion → wiki raw layer auto-sync (no direct connection to pm-engine; indirect influence via wiki) |
-| [`ai-agent-test`](../../forks/ai-agent-test/) | Reference implementation for agentic patterns (not reused directly) |
-
-> Full stack architecture: [hermes-control-plane/docs/system-overview.md](../../ai-assets/jackhpark-hermes-control-plane/docs/system-overview.md)
-
-## Architecture Overview
-
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│                 pm-intelligence-engine                        │
-│                                                                      │
-│   ┌──────────────────────┐     ┌─────────────────────────────────┐  │
-│   │ Public API Surface   │────▶│ Workflow Engine                 │  │
-│   │                      │     │                                 │  │
-│   │ POST /signals        │     │ S1~S7 execution                 │  │
-│   │ POST /runs/start     │     │ Gate state machine              │  │
-│   │ GET /runs            │     │ SQLite persistence              │  │
-│   │ Gate action routes   │     │ decision-context export         │  │
-│   └──────────────────────┘     └─────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────┘
-              ▲ read context / write runs         ▲ poll / notify / sync
- decision-context-companion-repo/     Hermes operations plane + product wiki
-```
-
-## The 7-Stage Workflow
-
-Each signal runs through a sequential pipeline:
-
-| Stage | Name | LLM | Description |
-|---|---|---|---|
-| S1 | Signal | No | Normalize raw input into a structured, factual signal record |
-| S2 | Insight | Yes | Extract "what changed" and connect it to a strategy pillar |
-| S3 | Opportunity | Yes | Frame a falsifiable hypothesis with target user and assumed value |
-| S4 | Evaluation | Yes × 4 | Four independent persona agents (Explorer / Strategist / Builder / Skeptic) evaluate in parallel |
-| S5 | Prioritization | Partial | Weighted composite score → routing decision (PRD / PoC / Kill) |
-| S6A | PoC Plan | Yes | Minimum experiment design for low-confidence opportunities |
-| S6B | PRD | Yes | Structured product requirements document for high-confidence opportunities |
-| S7 | Executive Summary | Yes | One-page narrative brief for stakeholders |
-
-**Human gate:** After S4, the PM reviews all four persona evaluations before S5 executes.
-
-## Key Design Principles
-
-1. **Judgment traceability over speed** — every recommendation ships with its evidence chain
-2. **PM approves, system executes** — automation never bypasses human judgment
-3. **Vendor-agnostic LLM** — `LLMProvider` protocol; swap Claude / OpenAI / Gemini via config
-4. **Measure from day one** — eval harness built before feature code, using real historical runs as regression fixtures
-5. **Stage functions, not conversational agents** — each stage has a typed input/output contract
-
-## Ownership Boundaries
-
-- `pm-engine` owns workflow execution, stage outputs, terminal state, decision-context export, and Gate 1/2 notifications.
-- Hermes owns signal harvesting, scheduling, wiki sync, and long-running operations.
-- Gate notifications (Telegram/Slack) are fired by pm-engine's built-in `FanoutNotifier`. Hermes may absorb this in a later version.
-- Auto-triage archive is transitional: local archive writes remain available behind `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` until Hermes takes over fully.
-
-## Hosting
-
-pm-engine runs on an always-on **iMac**. Running on a MacBook is not recommended — lid-close
-suspends the process, breaking Hermes polling and making Gate 2 review links unreachable.
-
-**Tailscale** connects the iMac, iPhone, and MacBook in a private network.
-
-`BASE_URL` in `.env` is the **public review-link base** — it appears in Gate 2 notification links
-so the iPhone can open the review page when away from home. Set it to the iMac's Tailscale IP
-(or a MagicDNS name / HTTPS URL when available).
-
-**Same-host callers** (Hermes running on the same iMac, local scripts, health checks) must use
-`http://localhost:8000` directly — not the Tailscale raw IP. Using a raw IP HTTP URL for
-same-host calls triggers security warnings and is unnecessary when localhost is reachable.
-
-See `docs/ARCHITECTURE.md` Section 11 for the full notification flow and iMac setup checklist.
-
-## Project Structure
-
-```
-pm-intelligence-engine/
-├── config.py                  # Paths to external repos (DECISION_CONTEXT_ROOT/DECISION_SYSTEM_ROOT, WIKI_ROOT)
-├── app/
-│   ├── models/                # SQLAlchemy DB models + Pydantic stage schemas
-│   ├── stages/                # S1–S7 stage execution functions
-│   ├── agents/                # S4 persona agent definitions
-│   ├── services/              # Context loader, template service, export/finalization utilities
-│   ├── storage/               # PMWorkflowStore Protocol + SQLite implementation
-│   ├── api/                   # FastAPI routes (signals, runs, approvals)
-│   ├── factory.py             # build_engine(runtime) dependency wiring
-│   └── logging.py             # Structured JSON event logging
-├── eval/
-│   ├── scenarios.json         # Regression fixtures from historical runs (R04–R07)
-│   ├── runner.py              # Full scenario regression runner
-│   └── rubrics/               # Stage-specific quality evaluators
-├── tests/
-│   ├── unit/
-│   └── integration/
-├── docs/
-│   ├── PRD.md
-│   ├── ARCHITECTURE.md
-│   ├── DESIGN_DECISIONS.md
-│   └── IMPLEMENTATION_PLAN.md
-└── pyproject.toml
-```
-
-## Setup
+## Quick start
 
 ```bash
-# Clone on the iMac and navigate
-cd /Users/jackpark/workspace/code/core/pm-intelligence-engine
-
-# Install dependencies
+python -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-
-# Set environment variables
 cp .env.example .env
-# Required: LLM_PROVIDER, ANTHROPIC_API_KEY or OPENAI_API_KEY
-# Required for notifications: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-# Required for mobile review: BASE_URL=http://<imac-tailscale-ip>:8000  ← off-device review links only
-# Same-host Hermes/automation uses http://localhost:8000 directly — do not set BASE_URL for that
-# Optional: SLACK_WEBHOOK_URL
-# Optional: set AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false after Hermes owns auto-triage archive
-# Eval runs are model-agnostic; they use the current LLM_PROVIDER and model settings
-
-# Ensure external repos are cloned at the paths set in DECISION_CONTEXT_ROOT / WIKI_ROOT
+# Set LLM_PROVIDER and the matching provider API key in .env.
+uvicorn app.api.main:app --reload
 ```
 
-## Operations
+All authenticated endpoints require `PM_PLATFORM_API_TOKEN`; `/health` is the
+only unauthenticated endpoint. The default context and wiki roots are local
+directories. Provide your own context files or override the paths in `.env`.
 
-All server commands are available via `make`:
-
-| Command | Description |
-|---------|-------------|
-| `make start` | Start server in background; logs → `logs/server.log` |
-| `make stop` | Stop background server |
-| `make restart` | Stop then start |
-| `make status` | Show whether server is running and its PID |
-| `make logs` | `tail -f logs/server.log` |
-| `make dev` | Start in foreground with `--reload` (development) |
-| `make test` | Run unit + integration test suite |
-| `make eval` | Run eval harness with the current `LLM_PROVIDER` |
-| `make lint` | Run ruff linter |
-
-**iMac auto-start (one-time setup):**
+## Development
 
 ```bash
-# Before installing, verify the uvicorn path in deploy/com.jackpark.pm-engine.plist
-# matches `which uvicorn` on the iMac.
-
-make install-service     # registers launchd agent; starts on login, auto-restarts on crash
-make uninstall-service   # removes the launchd agent
+pytest -q
+ruff check app tests eval
+python eval/runner.py
 ```
 
-See `docs/ARCHITECTURE.md` Section 11 for the full hosting, Tailscale, and notification setup.
+The evaluation fixtures are examples only. Replace them with domain-appropriate
+fixtures before using the engine for production decisions. Do not commit API
+keys, generated databases, run archives, or private context repositories.
 
-## Documentation
+## Repository layout
 
-- [PRD](docs/PRD.md) — problem definition, features, success metrics
-- [Reverse PRD](docs/PRD_REVERSE.md) — current product view including implemented capabilities
-- [Implementation Status](docs/IMPLEMENTATION_STATUS.md) — reverse PRD to code mapping and evidence
-- [Reverse Roadmap](docs/ROADMAP_REVERSE.md) — remaining gaps and sequencing after the current baseline
-- [Architecture](docs/ARCHITECTURE.md) — system design, data model, integration points
-- [API Contract](docs/API_CONTRACT.md) — canonical public interface consumed by Hermes
-- [Export and Sync Contract](docs/EXPORT_AND_SYNC_CONTRACT.md) — file write ownership and paths
-- [Integration Principles](docs/INTEGRATION_PRINCIPLES.md) — boundary rules between engine and operations plane
-- [Design Decisions](docs/DESIGN_DECISIONS.md) — why this is different from `ai-agent-test`
-- [Implementation Plan](docs/IMPLEMENTATION_PLAN.md) — phase-by-phase build order
+```text
+app/       FastAPI routes, stages, models, storage, and LLM adapters
+eval/      Regression scenarios and quality rubrics
+tests/     Unit and integration tests
+docs/      API, architecture, and design contracts
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -368,7 +368,10 @@ def test_decision_system_export_path_uses_canonical_archive_only(tmp_path):
                 decision_system_root=str(legacy_root),
             )
 
-    legacy_path = legacy_root / "products" / "example-security-product" / "runs" / "2026-05-24-run-export-test"
+    legacy_path = (
+        legacy_root / "products" / "example-security-product" / "runs"
+        / "2026-05-24-run-export-test"
+    )
 
     assert path == canonical_root / "example-security-product" / "2026-05-24-run-export-test"
     assert path.exists()

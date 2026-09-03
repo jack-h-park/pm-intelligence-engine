@@ -8,7 +8,7 @@ ever being shown to a human, and finding the right value means moving it and
 watching what changes.
 
 So the settings stay the baseline and a JSON file supplies deltas, read at call
-time. PM Observatory writes that file; nothing here writes it.
+time. An external configuration surface writes that file; nothing here writes it.
 
 The shape matches every other override store in the fleet — keys nested under a
 section name, with a sibling timestamp — so one convention covers the stores the
@@ -84,8 +84,8 @@ def auto_triage_threshold() -> int:
 
     Note for anyone reading a changed value and not seeing an effect: this is
     consulted only on the fully autonomous path. A run started with an explicit
-    depth, or with force_gate1 (which Hermes sets for PM-initiated starts), skips
-    auto-triage entirely.
+    depth, or with force_gate1 (which the operator's own tooling sets for
+    PM-initiated starts), skips auto-triage entirely.
     """
     return resolve_int("AUTO_TRIAGE_THRESHOLD")
 

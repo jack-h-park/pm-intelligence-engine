@@ -1,7 +1,9 @@
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-DEFAULT_DECISION_CONTEXT_ROOT = "/Users/jackpark/workspace/ai-assets/decision-context-companion-repo"
+# Companion context is configured by the operator. A relative default keeps a
+# fresh clone self-contained and avoids embedding a host path.
+DEFAULT_DECISION_CONTEXT_ROOT = "./decision-context"
 
 
 class Settings(BaseSettings):
@@ -9,7 +11,7 @@ class Settings(BaseSettings):
 
     DECISION_CONTEXT_ROOT: str = DEFAULT_DECISION_CONTEXT_ROOT
     DECISION_SYSTEM_ROOT: str | None = None
-    WIKI_ROOT: str = "/Users/jackpark/workspace/ai-assets/product-management-wiki-repo"
+    WIKI_ROOT: str = "./wiki"
 
     # These defaults must match the deployed `.env`. A default that lags the live
     # value does not fail — it silently runs a different provider or an older
@@ -24,7 +26,7 @@ class Settings(BaseSettings):
 
     # Server-side API authentication. Every endpoint except GET /health requires
     # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is
-    # provisioned in the Hermes client `.env`. If left empty, the server fails
+    # provisioned in the calling client's environment. If left empty, the server fails
     # closed (503 on all authenticated routes) rather than serving an open API.
     PM_PLATFORM_API_TOKEN: str = ""
 
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     TRIAGE_RELEVANCE_THRESHOLD: int = 4
     # Transitional cutover switch. While True, pm-engine still writes the
     # legacy local wiki archive for auto-triaged signals. Set to False once
-    # Hermes has taken over auto-triage archive ownership.
+    # an external operations service has taken over auto-triage archive ownership.
     AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED: bool = True
 
     # Blocking-assumption verifier (US-42): after S5 classifies assumptions, a
@@ -71,13 +73,13 @@ class Settings(BaseSettings):
     SLACK_WEBHOOK_URL: str = ""  # Incoming Webhook URL from Slack App settings
 
     # Master switch for pm-engine's built-in gate push (US-48). Default True
-    # (local/dev/test). Set False on the iMac to hand gate + terminal messaging
-    # to Hermes-ops (which polls the gate/terminal queues and composes
+    # (local/dev/test). Set False in a deployment that hands gate + terminal
+    # messaging to an external operations service (which polls the queues and composes
     # conversational messages). When False, build_notifier() wires no providers
     # so all send_gate1/2/3 calls are no-ops. Reversible — flip + restart.
     GATE_NOTIFICATIONS_ENABLED: bool = True
 
-    # Path to gate0-state.json owned by the Hermes ops profile. When set, POST
+    # Path to gate0-state.json owned by an external operations profile. When set, POST
     # /signals rejects any request whose source_ref matches a filename already in
     # the `skipped` bucket — preventing file_watch or other callers from creating
     # a live signal record for a file that PM has explicitly triaged out. Empty
@@ -85,7 +87,7 @@ class Settings(BaseSettings):
     GATE0_STATE_FILE: str = ""
 
     # Runtime overrides for per-product scoring (S5 weights + routing thresholds),
-    # written by PM Observatory. The git-managed scoring.yaml in decision-context
+    # written by an external configuration surface. The git-managed scoring.yaml in context
     # stays the baseline and is never written; this file layers on top of it, so
     # a weight can be retuned from the dashboard without a commit and without the
     # baseline losing its meaning as the declared intent.
@@ -95,13 +97,21 @@ class Settings(BaseSettings):
     # before this existed.
     SCORING_OVERRIDES_FILE: str = ""
 
-    # Runtime overrides for engine policy thresholds, written by PM Observatory
-    # and read per call by app/services/runtime_overrides.py. Same rationale as
-    # SCORING_OVERRIDES_FILE: settings stay the baseline, this layers deltas, and
-    # unset or absent means the configured values apply unchanged.
+    # Runtime overrides for engine policy thresholds, written by an external
+    # configuration surface and read per call by app/services/runtime_overrides.py.
+    # Same rationale as SCORING_OVERRIDES_FILE: settings stay the baseline, this
+    # layers deltas, and unset or absent means the configured values apply
+    # unchanged.
     #
     # Shape: {"AUTO_TRIAGE_THRESHOLD": 4}
     POLICY_OVERRIDES_FILE: str = ""
+
+    # Runtime override for PRODUCT_FAMILIES (below), same shape and rationale as
+    # SCORING_OVERRIDES_FILE. The committed dict is illustrative; an operator's
+    # real product ids and families live in a file this points at, outside git.
+    #
+    # Shape: {"<product_id>": "<family>"}
+    PRODUCT_FAMILIES_FILE: str = ""
 
     @model_validator(mode="after")
     def _resolve_decision_root_aliases(self) -> "Settings":
@@ -134,5 +144,21 @@ PRODUCT_FAMILIES: dict[str, str] = {
 
 
 def family_of(product_id: str) -> str:
-    """The product's family, or "unassigned" for products not yet mapped."""
+    """The product's family, or "unassigned" for products not yet mapped.
+
+    Checks PRODUCT_FAMILIES_FILE first, then the illustrative dict above — so a
+    deployment with its own real product ids overrides the committed examples
+    without editing this file. Absent, unreadable, or malformed file means the
+    dict above is the whole answer, same as before this existed.
+    """
+    import json
+    import pathlib
+
+    if settings.PRODUCT_FAMILIES_FILE:
+        try:
+            data = json.loads(pathlib.Path(settings.PRODUCT_FAMILIES_FILE).read_text())
+            if isinstance(data, dict) and product_id in data:
+                return str(data[product_id])
+        except Exception:  # noqa: BLE001 — a bad override must never stop the pipeline
+            pass
     return PRODUCT_FAMILIES.get(product_id, "unassigned")

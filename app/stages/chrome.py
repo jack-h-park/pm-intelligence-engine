@@ -13,10 +13,10 @@ chrome and unwraps empty-text anchor links, but never reflows or summarises. The
 result is still a verbatim excerpt of the source, just one that starts at the
 prose.
 
-Sibling implementation: the Gate 0 helper `sensing-product-propose.py` in
-hermes-control-plane strips the same furniture before keyword scoring. The two
-share patterns by convention, not by import — they run in different processes on
-different machines.
+Sibling implementation: a companion sensing service's signal-proposal step
+strips the same furniture before keyword scoring. The two share patterns by
+convention, not by import — they run in different processes on different
+machines.
 """
 
 import re

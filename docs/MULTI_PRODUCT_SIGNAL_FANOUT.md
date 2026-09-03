@@ -83,9 +83,9 @@ is *not* the workflow unit, and does not restructure per-product decision-contex
 
 | Family | Products |
 |--------|----------|
-| Knox Enterprise Security | `example-security-product`, `example-mobile-product`, `example-governance-product`, `example-enterprise-ai-product` |
-| Knox IAM | `example-identity-product` |
-| Consumer GenAI | `example-consumer-product`, `example-agent-product` |
+| Security Products | `example-security-product`, `example-mobile-product`, `example-governance-product`, `example-enterprise-ai-product` |
+| Identity Products | `example-identity-product` |
+| Consumer Products | `example-consumer-product`, `example-agent-product` |
 
 > **Promoting "product as the workflow unit → product-*family* as the unit"** was considered and
 > deferred. It would merge per-product decision-context (which is genuinely differentiated —
@@ -167,8 +167,8 @@ single-product auto-triage (`relevance < AUTO_TRIAGE_THRESHOLD → archive`,
 [app/api/runs.py](../app/api/runs.py)) to the whole portfolio, and moves the
 filter *ahead of* the expensive stages.
 
-**Resolved:** the portfolio currently holds **7 real products** (the `samsung-*`
-dirs; `_template` is a scaffold and excluded, `general` is special-cased). Single
+**Resolved:** the portfolio currently holds **7 real products** (matched by a shared
+dir-naming convention; `_template` is a scaffold and excluded, `general` is special-cased). Single
 digit → **Triage is a single LLM call, no prefilter** (§8.1). Each product profile
 is a **compressed summary of `products/<name>/context.md`** (§8.2).
 
@@ -304,15 +304,15 @@ to three products, each producing its own siloed result:
 
 | product | relevance | routing | composite |
 |---|---|---|---|
-| knox-mtd | 4.6 | prd | 4.2 |
-| knox-lockdown-mode | 3.8 | poc | 3.6 |
-| knox-ai-governance | 2.1 | kill | — |
+| example-mobile-product | 4.6 | prd | 4.2 |
+| example-security-product | 3.8 | poc | 3.6 |
+| example-governance-product | 2.1 | kill | — |
 
-The synthesis memo then adds what no single run could see: both knox-mtd and
-knox-lockdown-mode hit the **same** deprecated API → replace one shared monitoring
-layer rather than two; sequence knox-mtd's PRD first with lockdown-mode as a
+The synthesis memo then adds what no single run could see: both example-mobile-product and
+example-security-product hit the **same** deprecated API → replace one shared monitoring
+layer rather than two; sequence example-mobile-product's PRD first with lockdown-mode as a
 dependent follow-up; warn that both compete for the same Q3 platform capacity.
-knox-ai-governance is unaffected. Routings are unchanged; the memo is a
+example-governance-product is unaffected. Routings are unchanged; the memo is a
 portfolio-level reading on top of them.
 
 ---

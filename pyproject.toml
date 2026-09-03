@@ -8,8 +8,9 @@ packages = ["app", "eval"]
 [project]
 name = "pm-intelligence-engine"
 version = "0.1.0"
-description = "A personal PM intelligence platform — automates signal-to-decision workflow"
+description = "A provider-neutral, human-gated signal-to-decision workflow"
 requires-python = ">=3.12"
+license = "MIT"
 
 dependencies = [
     "fastapi[standard]>=0.115.0",
