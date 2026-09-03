@@ -1,8 +1,8 @@
 # Notification & Delivery Contract
-## pm-engine ↔ Hermes-ops (Iris)
+## pm-engine ↔ the operations plane
 
 **Status:** Normative. Engine side effective as of US-48 cutover (verified in
-production 2026-07-02); Iris-side channel policy items tracked in US-50.
+production 2026-07-02); ops-plane-side channel policy items tracked separately.
 
 ---
 
@@ -11,8 +11,8 @@ production 2026-07-02); Iris-side channel policy items tracked in US-50.
 By 2026-07-02 the notification surface had drifted into three uncoordinated
 pieces, observed live in production:
 
-- Gate prompts (Gate 1/2) delivered by Iris to **Discord**;
-- reconciler digests (signal auto-expiry) delivered by Iris to **Telegram**;
+- Gate prompts (Gate 1/2) delivered by the ops plane to **Discord**;
+- reconciler digests (signal auto-expiry) delivered by the ops plane to **Telegram**;
 - pm-engine's built-in `FanoutNotifier` disabled in production
   (`GATE_NOTIFICATIONS_ENABLED=false`) but fully wired and one flag-flip away
   from re-creating a **second, duplicate** delivery path — while
@@ -31,10 +31,10 @@ one of them is wrong — fix whichever it is, in the same change.**
 | Gate state machine + queue queries | **pm-engine** | `waiting_direction` / `waiting_approval` / `waiting_routing_review`, terminal statuses, event filters |
 | Review payloads | **pm-engine** | `gate1_review` / `gate3_review` on `GET /runs/{id}`; artifacts API |
 | Browser review page | **pm-engine** | `GET /runs/{id}/review` (Tailscale-reachable) |
-| Message **composition** | **Hermes-ops (Iris)** | Conversational, LLM-authored; engine templates are not used in production |
-| Message **delivery** (channel choice, sending) | **Hermes-ops (Iris)** | Sole production delivery owner |
-| Deduplication | **Hermes-ops (Iris)** | Keyed as defined in §3 |
-| Digest batching & cadence | **Hermes-ops (Iris)** | e.g. auto-triage digest, expiry sweeps |
+| Message **composition** | **Ops plane** | Conversational, LLM-authored; engine templates are not used in production |
+| Message **delivery** (channel choice, sending) | **Ops plane** | Sole production delivery owner |
+| Deduplication | **Ops plane** | Keyed as defined in §3 |
+| Digest batching & cadence | **Ops plane** | e.g. auto-triage digest, expiry sweeps |
 
 **pm-engine composes and delivers NO human-facing messages in production.**
 The built-in `FanoutNotifier` (Telegram/Slack templates in
@@ -45,7 +45,7 @@ transition would be announced twice by two different systems.
 
 ---
 
-## 2. What the engine exposes (the interface Iris consumes)
+## 2. What the engine exposes (the interface the ops plane consumes)
 
 | Purpose | Interface | Notes |
 |---|---|---|
@@ -64,17 +64,17 @@ transition would be announced twice by two different systems.
 the same tuple observed twice is a duplicate and must not be re-sent. This is
 the documented reason `updated_at` exists on the run row.
 
-> **Implementation status (verified 2026-07-02):** the Iris gate-watcher already
+> **Implementation status (verified 2026-07-02):** the ops plane's gate-watcher already
 > implements this exactly — `state/gate-notified.json` keyed `<run_id>:<status>`
 > with `run_updated_at` comparison for gates, notify-once for terminal states,
 > a 24h staleness re-nag for un-actioned gates, and a suppression rule for
 > PM-chosen archive completions. Terminal-result messages for non-decide
 > completions (the "evaluate-run silence") are likewise already implemented.
-> See `~/.hermes/profiles/ops/skills/gate-watcher/SKILL.md` on the iMac.
+> See the ops plane's own gate-watcher skill definition.
 
 ---
 
-## 3. Channel policy (normative for Iris; recorded from the verified implementation)
+## 3. Channel policy (normative for the ops plane; recorded from the verified implementation)
 
 Messages fall into three classes. Classes A and B follow **origin-affinity
 routing**; class C goes to the default channel. Changing this policy is allowed —
@@ -96,12 +96,12 @@ default channel, which can be muted without missing a gate.
 ## 4. Violations (what "wrong" looks like)
 
 - pm-engine composing or sending production messages (flag flipped without
-  removing the Iris path first).
+  removing the ops-plane path first).
 - Two systems announcing the same transition (the dedup tuple in §2 exists to
   make this detectable).
 - A message class split across channels, or a channel change made without
   updating §3.
-- A new engine-side state or event that Iris cannot observe via §2 — extend the
+- A new engine-side state or event that the ops plane cannot observe via §2 — extend the
   interface table in the same PR that adds the state.
 
 ---
@@ -121,6 +121,6 @@ default channel, which can be muted without missing a gate.
       completed note/structure/evaluate runs; SOUL.md / control-plane skill
       carry the `POST /runs/{id}/deepen` relay rule.
 
-Iris runtime skill/config files live on the iMac under
-`~/.hermes/profiles/ops/` (not in this repo); this contract is the engine-side
+The ops plane's runtime skill/config files live outside this repo, on the host
+that runs it; this contract is the engine-side
 half of the boundary and the single place the policy is recorded.

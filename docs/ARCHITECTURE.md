@@ -8,16 +8,16 @@
 This platform is the **workflow execution engine** for a personal PM intelligence system.
 It is intentionally narrow: it runs stages, persists state, manages human gates, and exports
 artifacts to the decision-system. Signal harvesting, wiki sync, and operational scheduling are
-owned by the separate **Hermes operations plane**.
+owned by a separate **external operations plane**.
 
 The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
 MacBook) without port-forwarding. Gate and result notifications are composed and delivered
-by the Hermes ops plane (Iris), which polls the gate queues; pm-engine exposes state only
+by the operations plane's notification agent, which polls the gate queues; pm-engine exposes state only
 (US-48 cutover — see `docs/NOTIFICATION_CONTRACT.md`).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│         pm-intelligence-engine (ENGINE — hosted on iMac)         │
+│              pm-intelligence-engine (ENGINE — hosted on always-on host)  │
 │                                                                         │
 │   POST /signals ──▶  Signal DB  ──▶  S1–S7 Workflow  ──▶  Artifacts    │
 │                                       (FastAPI + SQLite)                │
@@ -34,28 +34,28 @@ by the Hermes ops plane (Iris), which polls the gate queues; pm-engine exposes s
 │                          gate queues (HTTP API)                         │
 │                           lifecycle=paused (position s2/s4/s5)          │
 │                           + lifecycle=done (outcome-tagged)             │
-│                           — polled by Hermes-ops (Iris)                 │
+│                       — polled by the ops plane's notifier              │
 └─────────────────────────────────────────────────────────────────────────┘
         ↑ read context / write runs              ↑ (export on completion)
-decision-context-companion-repo/          decision-context-companion-repo/runs/
+decision-context repo/                 decision-context repo/runs/
 
-              │ polled by Iris,              │ Gate 2 review link
+              │ polled by the notifier,      │ Gate 2 review link
               │ which composes and           │ http://<imac-tailscale-ip>:8000
               │ delivers per channel policy  │ /runs/{id}/review
               ▼                             ▼
         📱 Discord / Telegram         📱 Browser (PM's iPhone)
-         (Iris-delivered; see          review page → Approve/Revise/Reject
+         (ops-plane-delivered; see     review page → Approve/Revise/Reject
           NOTIFICATION_CONTRACT.md)
 
 ┌─────────────────────────────────────────────────────────────────────────┐
-│              External Operations Plane (Hermes — separate repo)         │
+│              External Operations Plane (separate repo)                  │
 │                                                                         │
 │   Signal harvesting (RSS, file watch)   Wiki sync (WIKI_ROOT writes)   │
 │   Run monitoring / dashboards           Pattern accumulation            │
 │   Operational scheduling (cron/harvest)                                 │
 └─────────────────────────────────────────────────────────────────────────┘
         ↓ POST /signals                          ↓ wiki write (on run event)
-pm-intelligence-engine API        product-management-wiki-repo/
+pm-intelligence-engine API             product-management-wiki repo/
 
 ```
 
@@ -66,15 +66,15 @@ pm-intelligence-engine API        product-management-wiki-repo/
 | Concern | Owner | Notes |
 |---------|-------|-------|
 | Signal intake (manual) | pm-engine | `POST /signals` API |
-| Signal harvesting (RSS, file watch) | Hermes | Submits via `POST /signals` |
+| Signal harvesting (RSS, file watch) | Ops plane | Submits via `POST /signals` |
 | Stage execution (S1–S7) | pm-engine | Background tasks, async |
 | Human gate state machine | pm-engine | 3 gates (pause @ s2/s4/s5), one `POST /runs/{id}/decision` endpoint (US-55) |
 | Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
 | decision-system export | pm-engine | `run_finalizer` triggers on decide-mode completion |
-| Wiki sync | Hermes | Polls for completed/killed events, writes to WIKI_ROOT |
-| Gate/result notification delivery | Hermes (Iris) | Iris polls the gate queues and terminal statuses, composes and delivers all production messages (US-48). pm-engine exposes state + review payloads only; built-in `notifier.py` is a local/dev fallback (`GATE_NOTIFICATIONS_ENABLED=false` in prod). See `docs/NOTIFICATION_CONTRACT.md` |
-| Operational scheduling | Hermes | Cron/harvest jobs |
-| Pattern accumulation | Hermes | Reads completed runs, maintains wiki |
+| Wiki sync | Ops plane | Polls for completed/killed events, writes to WIKI_ROOT |
+| Gate/result notification delivery | Ops plane | The ops plane's notification agent polls the gate queues and terminal statuses, composes and delivers all production messages. pm-engine exposes state + review payloads only; built-in `notifier.py` is a local/dev fallback (`GATE_NOTIFICATIONS_ENABLED=false` in prod). See `docs/NOTIFICATION_CONTRACT.md` |
+| Operational scheduling | Ops plane | Cron/harvest jobs |
+| Pattern accumulation | Ops plane | Reads completed runs, maintains wiki |
 
 ---
 
@@ -98,18 +98,18 @@ The core workflow. A signal enters as raw text; a routing decision and artifact 
 
 **Output:** `StageOutput` records, `ApprovalEvent` records, `Artifact` records
 
-### External Operations Plane (Hermes)
+### External Operations Plane
 Handles everything that requires always-on or scheduled operation.
 
 **Responsibilities:** RSS/file-watch signal harvesting, wiki sync, monitoring dashboards,
 operational scheduling, pattern accumulation.
 
-**Integration:** Hermes interacts with pm-engine exclusively via the HTTP API.
+**Integration:** The operations plane interacts with pm-engine exclusively via the HTTP API.
 Direct database mutation or file-based approval are prohibited — see `docs/INTEGRATION_PRINCIPLES.md`.
 
 **Note on notifications:** Gate 1, Gate 2, and Gate 3 alerts are composed and delivered
-by Hermes-ops (Iris), which polls the gate queues (US-48 cutover; the engine's built-in
-`FanoutNotifier` is local/dev-only). Hermes-ops also bridges PM responses back to
+by the ops plane's notification agent, which polls the gate queues (the engine's built-in
+`FanoutNotifier` is local/dev-only). The ops plane also bridges PM responses back to
 pm-engine via the single decision endpoint (`POST /runs/{id}/decision` with an
 `action` of `advance` | `advance_to` | `revise` | `stop`, US-55). Ownership, dedup
 keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
@@ -118,7 +118,7 @@ keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 
 ## 3. External Repository Integration
 
-### decision-context-companion-repo
+### pm-decision-context
 
 | Path | Usage | Direction |
 |---|---|---|
@@ -129,18 +129,18 @@ keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 | `prompts/s1/` through `prompts/s7/` | Stage prompt templates | Read |
 | `archive/runs/<product_id>/<date>-<slug>/` | Canonical exported run artifacts | Write |
 
-### product-management-wiki-repo
+### product-management-wiki
 
 | Path | Usage | Direction | Owner |
 |---|---|---|---|
-| `raw/from-web/sensing/` | Source of new signal files (Hermes watches) | Read (by Hermes) | Hermes |
-| `raw/from-pm-decision-context/kills/` | Kill decision S7 reports | Write | Hermes |
-| `raw/from-pm-decision-context/prds/` | PRD decision S7 reports | Write | Hermes |
-| `raw/from-pm-decision-context/poc-upgrades/` | PoC decision S7 reports | Write | Hermes |
-| `raw/from-pm-decision-context/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-engine → Hermes |
+| `raw/from-web/sensing/` | Source of new signal files (ops plane watches) | Read (by ops plane) | Ops plane |
+| `raw/from-pm-decision-context/kills/` | Kill decision S7 reports | Write | Ops plane |
+| `raw/from-pm-decision-context/prds/` | PRD decision S7 reports | Write | Ops plane |
+| `raw/from-pm-decision-context/poc-upgrades/` | PoC decision S7 reports | Write | Ops plane |
+| `raw/from-pm-decision-context/kills/auto-triaged/` | Auto-triage archive | Write (transitional) | pm-engine → ops plane |
 
 **pm-engine does not write to `WIKI_ROOT` as part of run completion.** Wiki writes are
-Hermes-owned. The auto-triage archive path is the only exception and is transitional — see
+ops-plane-owned. The auto-triage archive path is the only exception and is transitional — see
 `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 Both paths are configured in `config.py` as `DECISION_SYSTEM_ROOT` and `WIKI_ROOT`.
@@ -176,10 +176,10 @@ app/
 │   ├── template_service.py Loads and renders prompt templates from /prompts/
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
 │   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
-│   ├── notifier.py        FanoutNotifier: local/dev-only gate alerts (prod delivery is Iris-owned, US-48)
+│   ├── notifier.py        FanoutNotifier: local/dev-only gate alerts (prod delivery is ops-plane-owned)
 │   │                      Gate 2 alert includes link to /runs/{id}/review (see Section 11)
 │   └── wiki_sync.py       Utility adapter (canonical paths); not called from completion paths
-│                          (wiki writes are Hermes-owned — see EXPORT_AND_SYNC_CONTRACT.md)
+│                     (wiki writes are ops-plane-owned — see EXPORT_AND_SYNC_CONTRACT.md)
 │
 ├── storage/
 │   ├── protocol.py        PMWorkflowStore Protocol (typed interface)
@@ -196,7 +196,7 @@ app/
 │   ├── routing_review.py  /runs/{id}/routing-review — Gate 3 (legacy; transitional)
 │   ├── artifacts.py       /runs/{id}/artifacts — artifact query endpoint
 │   └── review.py          /runs/{id}/review — browser-based Gate 2 review page
-│                          (HTML; linked from the Gate 2 message Iris delivers; see Section 11)
+│                          (HTML; linked from the Gate 2 message the ops plane delivers; see Section 11)
 │
 ├── llm/
 │   ├── protocol.py        LLMProvider Protocol: async complete(messages) -> str
@@ -424,14 +424,14 @@ eval/
 
 | Version | Changes |
 |---|---|
-| v1 (current) | SQLite, manual trigger, Hermes integration contract, eval harness |
-| v2 | PostgreSQL, run history UI, Hermes harvesting live |
+| v1 (current) | SQLite, manual trigger, ops-plane integration contract, eval harness |
+| v2 | PostgreSQL, run history UI, ops-plane harvesting live |
 | v3 | LangGraph for complex branching, if needed |
 | v4 | Wiki semantic search (RAG) for context injection |
 | v5 | Multi-user, Prefect/Temporal for durable execution |
 
 **Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned
-as in-process features (APScheduler). These have been moved to the Hermes operations plane.
+as in-process features (APScheduler). These have been moved to the external operations plane.
 The pm-engine API (`POST /signals`) remains the stable integration point.
 
 ---
@@ -440,13 +440,13 @@ The pm-engine API (`POST /signals`) remains the stable integration point.
 
 ### Overview
 
-Production notifications are composed and delivered by **Hermes-ops (Iris)**, which polls
+Production notifications are composed and delivered by **the ops plane's notification agent**, which polls
 pm-engine's gate queues and terminal statuses (US-48 cutover). pm-engine owns the gate
 **state machine, queue queries, and review payloads** — it does not send messages in
 production. The engine's built-in `app/services/notifier.py` (`FanoutNotifier`,
 Telegram/Slack templates) is a local/dev fallback behind `GATE_NOTIFICATIONS_ENABLED`
 (default `true` locally, **`false` on the iMac** — enabling it in prod would duplicate
-every Iris message). Ownership, dedup keys, and channel policy are normatively defined in
+every ops-plane message). Ownership, dedup keys, and channel policy are normatively defined in
 `docs/NOTIFICATION_CONTRACT.md`.
 
 The Gate 2 message includes a link to a browser-based review page (engine-served),
@@ -455,7 +455,7 @@ accessible from any device connected to the same Tailscale network.
 ### Hosting and Tailscale
 
 pm-engine runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
-the lid suspends the process, breaking Hermes polling and making review links unreachable.
+the lid suspends the process, breaking the ops plane's polling and making review links unreachable.
 
 **Tailscale** is installed on the iMac and the PM's iPhone (and optionally MacBook). Tailscale
 assigns the iMac a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
@@ -472,7 +472,7 @@ valid whether the PM is at home, in transit, or on a different network.
 
 ### Gate 1 Notification (after S2)
 
-Composed by Iris when it observes a run in `waiting_direction` (data from
+Composed by the ops plane when it observes a run in `waiting_direction` (data from
 `gate1_review` on `GET /runs/{id}`).
 
 **Content:**
@@ -481,11 +481,11 @@ Composed by Iris when it observes a run in `waiting_direction` (data from
 - Suggested mode (S2 recommendation)
 - Exact API call to start the run (`POST /runs/start`)
 
-**PM action:** Call the API (via curl, Shortcuts, or Hermes) to start the run with a chosen mode.
+**PM action:** Call the API (via curl, Shortcuts, or the ops plane) to start the run with a chosen mode.
 
 ### Gate 2 Notification (after S4)
 
-Composed by Iris when it observes a run in `waiting_approval` (after the four persona
+Composed by the ops plane when it observes a run in `waiting_approval` (after the four persona
 agents complete their evaluations).
 
 **Content:**
@@ -510,14 +510,14 @@ Served by `app/api/review.py`. Renders an HTML page showing:
 [S2 completes — relevance passes threshold]
         │
         ▼ run enters waiting_direction
-Iris polls GET /runs?status=waiting_direction
+Ops plane polls GET /runs?status=waiting_direction
   → composes + delivers: "New signal: <title> — relevance 4/5 — depth?"
         │
-        ▼ [PM answers → Iris bridges POST /runs/{id}/direction]
+        ▼ [PM answers → ops plane bridges POST /runs/{id}/direction]
 [S3 → S4 complete — 4 personas scored]
         │
         ▼ run enters waiting_approval
-Iris polls GET /runs?status=waiting_approval
+Ops plane polls GET /runs?status=waiting_approval
   → composes + delivers: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
         │
         ▼ [PM taps link → iPhone browser opens review page via Tailscale]
@@ -530,8 +530,8 @@ POST /runs/{id}/approve
   → S5 → S6 → S7 → completed
   → run_finalizer exports to DECISION_SYSTEM_ROOT
         │
-        ▼ [Hermes polls GET /runs?status=completed]
-Hermes reads artifacts → writes to WIKI_ROOT (Hermes-owned)
+        ▼ [Ops plane polls GET /runs?status=completed]
+Ops plane reads artifacts → writes to WIKI_ROOT (ops-plane-owned)
 ```
 
 ### Configuration Reference
@@ -539,24 +539,24 @@ Hermes reads artifacts → writes to WIKI_ROOT (Hermes-owned)
 | Setting | Description | Example |
 |---------|-------------|---------|
 | `BASE_URL` | iMac's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
-| `GATE_NOTIFICATIONS_ENABLED` | Master switch for the built-in notifier. **`false` in production** (Iris owns delivery); `true` only for local/dev use | `false` |
+| `GATE_NOTIFICATIONS_ENABLED` | Master switch for the built-in notifier. **`false` in production** (the ops plane owns delivery); `true` only for local/dev use | `false` |
 | `TELEGRAM_BOT_TOKEN` | Local/dev built-in notifier only | `7123456789:AAF...` |
 | `TELEGRAM_CHAT_ID` | Local/dev built-in notifier only | `123456789` |
 | `SLACK_WEBHOOK_URL` | Local/dev built-in notifier only; leave empty to disable | `https://hooks.slack.com/...` |
 
 All settings live in `.env`. The Telegram/Slack settings only matter when
 `GATE_NOTIFICATIONS_ENABLED=true` (local/dev); in production they are inert because the
-notifier wires zero providers. Production delivery configuration lives on the Iris side —
+notifier wires zero providers. Production delivery configuration lives on the ops-plane side —
 see `docs/NOTIFICATION_CONTRACT.md`.
 
 ### iMac Setup Checklist
 
 1. Clone this repo on the iMac: `git clone ...`
 2. Clone external repos at the same paths configured in `.env`:
-   - `decision-context-companion-repo` → `DECISION_SYSTEM_ROOT`
-   - `product-management-wiki-repo` → `WIKI_ROOT`
+   - your decision-context repo → `DECISION_SYSTEM_ROOT`
+   - your product-management-wiki repo → `WIKI_ROOT`
 3. Install Tailscale on the iMac and ensure it is running
 4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
-5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is Iris-owned; see `docs/NOTIFICATION_CONTRACT.md`)
+5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is ops-plane-owned; see `docs/NOTIFICATION_CONTRACT.md`)
 6. Start the API: `uvicorn app.api.main:app --reload` (or via launchd for auto-start)
 7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari

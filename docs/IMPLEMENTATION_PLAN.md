@@ -371,13 +371,13 @@ After a run completes, the platform can export all stage outputs as Markdown fil
 *Goal: History is queryable; completion side-effects are uniform; external integrations are contracted*
 
 > **Ownership update (2026-05):** Signal harvesting (RSS, file watch, APScheduler) and
-> wiki sync have been moved to the **Hermes operations plane** (separate repository).
-> pm-engine is the execution engine; Hermes is the operational host.
+> wiki sync have been moved to the **external operations plane** (separate repository).
+> pm-engine is the execution engine; the operations plane is the operational host.
 > See `docs/INTEGRATION_PRINCIPLES.md` and `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 ### 3.1 Automated signal collection
-**→ Moved to Hermes control plane.**
-Hermes harvests signals (RSS/file-watch) and submits them via `POST /signals`.
+**→ Moved to the external operations plane.**
+It harvests signals (RSS/file-watch) and submits them via `POST /signals`.
 pm-engine's role: accept the API call, deduplicate by URL hash if needed.
 
 ### 3.2 Signal and run history queries
@@ -392,16 +392,16 @@ pm-engine's role: accept the API call, deduplicate by URL hash if needed.
 All terminal run transitions now go through `app/services/run_finalizer.py`:
 - `completed_at` auto-stamped for `completed` / `killed` (not `failed`)
 - decision-system export triggered for `decide`-mode completions
-- uniform event emission for Hermes polling
+- uniform event emission for ops-plane polling
 
 ### 3.4 Wiki sync contract
-**→ Hermes-owned.** `app/services/wiki_sync.py` is a utility adapter that documents
+**→ Ops-plane-owned.** `app/services/wiki_sync.py` is a utility adapter that documents
 canonical paths (`raw/from-pm-decision-context/{prds|poc-upgrades|kills}/`).
 pm-engine completion paths do NOT write to WIKI_ROOT.
 
 ### Phase 3 completion gate
 > Run history queryable via API → completion side-effects uniform via run_finalizer →
-> Hermes integration contract documented → decision-system export wired
+> Ops-plane integration contract documented → decision-system export wired
 
 ---
 

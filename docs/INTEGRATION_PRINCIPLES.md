@@ -1,18 +1,18 @@
 # Integration Principles
-## pm-intelligence-engine × Hermes Operations Plane
+## pm-intelligence-engine × External Operations Plane
 
 **Version:** 1.0  
 **Last updated:** 2026-05-24
 
 This document defines the non-negotiable boundaries between pm-engine
 (the workflow execution engine) and any external consumer, in particular
-the Hermes operations plane.
+the external operations plane.
 
 ---
 
 ## Core Principle
 
-> **pm-engine is workflow law. Hermes is workflow operator.**
+> **pm-engine is workflow law. The operations plane is workflow operator.**
 
 pm-engine owns the state machine, data model, stage execution, and gate
 semantics. External systems interact with pm-engine exclusively through
@@ -23,7 +23,7 @@ of an external caller.
 
 ## Principle 1 — No Direct Database Mutation
 
-External systems (Hermes or any other consumer) **must not** read from or
+External systems (the operations plane or any other consumer) **must not** read from or
 write to the SQLite (or future PostgreSQL) database directly.
 
 **Allowed:** `GET /runs`, `GET /runs/{id}`, `POST /signals`, gate endpoints.
@@ -31,13 +31,13 @@ write to the SQLite (or future PostgreSQL) database directly.
 **Forbidden:** `sqlite3 pm_platform.db "UPDATE workflow_runs SET status='completed'"`.
 
 **Why:** Direct mutation bypasses the state machine, skips `completed_at` stamping,
-skips event emission, and breaks Hermes's ability to reliably observe transitions.
+skips event emission, and breaks the operations plane's ability to reliably observe transitions.
 
 ---
 
 ## Principle 2 — No Gate Semantic Override
 
-Hermes may bridge a PM response to a gate API call. It may not invent new
+The operations plane may bridge a PM response to a gate API call. It may not invent new
 gate states, reinterpret what `approve`/`revise`/`reject` mean, or create
 approval records through any path other than the official endpoints.
 
@@ -46,7 +46,7 @@ approval records through any path other than the official endpoints.
 **Forbidden:** Custom approval states, file-based approval hacks, setting
 `status='approved'` directly (this status does not exist in the state machine).
 
-**Why:** Gate semantics are contracts. If Hermes changes what they mean,
+**Why:** Gate semantics are contracts. If the operations plane changes what they mean,
 runs produced by pm-engine become unreliable for audit and re-processing.
 
 ---
@@ -57,7 +57,7 @@ pm-engine does not write to `WIKI_ROOT` as part of run completion.
 `wiki_sync.py` exists as a utility adapter and documents canonical paths;
 it is not called from any completion path.
 
-**Allowed (Hermes):** Poll for `completed`/`killed` events via `GET /runs`,
+**Allowed (operations plane):** Poll for `completed`/`killed` events via `GET /runs`,
 read artifact via `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true`,
 write to wiki.
 
@@ -65,7 +65,7 @@ write to wiki.
 `sync_executive_summary()` or any WIKI_ROOT write inside `run_finalizer`,
 `approvals.py`, `routing_review.py`, or `runs.py` completion branches.
 
-**Why:** If pm-engine and Hermes both write to the wiki, conflicts arise
+**Why:** If pm-engine and the operations plane both write to the wiki, conflicts arise
 and idempotency guarantees are unclear. One owner writes; the other reads.
 
 ---
@@ -78,7 +78,7 @@ from completion paths.
 
 Any new external-repo interaction must be documented in:
 - `docs/EXPORT_AND_SYNC_CONTRACT.md` — for file write contracts
-- `docs/API_CONTRACT.md` — for API surface consumed by Hermes
+- `docs/API_CONTRACT.md` — for API surface consumed by the operations plane
 
 **Forbidden:** Ad-hoc file reads/writes to external repos without documented
 contracts; environment-conditional logic that writes to different repos based
@@ -94,7 +94,7 @@ execution functions and `run_finalizer`. External callers must not pass
 
 ---
 
-## What Hermes May Do
+## What the Operations Plane May Do
 
 | Action | How |
 |--------|-----|
@@ -106,13 +106,13 @@ execution functions and `run_finalizer`. External callers must not pass
 | Poll for Gate 3 runs | `GET /runs?status=waiting_routing_review` |
 | Bridge PM routing decision | `POST /runs/{id}/routing-review` |
 | Read completed run artifacts | `GET /runs/{id}/artifacts` or `GET /runs/{id}?include_outputs=true` |
-| Write to wiki after completion | Direct WIKI_ROOT write (Hermes-owned) |
-| Send notifications | Hermes-owned, or rely on pm-engine's built-in Gate 1/2 notifier during transition |
-| Schedule harvesting | Hermes-owned cron/jobs |
+| Write to wiki after completion | Direct WIKI_ROOT write (ops-plane-owned) |
+| Send notifications | Ops-plane-owned, or rely on pm-engine's built-in Gate 1/2 notifier during transition |
+| Schedule harvesting | Ops-plane-owned cron/jobs |
 
 ---
 
-## What Hermes Must NOT Do
+## What the Operations Plane Must NOT Do
 
 | Forbidden action | Why |
 |-----------------|-----|

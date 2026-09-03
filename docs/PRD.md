@@ -13,7 +13,7 @@
 
 A PM's time should be spent on judgment — deciding what matters, what to build, and why. In practice, the majority of time goes to *adjacent work*: gathering signals, normalizing information, formatting documents, filing records.
 
-The existing `decision-context-companion-repo` has a well-designed 7-stage decision workflow, but every stage requires manually writing markdown files. This friction interrupts focus and slows the cadence of decision-making.
+The existing decision-context companion repo has a well-designed 7-stage decision workflow, but every stage requires manually writing markdown files. This friction interrupts focus and slows the cadence of decision-making.
 
 ### Specific Pain Points
 
@@ -69,14 +69,14 @@ The existing `decision-context-companion-repo` has a well-designed 7-stage decis
 **Purpose:** Ensure relevant market signals are captured even when the PM isn't actively monitoring.
 
 > **Ownership update (2026-05):** Automated harvesting is no longer an in-process
-> pm-engine feature. Hermes owns scheduled harvesting and submits signals via
+> pm-engine feature. The operations plane owns scheduled harvesting and submits signals via
 > `POST /signals`. This section remains as a product capability requirement, not
 > an implementation requirement for this repository.
 
 **Behavior:**
-- Hermes polls configured RSS feeds and URLs on a schedule
-- Hermes watches `product-management-wiki-repo/raw/from-web/sensing/` for new files
-- Hermes references `products/<name>/signal-sources.md` for per-product source lists
+- The operations plane polls configured RSS feeds and URLs on a schedule
+- It watches the wiki companion repo's `raw/from-web/sensing/` for new files
+- It references `products/<name>/signal-sources.md` for per-product source lists
 - pm-engine deduplicates only through its explicit ingestion path and storage rules
 
 **Acceptance criteria:**
@@ -110,7 +110,7 @@ The existing `decision-context-companion-repo` has a well-designed 7-stage decis
 **Acceptance criteria:**
 - Each stage output is stored as structured JSON in `StageOutput`
 - Run status transitions: `pending` → `running` → `waiting_approval`
-- Context loading reads from `decision-context-companion-repo/core/` and `products/<name>/context.md`
+- Context loading reads from the decision-context companion repo's `core/` and `products/<name>/context.md`
 
 ---
 

@@ -31,7 +31,7 @@ This reverse PRD is intentionally paired with two companion documents:
 SENSE -> DECIDE -> LEARN
 ```
 
-The product reads workflow context and prompt assets from `decision-context-companion-repo`, processes incoming market or platform signals through a structured seven-stage workflow, and writes decision outputs back to external repositories for long-term use.
+The product reads workflow context and prompt assets from a decision-context companion repo, processes incoming market or platform signals through a structured seven-stage workflow, and writes decision outputs back to external repositories for long-term use.
 
 ### Core problem
 

@@ -38,7 +38,7 @@ Status meanings:
 ### Known limits of this review
 
 - `eval/runner.py` exists and is structurally complete; full regression run depends on real LLM access
-- wiki sync and signal harvesting are Hermes-owned — pm-engine does not test those end-to-end
+- wiki sync and signal harvesting are ops-plane-owned — pm-engine does not test those end-to-end
 - some behaviors are implemented as callable services but not confirmed as runtime-integrated
 
 ---
@@ -47,7 +47,7 @@ Status meanings:
 
 ### Summary
 
-The manual intake path and Stage 1-2 triage flow are implemented and verified. Automated collection is Hermes-owned.
+The manual intake path and Stage 1-2 triage flow are implemented and verified. Automated collection is ops-plane-owned.
 
 ### Story mapping
 
@@ -57,8 +57,8 @@ The manual intake path and Stage 1-2 triage flow are implemented and verified. A
 | US-02 | Implemented, Verified | `GET /signals`, `GET /signals/{id}` in `app/api/signals.py`; filtering in `SQLiteStore.list_signals()` | Query behavior exists; lifecycle status values are now runtime-maintained (`pending` / `in_run` / `done`) |
 | US-03 | Implemented, Verified | `app/stages/s1_signal.py`, `app/models/stages.py`, `tests/unit/test_s1.py` | Event date enrichment remains minimal |
 | US-04 | Implemented, Verified | `app/stages/s2_insight.py`, `app/api/runs.py`, `tests/unit/test_s2.py` | Recommendation is persisted as JSON on `WorkflowRun` |
-| US-05 | Implemented, Verified | auto-triage path in `app/api/runs.py`; `archive_auto_triaged()` in `app/services/wiki_sync.py`; threshold in `config.py`; `run_finalizer` completes with `mode=file` | Status semantics documented; auto-triage archive ownership transitioning to Hermes |
-| US-06 | Moved to Hermes | `POST /signals` API stable; Hermes submits signals on schedule | No `app/services/signal_collector.py`; harvesting is Hermes-owned per `INTEGRATION_PRINCIPLES.md` |
+| US-05 | Implemented, Verified | auto-triage path in `app/api/runs.py`; `archive_auto_triaged()` in `app/services/wiki_sync.py`; threshold in `config.py`; `run_finalizer` completes with `mode=file` | Status semantics documented; auto-triage archive ownership transitioning to the ops plane |
+| US-06 | Moved to ops plane | `POST /signals` API stable; the ops plane submits signals on schedule | No `app/services/signal_collector.py`; harvesting is ops-plane-owned per `INTEGRATION_PRINCIPLES.md` |
 
 ---
 
@@ -104,7 +104,7 @@ The decision artifact pipeline is implemented and unit-tested from S5 routing th
 ### Summary
 
 Export to the decision-system format is wired via `run_finalizer`. Wiki sync ownership is resolved:
-pm-engine is NOT the wiki sync owner. Wiki writes are Hermes-owned.
+pm-engine is NOT the wiki sync owner. Wiki writes are ops-plane-owned.
 The `wiki_sync.py` module is retained as a utility adapter with canonical paths documented and contract-tested.
 
 ### Story mapping
@@ -112,16 +112,16 @@ The `wiki_sync.py` module is retained as a utility adapter with canonical paths 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
 | US-18 | Implemented, Verified | `app/services/run_exporter.py` + `app/services/run_finalizer.py`; `tests/unit/test_run_finalizer.py` | `finalize_run()` triggers `_maybe_export()` for decide-mode completions only |
-| US-19 | Implemented | `archive_auto_triaged()` in `app/services/wiki_sync.py`; call site in `app/api/runs.py` | Path is `raw/from-pm-decision-context/kills/auto-triaged/`; transitioning to Hermes |
-| US-20 | Deferred to Hermes | `sync_executive_summary()` in `app/services/wiki_sync.py` (utility, not called from completion) | Wiki sync is Hermes-owned; canonical paths documented in `EXPORT_AND_SYNC_CONTRACT.md` |
+| US-19 | Implemented | `archive_auto_triaged()` in `app/services/wiki_sync.py`; call site in `app/api/runs.py` | Path is `raw/from-pm-decision-context/kills/auto-triaged/`; transitioning to the ops plane |
+| US-20 | Deferred to ops plane | `sync_executive_summary()` in `app/services/wiki_sync.py` (utility, not called from completion) | Wiki sync is ops-plane-owned; canonical paths documented in `EXPORT_AND_SYNC_CONTRACT.md` |
 
 ### Ownership clarification (per [EXPORT_AND_SYNC_CONTRACT.md](EXPORT_AND_SYNC_CONTRACT.md))
 
 | Artifact | Owner | When triggered |
 |----------|-------|----------------|
 | decision-system export | pm-engine | On `completed` for decide-mode runs (via `run_finalizer`) |
-| wiki sync | Hermes | On terminal run events, independently |
-| auto-triage archive | pm-engine (utility) → Hermes (planned) | On `auto_triaged` event |
+| wiki sync | Ops plane | On terminal run events, independently |
+| auto-triage archive | pm-engine (utility) → ops plane (planned) | On `auto_triaged` event |
 
 ---
 
@@ -139,7 +139,7 @@ and contract tests verify ownership boundaries. Eval harness exists structurally
 | US-21 | Implemented, Verified | `tests/unit/test_s1.py` through `test_s7.py` — full S1–S7 coverage | 104 unit tests passing |
 | US-22 | Implemented, Verified | `tests/integration/test_approval_flow.py`, `test_context_loader.py`, `test_general_run_modes.py`, `test_artifacts_api.py` | 46 integration tests passing; approve/revise/reject/routing-review paths and signal lifecycle contracts verified |
 | US-23 | Implemented, Verified | `eval/runner.py`, `eval/scenarios.json`, `eval/rubrics/`, `tests/unit/test_eval_runner.py`; live run 2026-05-24 | Eval execution is model-agnostic. `gpt-4o` routing drift on R04/R07 is documented as model-specific variance, and eval output now reports provider/model explicitly. |
-| US-24 | Moved to Hermes | Scheduling/harvesting is Hermes-owned; `signal_collector.py` is not in-process | pm-engine exposes `POST /signals`; Hermes submits signals on schedule |
+| US-24 | Moved to ops plane | Scheduling/harvesting is ops-plane-owned; `signal_collector.py` is not in-process | pm-engine exposes `POST /signals`; the ops plane submits signals on schedule |
 | US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; signal lifecycle synchronized on terminal states; export triggered only for decide mode; `tests/unit/test_run_finalizer.py` | wiki sync removed from pm-engine completion path; `failed` intentionally does NOT receive `completed_at` and returns the signal to `pending` |
 
 ### Eval harness runtime reporting
@@ -163,7 +163,7 @@ as Blocking in R04/R07 that historical Claude runs treated as Informing.
 
 ### Highest-value gaps (remaining)
 
-1. Auto-triage archive ownership is still transitional — local archive writes remain until Hermes takes over fully
+1. Auto-triage archive ownership is still transitional — local archive writes remain until the ops plane takes over fully
 2. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
 
 Sequencing is tracked in the operator's own backlog, not in this repo.

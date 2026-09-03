@@ -8,7 +8,7 @@ This document defines who writes what, when, and where. It is the canonical refe
 for understanding side-effect ownership at run completion.
 
 Companion documents:
-- [API Contract](API_CONTRACT.md) — HTTP API surface (Hermes reads this)
+- [API Contract](API_CONTRACT.md) — HTTP API surface (the operations client reads this)
 - [Integration Principles](INTEGRATION_PRINCIPLES.md) — non-negotiable boundary rules
 
 ---
@@ -18,8 +18,8 @@ Companion documents:
 | Artifact | Owner | Trigger | Destination |
 |----------|-------|---------|-------------|
 | decision-system run export | **pm-engine** | `completed` (decide mode only) | `archive/runs/<product_id>/<date>-<slug>/` |
-| wiki executive summary sync | **Hermes** | `completed` or `killed` event (Hermes polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
-| auto-triage archive | pm-engine (transitional, flaggable) → **Hermes** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
+| wiki executive summary sync | **Ops plane** | `completed` or `killed` event (ops plane polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
+| auto-triage archive | pm-engine (transitional, flaggable) → **ops plane** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
 
 ---
 
@@ -27,10 +27,10 @@ Companion documents:
 
 | Mode | decision-system export | wiki sync | auto-triage archive | Notes |
 |------|------------------------|-----------|---------------------|-------|
-| `decide` (completed) | ✅ pm-engine | ✅ Hermes | — | Full artifact set: S6 + S7 output |
-| `decide` (killed — reject) | — | ✅ Hermes | — | Hermes reads artifacts, syncs kill record |
-| `decide` (killed — routing kill confirmed) | — | ✅ Hermes | — | Same as reject |
-| `decide` (routing override → completed) | ✅ pm-engine | ✅ Hermes | — | override changes routing, export still triggered |
+| `decide` (completed) | ✅ pm-engine | ✅ Ops plane | — | Full artifact set: S6 + S7 output |
+| `decide` (killed — reject) | — | ✅ Ops plane | — | Ops plane reads artifacts, syncs kill record |
+| `decide` (killed — routing kill confirmed) | — | ✅ Ops plane | — | Same as reject |
+| `decide` (routing override → completed) | ✅ pm-engine | ✅ Ops plane | — | override changes routing, export still triggered |
 | `file` (auto-triage) | — | — | ✅ (see below) | No LLM stages ran beyond S2 |
 | `brief` (completed) | — | — | — | Internal use; no external artifact sync |
 | `opportunity` (completed) | — | — | — | S3 output only; not synced externally |
@@ -61,7 +61,7 @@ archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/
 >
 > **Repo caution:** `archive/runs/` lives **inside the pm-engine repo itself** —
 > it is **not** WIKI_ROOT and **not** the wiki repo. pm-engine writes here
-> directly; the wiki is a separate repo synced independently by Hermes.
+> directly; the wiki is a separate repo synced independently by the ops plane.
 > `archive/runs/` ≠ WIKI_ROOT.
 
 ### What it writes
@@ -92,11 +92,11 @@ idempotent by design — safe to call twice on the same run.
 
 ---
 
-## Wiki Sync (Hermes owned)
+## Wiki Sync (ops-plane owned)
 
 ### What triggers it
-Hermes polls `GET /runs?status=completed` and `GET /runs?status=killed` periodically.
-When new terminal runs appear, Hermes reads artifacts via `GET /runs/{id}?include_outputs=true`
+The ops plane polls `GET /runs?status=completed` and `GET /runs?status=killed` periodically.
+When new terminal runs appear, it reads artifacts via `GET /runs/{id}?include_outputs=true`
 and writes to `WIKI_ROOT`.
 
 ### Canonical target paths
@@ -112,10 +112,10 @@ and writes to `WIKI_ROOT`.
 Example: `2026-05-24-example-security-product-android-16-nfc-allowlist.md`
 
 ### Failure behavior
-Hermes-owned; pm-engine has no visibility into wiki write failures.
+Ops-plane-owned; pm-engine has no visibility into wiki write failures.
 
 ### Idempotency
-Hermes must ensure idempotency. The recommended pattern is to check for an existing file
+The ops plane must ensure idempotency. The recommended pattern is to check for an existing file
 before writing or to use a last-written-wins overwrite strategy.
 
 ---
@@ -136,14 +136,14 @@ WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/<YYYY-MM-DD>-<slug>.md
 ```
 
 This behavior is controlled by `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED` in `.env`.
-Set it to `false` once Hermes has taken over the archive path.
+Set it to `false` once the ops plane has taken over the archive path.
 
-### Planned behavior (Hermes-owned)
-In the target architecture, Hermes detects `auto_triaged` events by polling for completed
+### Planned behavior (ops-plane-owned)
+In the target architecture, the ops plane detects `auto_triaged` events by polling for completed
 runs with `mode=file`, then writes the archive record. The current pm-engine call to
-`archive_auto_triaged()` will be removed when Hermes takes over this path.
+`archive_auto_triaged()` will be removed when the ops plane takes over this path.
 
-**Transition plan:** switch `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false`, verify Hermes archive output,
+**Transition plan:** switch `AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED=false`, verify ops-plane archive output,
 then remove the legacy call path and deprecate `archive_auto_triaged()`.
 
 ---
@@ -154,7 +154,7 @@ then remove the legacy call path and deprecate `archive_auto_triaged()`.
 - It documents the canonical wiki paths
 - It exposes `sync_executive_summary()` and `archive_auto_triaged()` as callable helpers
 - It is **NOT called from any pm-engine completion path** (except the auto-triage legacy call)
-- Hermes may call the equivalent logic directly in its own codebase
+- The ops plane may call the equivalent logic directly in its own codebase
 
 ---
 
@@ -162,9 +162,9 @@ then remove the legacy call path and deprecate `archive_auto_triaged()`.
 
 | Action | Reason |
 |--------|--------|
-| Write to `WIKI_ROOT/raw/from-pm-decision-context/prds/` | Wiki sync is Hermes-owned |
-| Write to `WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/` | Wiki sync is Hermes-owned |
-| Write to `WIKI_ROOT/raw/from-pm-decision-context/kills/` (non-auto-triage) | Wiki sync is Hermes-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/prds/` | Wiki sync is ops-plane-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/poc-upgrades/` | Wiki sync is ops-plane-owned |
+| Write to `WIKI_ROOT/raw/from-pm-decision-context/kills/` (non-auto-triage) | Wiki sync is ops-plane-owned |
 | Call `sync_executive_summary()` from any completion path | Ownership conflict |
 | Retry failed wiki writes | Not pm-engine's concern |
 | Block run completion on wiki write success | Completion is independent of wiki state |

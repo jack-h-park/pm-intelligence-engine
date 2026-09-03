@@ -28,7 +28,7 @@ This project borrows its *design patterns* but not its code. The domain, executi
 | **RAG** | Required (civics knowledge base in Qdrant) | Optional, Phase 4+ (wiki semantic search) | Domain knowledge is loaded directly from files, not vectors; file-based loading is sufficient for v1 |
 | **Human-in-the-loop** | Not present | First-class design (approval gate after S4) | PM judgment must not be bypassed by automation; the gate is a core PM workflow requirement |
 | **Eval harness** | Not present | Built before any feature code (Phase 0) | Quality measurement from day one using real historical runs as golden data |
-| **Scheduling** | APScheduler (daily/weekly coach) ✓ | Externalized to Hermes operations plane | Scheduling exists as a system capability, but not as an in-process engine concern |
+| **Scheduling** | APScheduler (daily/weekly coach) ✓ | Externalized to the operations plane | Scheduling exists as a system capability, but not as an in-process engine concern |
 | **Delivery abstraction** | `DeliveryService` Protocol ✓ | `NotificationService` Protocol (same pattern) | Makes console → Slack → email swap trivial |
 
 ---

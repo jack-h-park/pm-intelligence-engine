@@ -1,5 +1,5 @@
 # API Contract
-## pm-intelligence-engine — Public Interface for Hermes
+## pm-intelligence-engine — Public Interface for External Operators
 
 **Version:** 1.1  
 **Last updated:** 2026-06-05
@@ -14,7 +14,7 @@ Authorization: Bearer ${PM_PLATFORM_API_TOKEN}
 
 - The server validates the header against `PM_PLATFORM_API_TOKEN` from its own
   environment (launchd / `.env`). The same shared token is provisioned in the
-  Hermes client `.env`; all Hermes profiles send it.
+  the operations client's `.env`; every deployed profile sends it.
 - Missing, malformed, or mismatched token → **`401`** (with `WWW-Authenticate: Bearer`).
 - If the server is started without `PM_PLATFORM_API_TOKEN` set, it **fails closed**:
   authenticated routes return **`503`** rather than serving an open API. `GET /health`
@@ -22,7 +22,7 @@ Authorization: Bearer ${PM_PLATFORM_API_TOKEN}
 - `GET /health` is intentionally unauthenticated (liveness probe only; returns no data).
 
 **Network bind:** the service binds to **`127.0.0.1:8000`** (loopback only). It is not
-reachable off-device. Same-host callers (Hermes on the iMac, local scripts) use
+reachable off-device. Same-host callers (the operations client, local scripts) use
 `http://localhost:8000`. Off-device review links must go through HTTPS / a reverse
 proxy — not a wide plain-HTTP bind.
 
@@ -30,15 +30,15 @@ proxy — not a wide plain-HTTP bind.
 
 | Consumer | URL to use |
 |----------|-----------|
-| Hermes / same-host automation / local scripts | `http://localhost:8000` |
+| The operations client / same-host automation / local scripts | `http://localhost:8000` |
 | Off-device review links (iPhone, MacBook) | `BASE_URL` from `.env` (Tailscale IP or HTTPS) |
 
 `BASE_URL` in `.env` is the **public review-link base** only — it appears in Gate 2 notification
-links for off-device access. Same-host callers (Hermes on the same iMac, local scripts, health
+links for off-device access. Same-host callers (the operations client on the same host, local scripts, health
 checks) should use `http://localhost:8000` directly and must not use the Tailscale raw IP HTTP
 for same-host calls. Prefer MagicDNS or HTTPS for off-device links when available.
 
-This document defines the canonical public API surface that Hermes (and any
+This document defines the canonical public API surface that the operations client (and any
 other external consumer) interacts with. The shape of these endpoints is stable.
 New endpoints may be added; existing endpoint shapes will not break without a
 version bump.
@@ -47,7 +47,7 @@ version bump.
 
 ## Endpoint Summary
 
-| Method | Path | Purpose | Hermes use |
+| Method | Path | Purpose | Operator use |
 |--------|------|---------|------------|
 | `POST` | `/signals` | Submit a new signal | Harvest submission |
 | `GET` | `/signals` | List signals with filters (lean — no `raw_content`) | Inventory check |
@@ -74,7 +74,7 @@ version bump.
 
 ## State Contract
 
-### Gate states (Hermes polls these queues)
+### Gate states (the operations client polls these queues)
 
 | Status | Gate | Action endpoint | Poll query |
 |--------|------|----------------|------------|
@@ -117,7 +117,7 @@ Submit a new signal for processing.
 
 `original_product_id` is an **optional** origin/provenance hint (US-49) — `null` for
 product-agnostic intake (RSS / file_watch), where Portfolio Triage routes the signal.
-**`product_id` is accepted as a deprecated alias** so existing clients (Hermes) keep
+**`product_id` is accepted as a deprecated alias** so existing clients keep
 working. `source_type`: `"manual"` | `"rss"` | `"file_watch"`
 
 **Response (201):**
@@ -161,7 +161,7 @@ synthetic/backfilled `completed` run that bypassed `finalize_run`.
 Re-ingest a signal's content and re-run it. Signals are **immutable after Gate 0
 intake**; this is the single audited path that overwrites `raw_content` — for when
 the original crawl captured only site-chrome / a bot-wall page and a better fetch
-recovered the article. The engine never fetches: the caller (ops/Hermes via
+recovered the article. The engine never fetches: the caller (the operator, via
 `sensing-fetch.py`) recovers the body and posts it here.
 
 Three steps: (1) **void** every in-flight run for the signal (`killed`, event
@@ -200,7 +200,7 @@ optional, same semantics as start.
 ---
 
 ### `GET /runs`
-List runs. Hermes uses this for polling actionable queues.
+List runs. The operations client uses this for polling actionable queues.
 
 **Query parameters:**
 - `product_id` — filter by product
@@ -218,7 +218,7 @@ List runs. Hermes uses this for polling actionable queues.
   decision taken earlier, kept as its own event because it was made before S2 had a
   suggestion and so cannot be scored as agreement with one (the reason `timeout` is
   separate too). Exclude `preset` and `timeout` when measuring Gate 1 agreement.
-  `event=auto_triaged` is the canonical query for the Hermes auto-triage digest (US-31).
+  `event=auto_triaged` is the canonical query for the operator's auto-triage digest.
 - `since` — ISO 8601 timestamp; only runs created at or after this time
 - `limit` — max results (default 50)
 
@@ -228,7 +228,7 @@ List runs. Hermes uses this for polling actionable queues.
 
 ### `GET /runs/{id}?include_outputs=true`
 Get a single run. Pass `include_outputs=true` to include all stage outputs
-(S1–S7 JSON blobs). Hermes uses this to read artifacts before wiki sync.
+(S1–S7 JSON blobs). The operations client uses this to read artifacts before wiki sync.
 
 **Run schema:**
 ```json
@@ -268,7 +268,7 @@ terminal state: one of `auto_triaged`, `archived`, `noted`, `structured`,
 column. Prefer it over re-deriving the outcome from `status`+`depth`+`routing`+
 approval events.
 `gate3_review` is `null` until S5 has run, then present on every response
-(US-30) — Hermes renders it in the Gate 3 notification follow-up and the PM
+— the operations client renders it in the Gate 3 notification follow-up and the PM
 can inspect it when confirming or overriding routing.
 
 ---
@@ -303,7 +303,7 @@ List persisted artifacts for a run in reverse chronological order.
 ]
 ```
 
-Hermes should prefer this endpoint when it only needs persisted Markdown/JSON artifacts
+The operations client should prefer this endpoint when it only needs persisted Markdown/JSON artifacts
 and does not need every stage output blob. Use `artifact_type=checkpoint` to retrieve
 the latest pipeline state when a run is paused, killed, or still in progress.
 
@@ -493,8 +493,8 @@ silently filed by the relevance gate are revivable — deliberate PM decisions
 **Errors:** `404` unknown run · `409` not auto-triaged, or not in `completed` state.
 
 **Digest ownership:** pm-engine sends no notification for auto-triaged runs.
-The daily digest is Hermes-owned: poll `GET /runs?event=auto_triaged&since=<last-digest>`
-and include the results in the hermes-eval / hermes-ops digest.
+The daily digest is owned by the operations client: poll `GET /runs?event=auto_triaged&since=<last-digest>`
+and include the results in the the ops-plane digest.
 
 ---
 
@@ -560,20 +560,20 @@ verbs, interpreted against the run's current state:
 `/reject`, `/routing-review`, `/void`, `/reopen`, `/deepen`) remain live and share
 this one implementation; `/decision` is the preferred entry. They are removed at the
 final (position, lifecycle) cutover (see `WORKFLOW_MODEL_REDESIGN.md`), at which
-point Hermes/observatory move to `/decision`.
+point the operations client / dashboard move to `/decision`.
 
 ---
 
-## Hermes Polling Pattern
+## Operations Client Polling Pattern
 
-Hermes owns all production message composition and delivery (US-48/US-50) —
+The operations client owns all production message composition and delivery —
 ownership, the dedup key `(run_id, status, updated_at)`, and the per-class
 channel policy are normatively defined in `NOTIFICATION_CONTRACT.md`.
 
-Hermes should poll the following queues at a cadence suited to PM availability:
+The operations client should poll the following queues at a cadence suited to PM availability:
 
 ```
-# Every N minutes (Hermes decision):
+# Every N minutes (operator's choice):
 GET /runs?status=waiting_direction    → notify PM, await direction input
 GET /runs?status=waiting_approval      → send Gate 2 notification with review link
 GET /runs?status=waiting_routing_review → send Gate 3 notification
@@ -584,15 +584,15 @@ GET /runs?status=killed                → record kill in wiki if applicable
 ```
 
 **Do not poll `running` or `pending`** — these are transient and change without
-Hermes intervention.
+operator intervention.
 
 ### Consumer defaults
 
-- Sort assumption: responses are newest-first by `created_at`; Hermes should checkpoint by `run_id` + `completed_at`, not by array position.
-- Deduping rule: a terminal run may be observed more than once; Hermes should treat wiki sync and notifications as idempotent.
+- Sort assumption: responses are newest-first by `created_at`; the operations client should checkpoint by `run_id` + `completed_at`, not by array position.
+- Deduping rule: a terminal run may be observed more than once; the operations client should treat wiki sync and notifications as idempotent.
 - Artifact fetch rule: prefer `GET /runs/{id}/artifacts` for persisted artifacts; use `GET /runs/{id}?include_outputs=true` when stage-level detail is required.
-- Auto-triage detection: Hermes should treat `status=completed` + `mode=file` + `recommendation_json` present as the canonical auto-triage signature.
-- Recovery rule: if a run is `failed`, Hermes may notify or open an ops item, but must not mutate state except through documented gate endpoints.
+- Auto-triage detection: the operations client should treat `status=completed` + `mode=file` + `recommendation_json` present as the canonical auto-triage signature.
+- Recovery rule: if a run is `failed`, the operations client may notify or open an ops item, but must not mutate state except through documented gate endpoints.
 
 ---
 

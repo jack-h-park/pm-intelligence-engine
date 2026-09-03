@@ -293,7 +293,7 @@ Synthesis logic (new `app/services/portfolio_synthesis.py`):
   resource conflicts, synergies. Each product keeps its own routing — visibility,
   not override.
 - Persist to `portfolio_syntheses`.
-- Emit a `portfolio_synthesized` event. **pm-engine writes no files** — Hermes
+- Emit a `portfolio_synthesized` event. **pm-engine writes no files** — the ops plane
   consumes the event if it wants to sync to the wiki (Development Rule 8 /
   [EXPORT_AND_SYNC_CONTRACT.md](./EXPORT_AND_SYNC_CONTRACT.md)).
 
@@ -347,7 +347,7 @@ portfolio-level reading on top of them.
    gates the synthesis trigger (§4, §6).
 4. **`/runs/start` response shape** → **`{ batch_id, runs: [...] }`**.
 5. **Portfolio prompt location** → **new product-agnostic `portfolio/` area in
-   `decision-context-companion-repo`**, loaded via `template_service`. This **extends**
+   the decision-context companion repo**, loaded via `template_service`. This **extends**
    the CLAUDE.md principle from "workflow design is product-scoped and owned by
    decision-context" to "product- *and portfolio*-scoped"; the synthesis prompt
    belongs to no single product folder, so a cross-product area is added rather than
