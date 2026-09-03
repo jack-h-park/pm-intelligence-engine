@@ -423,7 +423,7 @@ As a maintainer, I want each Hermes profile to be restricted to the pm-engine
 endpoints it is authorized to call, so that a compromised or misconfigured
 profile cannot approve runs or modify state beyond its declared scope.
 
-**Design doc:** `hermes-control-plane/docs/design/guardrail-enforcement-roadmap.md § P1`
+**Design doc:** `the operations-plane companion repo's docs/design/guardrail-enforcement-roadmap.md § P1`
 
 **Acceptance criteria**
 

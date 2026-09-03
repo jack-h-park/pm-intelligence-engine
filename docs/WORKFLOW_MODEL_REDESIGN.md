@@ -228,7 +228,7 @@ SQLite directly + the API. Bounded to the adapter/format layer:
 - `lib/pipeline-stages.ts` (L8–11) — `waiting_*` → pipeline-stage map.
 - `components/GateActions.tsx` — the per-gate action buttons → one decision control.
 
-*Hermes* (`ai-assets/jackhpark-hermes-control-plane`, Python) — polls the API:
+*Hermes* (`the operations-plane companion repo`, Python) — polls the API:
 - `distributions/hermes-ops/skills/gate-watcher/` — polls `status=waiting_*` and
   delivers per-gate prompts → poll `lifecycle=paused`, render generically by
   position (this simplifies Iris too — one queue, one renderer).

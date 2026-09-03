@@ -7,8 +7,8 @@ window** because the observatory reads the engine SQLite directly and Hermes pol
 the API.
 
 Coupling here was measured line-level (2026-07-03) against the real repos:
-- Observatory `~/workspace/code/core/jackhpark-pm-observatory`
-- Hermes `~/workspace/ai-assets/jackhpark-hermes-control-plane`
+- Observatory `<operator's workspace>/pm-console (formerly pm-observatory)`
+- Hermes `~/workspace/the operations-plane companion repo`
 
 ---
 
@@ -103,7 +103,7 @@ than inventing one.
 
 ---
 
-## 4. Hermes changes (`jackhpark-hermes-control-plane`) — mostly prose skills
+## 4. Hermes changes (`the operations-plane companion repo`) — mostly prose skills
 
 Iris is an LLM agent following SKILL/SOUL instructions, so most of this is editing
 markdown, not code.
