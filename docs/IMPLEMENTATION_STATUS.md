@@ -9,7 +9,7 @@ This document maps the reverse PRD to concrete repository evidence. It is intent
 Companion documents:
 
 - [Reverse PRD](PRD_REVERSE.md)
-- [Reverse Roadmap](ROADMAP_REVERSE.md)
+- Reverse Roadmap — tracked in the operator's own backlog, not in this repo
 
 Status meanings:
 
@@ -166,4 +166,4 @@ as Blocking in R04/R07 that historical Claude runs treated as Informing.
 1. Auto-triage archive ownership is still transitional — local archive writes remain until Hermes takes over fully
 2. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
 
-See sequencing in [Reverse Roadmap](ROADMAP_REVERSE.md).
+Sequencing is tracked in the operator's own backlog, not in this repo.

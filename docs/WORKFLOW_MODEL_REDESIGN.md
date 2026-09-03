@@ -3,7 +3,7 @@
 **Status:** Design target (approved 2026-07-03). Not yet implemented.
 **Supersedes the shape of:** the depth ladder (`app/modes.py`), the run status
 enum, `ended_by`, the three gate endpoints, and the four "terminate a run" paths.
-**Related:** ROADMAP_REVERSE E5 (US-51/52/53/54), DESIGN_DECISIONS §4.
+**Related:** the operator's own backlog and decision log (not tracked in this repo).
 
 This document is the **fundamental** redesign the incremental fixes (deepen,
 `ended_by`, blocking→poc) kept pointing at. Those fixes were additive patches on a
@@ -204,65 +204,22 @@ justify (unlike the capability questions in §6).
 
 ## 4. Migration / cutover
 
-**Data: clean wipe (approved).** The 42 production runs are unvalidated dry-runs
-(memory: `golden-set-not-ground-truth`, `synthetic-completed-runs-are-real`);
-migrating them row-by-row (depth→target, status→lifecycle, ended_by backfill) has
-near-zero value. Wipe instead. This removes the entire data-migration half of the
-cost.
+The engine, its dashboard, and its scheduling companion moved together in one
+coordinated cutover: schema flip, adapter updates in the two consumers, a data
+wipe (the pre-cutover runs were unvalidated dry-runs with near-zero migration
+value), and a smoke test. That runbook was operational detail specific to this
+deployment, not part of the design, and now lives with the rest of this
+operator's deployment history rather than in this repo.
 
-**Signal preservation (done / planned):**
-- 24 of 32 signals are already durable in `WIKI_ROOT/raw/from-web/sensing/`
-  (verified: 24/24 files present) — re-run by re-submitting from the wiki.
-- The landmark manual signal (Android 16 MTE, `9b49fc8c`) exists only in the prod
-  DB; pull it from prod at cutover time (before wipe) and re-submit. The other 7
-  orphans are archive noise — dropped.
-
-**Live consumers (the real cost — coupling measured 2026-07-02):**
-
-*Observatory* (`code/core/jackhpark-pm-console`, Next.js) — reads the engine
-SQLite directly + the API. Bounded to the adapter/format layer:
-- `lib/adapters/engine-db.ts` — direct reads of `workflow_runs`, `signals`,
-  `approval_events`, `stage_outputs`, `artifacts`, `run_batches`; references
-  `status`, `routing`, `current_stage`, `waiting_direction`.
-- `lib/format.ts` (~L91–115) — status → human-label map.
-- `lib/pipeline-stages.ts` (L8–11) — `waiting_*` → pipeline-stage map.
-- `components/GateActions.tsx` — the per-gate action buttons → one decision control.
-
-*Hermes* (`the operations-plane companion repo`, Python) — polls the API:
-- `distributions/hermes-ops/skills/gate-watcher/` — polls `status=waiting_*` and
-  delivers per-gate prompts → poll `lifecycle=paused`, render generically by
-  position (this simplifies Iris too — one queue, one renderer).
-- `hermes_eval/` (`detect_alerts.py`, `render_digest.py`, `build_snapshot.py`) —
-  consume `status`/`routing` for digests/alerts.
-
-**Sequencing (one coordinated cutover, no dual-read window needed since data is
-wiped):**
-1. Engine: new schema + `/decision` endpoint + stage-loop; delete old enums/routes.
-2. Observatory: update the 3 lib files + GateActions to read `position`/`lifecycle`.
-3. Hermes: update gate-watcher poll + render, and `hermes_eval` status reads.
-4. Deploy together; wipe DB; re-submit preserved signals.
-
-Estimated as a **bounded multi-repo cutover** (adapter/format layers + one
-gate-watcher skill), not the 1–2 week data migration originally feared. Exact
-sizing pending a line-level read of `engine-db.ts` and the gate-watcher skill.
-
-**Step 5 is staged "derive-first" (shipped in `app/run_view.py`).** The target
-vocabulary — `lifecycle` / `position` / `target` / `outcome` / `reason` — is first
-exposed as a *derivation* over the current `status` / `mode` / `current_stage`
-fields and surfaced on the run object. This lets `/decision`, the observatory, and
-Hermes migrate their reads to the new names *before* the storage changes. The
-physical flip (dropping `status`/`mode`, making these real columns, and no longer
-clearing `position` on finalize) is then the mechanical final act of the same
-coordinated cutover — it swaps the storage under an already-adopted contract. A
-bridge, not a permanent shim: `run_view.project()` collapses into the store at
-cutover.
-
-**The coordinated cutover itself is an executable runbook: [CUTOVER_step6.md](CUTOVER_step6.md)**
-— the exact engine / observatory / Hermes edits (grounded in a line-level read of
-all three repos), the wipe + reseed procedure, deploy order, rollback, and a smoke
-test. It needs no new design decisions; it executes this model.
-
----
+The design implication that outlives the runbook: **Step 5 shipped
+"derive-first."** The target vocabulary — `lifecycle` / `position` / `target` /
+`outcome` / `reason` — is first exposed as a *derivation* over the existing
+`status` / `mode` / `current_stage` fields (`app/run_view.py`), so consumers can
+migrate their reads to the new names before any storage change. The physical
+flip (dropping the old columns, making the new ones real, no longer clearing
+`position` on finalize) is then a mechanical act under an already-adopted
+contract — a bridge, not a permanent shim: `run_view.project()` collapses into
+the store once the flip lands.
 
 ## 5. Backward-compatibility stance
 

@@ -19,7 +19,7 @@ This document describes the product as it exists in the repository today, not on
 This reverse PRD is intentionally paired with two companion documents:
 
 - [Implementation Status](IMPLEMENTATION_STATUS.md) — evidence and code mapping
-- [Reverse Roadmap](ROADMAP_REVERSE.md) — remaining gaps and sequencing
+- Reverse Roadmap — remaining gaps and sequencing, tracked in the operator's own backlog
 
 ---
 
@@ -220,4 +220,4 @@ The largest remaining product gaps are:
 - wiki sync for completed Stage 7 outputs is not fully orchestrated from the main workflow
 - end-to-end verification coverage is thinner than the implemented feature surface
 
-Those gaps are prioritized in [Reverse Roadmap](ROADMAP_REVERSE.md).
+Those gaps are prioritized in the operator's own backlog, not tracked in this repo.
