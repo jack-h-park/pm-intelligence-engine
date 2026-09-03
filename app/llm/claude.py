@@ -11,7 +11,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 class ClaudeProvider:
-    def __init__(self, api_key: str, default_model: str = "claude-sonnet-4-6") -> None:
+    def __init__(self, api_key: str, default_model: str = "claude-sonnet-5") -> None:
         try:
             from anthropic import AsyncAnthropic
         except ImportError as e:
@@ -37,8 +37,11 @@ class ClaudeProvider:
         }
         if system_parts:
             kwargs["system"] = "\n\n".join(system_parts)
-        if temperature is not None:
-            kwargs["temperature"] = temperature
+        # `temperature` is not forwarded: the configured default model
+        # (claude-sonnet-5) rejects it outright — "`temperature` is deprecated
+        # for this model" — so passing the caller's value here would 400 every
+        # call. Pin ANTHROPIC_MODEL to a temperature-accepting snapshot (Sonnet
+        # or Opus 4.6) before relying on `temperature` again.
 
         async def _call() -> str:
             response = await self._client.messages.create(**kwargs)
@@ -49,6 +52,12 @@ class ClaudeProvider:
                         "output_tokens": response.usage.output_tokens or 0,
                     }
                 )
-            return response.content[0].text
+            # Adaptive thinking (on by default on current-generation models) puts
+            # a `thinking` block before the `text` block, so content[0] is not
+            # reliably the answer — scan for the text block instead.
+            for block in response.content:
+                if block.type == "text":
+                    return block.text
+            raise ValueError("Anthropic response contained no text block")
 
         return await with_retries(_call, _is_retryable, "Anthropic")

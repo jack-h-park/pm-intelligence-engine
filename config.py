@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-sonnet-4-6"
-    OPENAI_MODEL: str = "gpt-5.4"
+    ANTHROPIC_MODEL: str = "claude-sonnet-5"
+    OPENAI_MODEL: str = "gpt-5.6-terra"
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
