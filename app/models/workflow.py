@@ -131,7 +131,7 @@ class Signal(Base):
     original_product_id = Column(String, nullable=True)
     title = Column(String, nullable=False)
     source_url = Column(String, nullable=True)
-    # Authoritative back-link to the originating intake artifact (the Hermes
+    # Authoritative back-link to the originating intake artifact (the ops-plane
     # sensing filename, e.g. "2026-05-28-anthropic-glasswing-initial-update.md").
     # NULL for signals not submitted through Gate 0 (manual POST, replays). When
     # present it is the deterministic join key the observatory uses to pair a
@@ -274,7 +274,7 @@ class WorkflowRun(Base):
     # (US-55 step 7d-1). The store writes them directly via advance/pause/finish;
     # nothing reads or writes the legacy status/current_stage columns anymore
     # (those are dropped in step 7d-2). The direct-SQLite reader (observatory) and
-    # Hermes read these columns.
+    # ops plane read these columns.
     #   lifecycle: running | paused | done
     #   position:  furthest stage reached (s1..s7) — NOT cleared on finalize
     #   outcome:   completed | stopped | failed  (NULL while live)

@@ -2,12 +2,12 @@
 
 PRODUCTION OWNERSHIP (US-48 — read before touching this module)
 ---------------------------------------------------------------
-Production message composition and delivery are owned by Hermes-ops (Iris),
+Production message composition and delivery are owned by the operations plane,
 which polls the gate queues and terminal statuses. This module is a local/dev
 fallback: `GATE_NOTIFICATIONS_ENABLED` is **false on the iMac**, so
 build_notifier() wires zero providers and every send_gate* call is a no-op.
 
-Do NOT flip the flag to true in production — Iris already announces every gate
+Do NOT flip the flag to true in production — the ops plane already announces every gate
 transition, so enabling this module creates a second, duplicate delivery path
 for the same events. Ownership, dedup keys, and channel policy are normatively
 defined in docs/NOTIFICATION_CONTRACT.md.
@@ -506,7 +506,7 @@ def build_notifier() -> FanoutNotifier:
     Single chokepoint for the gate-notification cutover (US-48): when
     ``GATE_NOTIFICATIONS_ENABLED`` is false, no providers are wired, so every
     send_gate1/2/3 call becomes a no-op without touching the three call sites.
-    Set false on the iMac once Hermes-ops owns gate (and terminal) messaging;
+    Set false in production once the operations plane owns gate (and terminal) messaging;
     keep true locally/in tests. Reversible — flip the flag and restart.
     """
     from config import settings

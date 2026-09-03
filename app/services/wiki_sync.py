@@ -2,10 +2,10 @@
 
 Ownership (per EXPORT_AND_SYNC_CONTRACT.md):
   - decision-system export: pm-engine (via run_exporter.py)
-  - wiki sync: Hermes operations plane (NOT pm-engine completion paths)
+  - wiki sync: the external operations plane (NOT pm-engine completion paths)
 
 This module is a utility/legacy adapter. pm-engine completion paths do NOT call
-sync_executive_summary() directly. Hermes consumes completed run events and calls
+sync_executive_summary() directly. The operations plane consumes completed run events and calls
 these helpers (or its own equivalent) when writing to the wiki.
 
 Canonical wiki target paths:
@@ -80,7 +80,7 @@ def archive_auto_triaged(
 
 
 # ---------------------------------------------------------------------------
-# Executive summary sync (Hermes-owned; this is a utility helper)
+# Executive summary sync (ops-plane-owned; this is a utility helper)
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +100,7 @@ def sync_executive_summary(
     routing == 'kill' → raw/from-pm-decision-context/kills/<date>-<slug>.md
 
     NOTE: pm-engine completion paths do not call this directly.
-    This is provided for Hermes (or manual use) as a utility helper.
+    This is provided for the operations plane (or manual use) as a utility helper.
     """
     routing_to_dir = {
         "prd": "prds",
@@ -226,10 +226,10 @@ def _add_frontmatter(
     date_str: str,
     run_folder: str = "",
 ) -> str:
-    """Prepend wiki frontmatter conforming to product-management-wiki-repo/CLAUDE.md.
+    """Prepend wiki frontmatter conforming to the wiki repo's own schema.
 
-    Required fields (from wiki CLAUDE.md schema):
-      source: decision-context-companion-repo
+    Required fields (from the wiki repo's schema doc):
+      source: <WIKI_SOURCE_TAG setting>
       run: <run-folder-name>   ← the exports directory name, e.g. 2026-05-25-android16-nfc
       type: kill | prd | poc-upgrade
       date: YYYY-MM-DD
@@ -239,13 +239,15 @@ def _add_frontmatter(
     `run_folder` should be the <YYYY-MM-DD>-<slug> directory name written by run_exporter.
     If not provided, falls back to run_id.
     """
+    from config import settings
+
     routing_to_type = {"prd": "prd", "poc": "poc-upgrade", "kill": "kill"}
     wiki_type = routing_to_type.get(routing, routing)
     run_name = run_folder if run_folder else run_id
 
     frontmatter = (
         f"---\n"
-        f"source: decision-context-companion-repo\n"
+        f"source: {settings.WIKI_SOURCE_TAG}\n"
         f"run: {run_name}\n"
         f"type: {wiki_type}\n"
         f"date: {date_str}\n"

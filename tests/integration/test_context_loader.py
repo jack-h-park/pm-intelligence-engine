@@ -104,7 +104,7 @@ def test_load_portfolio_profiles_extraction_and_skips(tmp_path):
 
 
 def test_settings_accept_decision_context_root_alias(monkeypatch: pytest.MonkeyPatch, tmp_path):
-    decision_context_root = tmp_path / "decision-context-companion-repo"
+    decision_context_root = tmp_path / "decision-context"
     monkeypatch.setenv("DECISION_CONTEXT_ROOT", str(decision_context_root))
     monkeypatch.delenv("DECISION_SYSTEM_ROOT", raising=False)
 

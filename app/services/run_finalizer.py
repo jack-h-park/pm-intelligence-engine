@@ -12,7 +12,7 @@ Every completed run at depth note/structure/evaluate/decide is exported to the
 canonical run archive (browsable markdown trace). Only 'archive' depth
 (S1-only, set aside / not pursued) is excluded - it produces no artifact.
 
-Wiki sync is NOT owned by pm-engine. Hermes consumes terminal run events
+Wiki sync is NOT owned by pm-engine. The operations plane consumes terminal run events
 and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 """
 
@@ -81,7 +81,7 @@ async def finalize_run(
     event_action:
         Action label for ``emit_event``. Defaults to *status*.
         Pass ``"kill_confirmed"``, ``"rejected"``, ``"auto_triaged"`` etc. for
-        semantic precision — the generic terminal event is still useful to Hermes
+        semantic precision — the generic terminal event is still useful to the ops plane
         for polling but the specific action label preserves intent.
     event_detail:
         Arbitrary extra payload merged into the event (e.g. ``{"mode": "note"}``).

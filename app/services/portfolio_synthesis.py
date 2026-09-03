@@ -8,7 +8,7 @@ product's routing.
 Triggered from run_finalizer (the single terminal exit point). Persisted via the
 store's insert-or-skip guard, so near-simultaneous batch completion synthesizes
 exactly once. pm-engine writes no files — it emits ``portfolio_synthesized`` and
-Hermes owns any wiki sync (EXPORT_AND_SYNC_CONTRACT.md).
+The operations plane owns any wiki sync (EXPORT_AND_SYNC_CONTRACT.md).
 """
 
 from __future__ import annotations

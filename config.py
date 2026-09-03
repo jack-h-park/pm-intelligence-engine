@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     DECISION_SYSTEM_ROOT: str | None = None
     WIKI_ROOT: str = "./wiki"
 
+    # The `source:` value stamped into every wiki-sync frontmatter (see
+    # wiki_sync.py's build_frontmatter). The wiki repo's own schema is what
+    # actually constrains this — if yours expects a specific producer name,
+    # set it here; the default is just this engine's own name.
+    WIKI_SOURCE_TAG: str = "pm-intelligence-engine"
+
     # These defaults must match the deployed `.env`. A default that lags the live
     # value does not fail — it silently runs a different provider or an older
     # model, and only `metadata.model_used` on a finished run reveals it.

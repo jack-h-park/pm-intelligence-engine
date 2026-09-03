@@ -12,7 +12,8 @@ Canonical definition: pm-decision-context/core/02-workflow.md
 ("Processing Depth — 5 modes").
 
 Renamed 2026-06-11: file→archive, brief→note, opportunity→structure. Legacy
-values are normalized on input/read so stored data and existing clients (Hermes)
+values are normalized on input/read so stored data and existing clients (the
+    operations plane)
 keep working without changes.
 
 NAMING NOTE — "archive" is overloaded across THREE unrelated concepts. They do
@@ -33,15 +34,15 @@ another:
        opposite sense.
        This folder lives INSIDE THIS REPO (pm-intelligence-engine) —
        it is NOT WIKI_ROOT and NOT the wiki repo. pm-engine writes here directly;
-       the wiki (a separate repo) is synced independently by Hermes, never by
+       the wiki (a separate repo) is synced independently by the operations plane, never by
        pm-engine. `archive/runs/` ≠ WIKI_ROOT.
 
-  3. "auto-triage archive" (Hermes / wiki_sync)
+  3. "auto-triage archive" (ops plane / wiki_sync)
        Writing auto-killed signals to WIKI_ROOT/.../kills/auto-triaged/. Unrelated
        to both of the above. See docs/EXPORT_AND_SYNC_CONTRACT.md.
 
 Decision (2026-06-20): keep the names as-is; disambiguate by documentation rather
-than rename, to avoid a 3-repo migration (Hermes watch paths, observatory, on-disk
+than rename, to avoid a 3-repo migration (ops-plane watch paths, dashboard, on-disk
 data). This block is that documentation.
 """
 

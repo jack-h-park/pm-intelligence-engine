@@ -18,7 +18,7 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 class SignalCreate(BaseModel):
     # `original_product_id` is the canonical field (US-49) — an optional origin
     # hint, NULL for product-agnostic intake. `product_id` is still accepted as a
-    # deprecated alias so existing clients (Hermes) keep working.
+    # deprecated alias so existing clients (the operations plane) keep working.
     model_config = ConfigDict(populate_by_name=True)
     original_product_id: Optional[str] = Field(
         default=None, validation_alias=AliasChoices("original_product_id", "product_id")
@@ -27,7 +27,7 @@ class SignalCreate(BaseModel):
     raw_content: str
     source_url: Optional[str] = None
     # Optional provenance back-link to the originating intake artifact — the
-    # Hermes sensing filename. Gate 0 submit passes it so the engine signal can
+    # Ops-plane sensing filename. Gate 0 submit passes it so the engine signal can
     # be paired with its sensing file deterministically (no fuzzy title match).
     source_ref: Optional[str] = None
     category: str = "other"
@@ -221,7 +221,7 @@ async def get_signal(
 
 class SignalRefreshRequest(BaseModel):
     # The freshly-fetched clean body that supersedes the original capture. The
-    # engine never fetches — the caller (ops/Hermes via sensing-fetch.py) recovers
+    # engine never fetches — the caller (ops, via its own sensing-fetch tooling) recovers
     # the article and posts it here.
     raw_content: str
     note: Optional[str] = None  # provenance, e.g. "curl_cffi refetch, 12627 prose chars"

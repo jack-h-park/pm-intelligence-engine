@@ -277,7 +277,7 @@ def test_deepen_filterable_in_run_list(client, engine, monkeypatch):
 
 
 def test_run_response_includes_review_url(client, engine):
-    """Every run object carries review_url so the delivery owner (Iris) can put
+    """Every run object carries review_url so the delivery owner (the ops plane) can put
     the Gate 2 review link in messages without knowing the engine's BASE_URL
     (NOTIFICATION_CONTRACT §2, US-50)."""
     run_id, _ = _seed_completed_run(engine, "note", stages=["s2"])

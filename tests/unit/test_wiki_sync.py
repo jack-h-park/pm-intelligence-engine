@@ -65,7 +65,7 @@ def test_archive_auto_triaged_if_enabled_skips_when_flag_disabled():
 
 
 def test_archive_auto_triaged_if_enabled_calls_legacy_helper_when_flag_enabled():
-    """The transitional local archive path remains callable until Hermes takeover."""
+    """The transitional local archive path remains callable until ops-plane takeover."""
     from app.api.runs import _archive_auto_triaged_if_enabled
 
     settings_obj = MagicMock()
@@ -153,7 +153,7 @@ def test_sync_executive_summary_frontmatter_content(tmp_path):
         )
 
     content = path.read_text(encoding="utf-8")
-    assert "source: decision-context-companion-repo" in content
+    assert "source: pm-intelligence-engine" in content
     assert "run: run-frontmatter-test" in content
     assert "type: prd" in content
     assert f"date: {FIXED_DATE}" in content
@@ -399,5 +399,5 @@ def test_wiki_sync_not_called_from_run_exporter():
             for name in names:
                 assert "wiki_sync" not in (name or ""), (
                     "run_exporter must not import wiki_sync — "
-                    "wiki sync is Hermes-owned per EXPORT_AND_SYNC_CONTRACT.md"
+                    "wiki sync is ops-plane-owned per EXPORT_AND_SYNC_CONTRACT.md"
                 )

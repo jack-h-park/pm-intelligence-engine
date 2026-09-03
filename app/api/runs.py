@@ -21,7 +21,7 @@ class _DummyPersona:
 
 class RunStartRequest(BaseModel):
     # `depth` is the canonical processing-depth field (US-43); `mode` is still
-    # accepted as a deprecated alias so existing clients (Hermes) keep working.
+    # accepted as a deprecated alias so existing clients (the operations plane) keep working.
     model_config = ConfigDict(populate_by_name=True)
     signal_id: str
     # product_id is now OPTIONAL (US-49). Provided -> manual single-product start
@@ -33,7 +33,7 @@ class RunStartRequest(BaseModel):
     # When true AND no depth is given, the run ALWAYS pauses at Gate 1 even if S2
     # relevance is below AUTO_TRIAGE_THRESHOLD — i.e. S2 auto-triage to archive is
     # suppressed for this run, so the PM always makes the direction decision. Set
-    # by Hermes ops when the PM starts a run interactively; defaults False so the
+    # by the ops plane when the PM starts a run interactively; defaults False so the
     # autonomous/auto-triage path is unchanged. No effect when depth is provided.
     force_gate1: bool = False
 
@@ -59,7 +59,7 @@ class RunResponse(BaseModel):
     # vocabulary): the run state is `lifecycle` + `position` + `target` +
     # `outcome` + `reason` (below); the depth name is `depth`. The legacy columns
     # still exist in storage (dual-write) but are an internal detail — the API,
-    # observatory, and Hermes read the canonical fields only.
+    # dashboard, and the ops plane read the canonical fields only.
     depth: str | None = None  # processing-depth name (archive/note/…/decide)
     recommendation_json: str | None
     routing: str | None
@@ -90,7 +90,7 @@ class RunResponse(BaseModel):
     triage: list[dict] | None = None
     # Absolute link to the engine-served browser review page, built from BASE_URL
     # (the iMac's Tailscale address in production). Exposed so the delivery owner
-    # (Iris) can include it in Gate 2 messages without knowing the engine's
+    # (the ops plane) can include it in Gate 2 messages without knowing the engine's
     # network config — see docs/NOTIFICATION_CONTRACT.md §2.
     review_url: str | None = None
     # Canonical (position, lifecycle) view (US-55):

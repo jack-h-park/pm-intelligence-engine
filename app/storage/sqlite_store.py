@@ -206,7 +206,7 @@ class SQLiteStore:
         # the column was a verbatim second copy of the canonical row — measured on
         # the live DB, all 252 artifact rows matched their stage output byte for
         # byte. Nothing ever read it back: not the pipeline (which loads
-        # stage_outputs), not the observatory, not hermes. Same guarded, idempotent
+        # stage_outputs), not the dashboard, not the ops plane. Same guarded, idempotent
         # DROP COLUMN as the sweep above.
         artifact_cols = {c["name"] for c in inspect(self._engine).get_columns("artifacts")}
         if "content_json" in artifact_cols:

@@ -40,7 +40,7 @@ async def test_telegram_gate3_renders_enriched_fields():
 
 @pytest.mark.asyncio
 async def test_telegram_gate3_backward_compatible_without_enrichment():
-    """Old call shape (hermes skill before payload update) still works."""
+    """Old call shape (ops-plane skill before payload update) still works."""
     notifier = TelegramNotifier(bot_token="t", chat_id="c")
     with patch.object(notifier, "_send", new=AsyncMock()) as send:
         await notifier.send_gate3(

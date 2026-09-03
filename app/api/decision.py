@@ -12,7 +12,7 @@ always one of four verbs, interpreted against where the run currently is:
   stop (any non-terminal state)            —                          —                               —          void (reason)
 
 This is a **facade** over the existing handlers during the transition: the old
-endpoints stay live (Hermes/observatory still call them) and share this one
+endpoints stay live (the ops plane and dashboard still call them) and share this one
 implementation. At the final cutover (step 6) the old routes are removed and the
 consumers move to ``/decision``. The action vocabulary is schema-independent, so
 it survives the step-5 flip to (position, lifecycle) unchanged.
