@@ -26,7 +26,7 @@ def test_load_company_context(loader: ContextLoader):
 
 
 def test_load_product_context_known_product(loader: ContextLoader):
-    text = loader.load_product_context("example-security-product")
+    text = loader.load_product_context("samsung-knox-lockdown-mode")
     assert text
     assert "Strategy Pillars" in text or "strategy" in text.lower()
 
@@ -37,11 +37,11 @@ def test_load_product_context_missing_product(loader: ContextLoader):
 
 
 def test_load_full_context(loader: ContextLoader):
-    ctx = loader.load_full_context("example-security-product")
+    ctx = loader.load_full_context("samsung-knox-lockdown-mode")
     assert ctx.pm_identity
     assert ctx.company_context
     assert ctx.product_context
-    assert ctx.product_id == "example-security-product"
+    assert ctx.product_id == "samsung-knox-lockdown-mode"
 
 
 def test_load_product_context_general(loader: ContextLoader):
