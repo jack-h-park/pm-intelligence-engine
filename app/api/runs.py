@@ -123,9 +123,10 @@ class RunResponse(BaseModel):
             if d.get("depth") is None and d.get("mode") is not None:
                 d["depth"] = d["mode"]
             if not d.get("review_url") and d.get("run_id"):
-                from config import settings
-                if settings.BASE_URL:
-                    d["review_url"] = f"{settings.BASE_URL}/runs/{d['run_id']}/review"
+                from config import review_url_for
+                link = review_url_for(d["run_id"])
+                if link:
+                    d["review_url"] = link
             return d
         return data
 
@@ -1001,7 +1002,7 @@ async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) 
 
     from app.logging import emit_event
     from app.models.stages import S4OutputData
-    from config import settings as _notify_cfg
+    from config import review_url_for as _notify_review_url
 
     s4_raw = engine.store.get_stage_output(run_id, "s4")
     s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
@@ -1015,7 +1016,7 @@ async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) 
     signal_title = signal_for_notify["title"] if signal_for_notify else run_id
     personas = {p.persona: p for p in s4_output_data.personas}
     skeptic_concern = personas["skeptic"].key_argument if "skeptic" in personas else ""
-    review_url = f"{_notify_cfg.BASE_URL}/runs/{run_id}/review"
+    review_url = _notify_review_url(run_id)
     await engine.notifier.send_gate2(
         run_id=run_id,
         product_id=context.product_id,
