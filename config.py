@@ -71,6 +71,19 @@ class Settings(BaseSettings):
     # Set to your server's public URL when deployed; default is local dev.
     BASE_URL: str = "http://localhost:8000"
 
+    # Optional: send review links to a separate review UI instead of this
+    # service's own /runs/{id}/review page. Set it to that UI's base URL and
+    # links become "<REVIEW_UI_BASE_URL>/runs/<run_id>"; leave it empty and
+    # nothing changes.
+    #
+    # Why this exists: the built-in review page is behind the same bearer auth
+    # as every other route (app.api.deps.require_auth reads the Authorization
+    # header and nothing else), so a link to it is a 401 in a browser — the
+    # place these links are actually opened. A deployment that runs a separate,
+    # browser-reachable console can point at it here rather than fork the
+    # engine.
+    REVIEW_UI_BASE_URL: str = ""
+
     # Notifications — Gate 1/2/3 alerts.
     # Leave a field empty ("") to disable that provider.
     # Both providers can be active simultaneously.
@@ -168,3 +181,22 @@ def family_of(product_id: str) -> str:
         except Exception:  # noqa: BLE001 — a bad override must never stop the pipeline
             pass
     return PRODUCT_FAMILIES.get(product_id, "unassigned")
+
+
+def review_url_for(run_id: str) -> str:
+    """The link a human opens to review one run.
+
+    Built in one place because it had been built in two, and the pair is easy
+    to change by half: the path differs between the built-in page
+    (``/runs/{id}/review``) and an external review UI (``/runs/{id}``), so a
+    caller that hardcodes one shape silently emits a broken link under the
+    other setting.
+
+    Returns "" when no base is configured, which the callers treat as "emit no
+    review_url" rather than a relative link.
+    """
+    base = (settings.REVIEW_UI_BASE_URL or "").rstrip("/")
+    if base:
+        return f"{base}/runs/{run_id}"
+    base = (settings.BASE_URL or "").rstrip("/")
+    return f"{base}/runs/{run_id}/review" if base else ""
