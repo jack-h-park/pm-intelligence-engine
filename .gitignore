@@ -1,4 +1,16 @@
 .env
+
+# Copies of the file above. The rule matches an exact name, so a copy inherits
+# none of it: workspace-governance's secret-rotate leaves a .bak-YYYYMMDD
+# beside a rotated file for a ~7-day soak so a bad rotation can be undone.
+# The .env this backs up lives on ops-host and holds 18 live credentials
+# (ANTHROPIC_API_KEY, OPENAI_API_KEY, TELEGRAM_BOT_TOKEN among them), so the
+# copy would land untracked-but-unignored right where the rotation runs.
+.env*.bak
+.env*.bak-*
+.env*.backup*
+.env*.orig
+.env*.save
 *.db
 *.db-shm
 *.db-wal
