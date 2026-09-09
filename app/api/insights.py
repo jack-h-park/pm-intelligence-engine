@@ -282,6 +282,17 @@ async def search(
     return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
 
 
+@router.get("/insight-operations")
+async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict:
+    """Read-only shadow operations counters; never enables intake or delivery."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return engine.insight_store.operational_summary()
+
+
 @router.get("/insights/{insight_id}", response_model=InsightRevision)
 async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -> InsightRevision:
     if engine.insight_store is None:

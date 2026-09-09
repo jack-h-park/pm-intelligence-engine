@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TypeVar
@@ -166,6 +167,39 @@ class InsightStore:
         insights = self.list_insights()
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
+
+    def operational_summary(self) -> dict:
+        """Return read-only counts for shadow operations without admitting work."""
+        with self._Session() as session:
+            jobs = Counter(
+                row.state for row in session.execute(select(IntelligenceJobRow)).scalars()
+            )
+            receipts = Counter(
+                row.state
+                for row in session.execute(select(IntelligenceDeliveryReceiptRow)).scalars()
+            )
+            reservations = [
+                BudgetReservation.model_validate_json(row.payload_json)
+                for row in session.execute(
+                    select(IntelligenceBudgetReservationRow)
+                ).scalars()
+            ]
+            return {
+                "candidates": session.query(IntelligenceCandidateRow).count(),
+                "jobs": dict(sorted(jobs.items())),
+                "delivery_receipts": dict(sorted(receipts.items())),
+                "cost_micros": {
+                    "reserved": sum(
+                        item.maximum_micros
+                        for item in reservations
+                        if item.state in {"reserved", "unknown"}
+                    ),
+                    "finalized": sum(item.actual_micros or 0 for item in reservations),
+                    "unknown": sum(
+                        item.maximum_micros for item in reservations if item.state == "unknown"
+                    ),
+                },
+            }
 
     def save_delivery_receipt(
         self, insight_id: str, revision: int, channel: str, state: str
