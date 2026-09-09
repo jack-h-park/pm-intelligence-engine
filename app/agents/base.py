@@ -21,6 +21,7 @@ _EVIDENCE_V1_JSON_SCHEMA = """{
   "open_question": "<single most important open question — must name who answers it and how>",
   "evidence_passage_ids": ["<case passage ID supporting or contradicting the judgment>"],
   "option_assessments": {"<case option>": "<persona-specific assessment>"},
+  "option_positions": {"<case option>": "support | oppose | uncertain"},
   "uncertainties": ["<what would change this judgment>"]
 }"""
 
@@ -62,6 +63,7 @@ class PersonaAgent:
         evidence_rules = """
 - evidence_passage_ids may only name IDs from the pinned DecisionCase.
 - Assess every supplied case option; status quo/defer is a valid conclusion.
+- option_positions must use only support, oppose, or uncertain for every supplied case option.
 - uncertainties must name what evidence would change the judgment.""" if evidence_v1 else ""
         schema = _EVIDENCE_V1_JSON_SCHEMA if evidence_v1 else _JSON_SCHEMA
         user = f"""## Product Context
@@ -117,6 +119,10 @@ Rules:
             option_assessments={
                 str(option): str(assessment)
                 for option, assessment in data.get("option_assessments", {}).items()
+            },
+            option_positions={
+                str(option): str(position)
+                for option, position in data.get("option_positions", {}).items()
             },
             uncertainties=[str(item) for item in data.get("uncertainties", [])],
         )
