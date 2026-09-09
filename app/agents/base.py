@@ -7,6 +7,7 @@ from typing import Optional
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import PersonaOutput, RunContext, S3OutputData
+from app.services.decision_case import render_decision_case
 
 _JSON_SCHEMA = """{
   "score": <integer 1-5>,
@@ -58,6 +59,9 @@ Hypothesis: {opportunity.hypothesis}
 Value for user: {opportunity.assumed_value_user}
 Value for business: {opportunity.assumed_value_business}
 
+## Pinned Decision Case
+{render_decision_case(context.decision_case)}
+
 ## Your Evaluation Question
 {prompt['question']}
 {feedback_block}
@@ -73,7 +77,8 @@ Rules:
 - Score must reflect your dimension ({self.dimension}), grounded in specific product context above.
 - key_argument must reference at least one concrete element from the product context (pillar, constraint, pain point, or competitive dynamic).
 - open_question must name *who* can answer it and *how* (e.g., "customer interview", "engineering spike", "legal review").
-- Do NOT default to "insufficient data" — steelman the strongest argument you can from available evidence."""
+- Do NOT default to "insufficient data" — steelman the strongest argument you can from available evidence.
+- Do not recast a hypothesis as a confirmed fact or invent a customer need absent from the case."""
 
         data = await complete_json(
             llm,
