@@ -96,6 +96,20 @@ class InsightSearchResults(BaseModel):
     next_cursor: None = None
 
 
+class DeliveryReceiptCreate(_Request):
+    revision: int = Field(ge=1)
+    channel: Literal["telegram", "discord"]
+    state: Literal["queued", "sent", "unknown"]
+
+
+class DeliveryReceiptAccepted(BaseModel):
+    receipt_id: str
+    insight_id: str
+    revision: int
+    channel: str
+    state: str
+
+
 def _request_hash(body: BaseModel) -> str:
     canonical = json.dumps(body.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -279,6 +293,23 @@ async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -
     if insight is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     return insight
+
+
+@router.post(
+    "/insights/{insight_id}/delivery-receipts",
+    response_model=DeliveryReceiptAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_delivery_receipt(
+    insight_id: str, body: DeliveryReceiptCreate, engine: PMEngine = Depends(get_engine)
+) -> DeliveryReceiptAccepted:
+    try:
+        receipt = _store(engine).save_delivery_receipt(
+            insight_id, body.revision, body.channel, body.state
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return DeliveryReceiptAccepted(**receipt)
 
 
 @router.post("/insight-research/claim", response_model=ResearchRequest)

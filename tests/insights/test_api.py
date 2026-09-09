@@ -184,3 +184,16 @@ def test_authenticated_insight_search_returns_stored_revision(
     detail = client.get(f"/insights/{insight.insight_id}", headers=auth_headers)
     assert detail.status_code == 200
     assert detail.json()["takeaway"] == "Verify it."
+
+    receipt = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    repeated = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    assert receipt.status_code == 201
+    assert repeated.json() == receipt.json()
