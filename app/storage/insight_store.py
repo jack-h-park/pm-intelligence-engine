@@ -28,6 +28,7 @@ from app.models.insights import (
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    IntelligenceTriageRow,
     PreparedContext,
     ResearchRequest,
     SourceRecord,
@@ -112,6 +113,34 @@ class InsightStore:
                 )
             ).all()
             return sorted({row[0] for row in rows})
+
+    def claim_triage(self, operation_id: str) -> tuple[str, dict | None]:
+        """Claim one triage operation before a model call; completed calls replay safely."""
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is not None:
+                return row.state, json.loads(row.payload_json) if row.payload_json else None
+            session.add(
+                IntelligenceTriageRow(
+                    operation_id=operation_id, state="running", payload_json="{}"
+                )
+            )
+            return "claimed", None
+
+    def complete_triage(self, operation_id: str, payload: dict) -> None:
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is None:
+                raise MissingInsightRecord(f"triage operation {operation_id} was not claimed")
+            row.state = "complete"
+            row.payload_json = json.dumps(payload, sort_keys=True)
+
+    def abandon_triage_claim(self, operation_id: str) -> None:
+        """Release a pre-call denial; ambiguous model calls intentionally stay claimed."""
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is not None and row.state == "running":
+                session.delete(row)
 
     # --- Prepared analysis records (E03) ---
 

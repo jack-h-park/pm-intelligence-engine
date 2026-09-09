@@ -368,3 +368,11 @@ class IntelligenceDeliveryReceiptRow(Base):
     channel = Column(String, nullable=False)
     state = Column(String, nullable=False, index=True)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceTriageRow(Base):
+    __tablename__ = "intelligence_triage"
+
+    operation_id = Column(String, primary_key=True)
+    state = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)

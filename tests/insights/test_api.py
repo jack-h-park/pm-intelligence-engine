@@ -124,7 +124,10 @@ def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers,
     from config import settings
 
     class FixtureLLM:
+        calls = 0
+
         async def complete(self, messages, **kwargs):
+            self.calls += 1
             return json.dumps({
                 "disposition": "admit", "relevance": "relevant",
                 "novelty": "meaningful_delta", "reason": "New evidence.",
@@ -147,6 +150,18 @@ def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers,
     assert response.status_code == 200
     assert response.json()["disposition"] == "admit"
     assert engine.insight_store.operational_summary()["cost_micros"]["finalized"] == 4
+
+    repeated = client.post(
+        "/insight-triage",
+        json={
+            "question": "What changed?", "title": "Change", "content": "Evidence.",
+            "operation_id": "triage-api", "policy_revision": "fixture-v1", "provider": "fixture",
+            "rate_revision": "fixture-rates", "maximum_micros": 10, "actual_micros": 4,
+        },
+        headers=auth_headers,
+    )
+    assert repeated.json() == response.json()
+    assert engine.llm.calls == 1
 
 
 def test_job_intake_is_idempotent_and_requires_an_existing_candidate(

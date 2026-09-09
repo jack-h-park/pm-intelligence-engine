@@ -347,8 +347,14 @@ async def novelty_lookup(
 async def semantic_triage(
     body: SemanticTriageRequest, engine: PMEngine = Depends(get_engine)
 ) -> TriageDecision:
+    store = _processing_store(engine)
+    claim_state, cached = store.claim_triage(body.operation_id)
+    if claim_state == "complete" and cached is not None:
+        return TriageDecision.model_validate(cached)
+    if claim_state != "claimed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress")
     try:
-        return await triage_with_reservation(
+        decision = await triage_with_reservation(
             question=body.question,
             title=body.title,
             content=body.content,
@@ -366,7 +372,10 @@ async def semantic_triage(
             actual_micros=body.actual_micros,
         )
     except TriageBudgetDenied as exc:
+        store.abandon_triage_claim(body.operation_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
+    store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    return decision
 
 
 @router.get("/insight-operations")
