@@ -485,6 +485,25 @@ class DecisionReadiness(BaseModel):
     findings: list[ReadinessFinding] = Field(default_factory=list)
 
 
+class RequirementEvidenceLink(BaseModel):
+    """A generated requirement's explicit grounding in pinned case evidence."""
+
+    requirement: str
+    evidence_passage_ids: list[str] = Field(default_factory=list)
+    decision_rationale: str
+
+
+class ArtifactTraceability(BaseModel):
+    """Evidence_v1 provenance attached additively to generated decision artifacts."""
+
+    decision_case_id: str
+    decision_case_revision: int = Field(ge=1)
+    approved_option: str | None = None
+    provisional: bool
+    requirement_links: list[RequirementEvidenceLink] = Field(default_factory=list)
+    proposed_metrics: list[str] = Field(default_factory=list)
+
+
 class S5OutputData(BaseModel):
     impact_score: int = Field(ge=1, le=5)
     strategic_fit_score: int = Field(ge=1, le=5)
@@ -541,6 +560,7 @@ class S6AOutputData(BaseModel):
     success_criteria: str
     timeline_weeks: int
     resources_needed: str
+    traceability: ArtifactTraceability | None = None
 
 
 class S6AOutput(BaseModel):
@@ -590,6 +610,7 @@ class S6BOutputData(BaseModel):
     open_questions: list[str]
     risks: list[str]
     completeness: PRDCompletenessCheck
+    traceability: ArtifactTraceability | None = None
 
 
 class S6BOutput(BaseModel):
