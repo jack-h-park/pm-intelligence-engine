@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import Depends, FastAPI
 
@@ -38,6 +39,12 @@ async def lifespan(app: FastAPI):
     if engine.insight_store is None:  # pragma: no cover - factory invariant
         raise RuntimeError("Insight storage was not initialized")
     engine.insight_store.initialize_schema()
+    if settings.INSIGHT_PROJECTION_ENABLED:
+        from app.services.insight_projection import reconcile_store_projections
+
+        reconcile_store_projections(
+            engine.insight_store, Path(settings.WIKI_ROOT) / "outputs" / "signal-intelligence"
+        )
     app.state.engine = engine
     yield
 

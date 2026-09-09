@@ -132,3 +132,42 @@ def test_prepared_context_and_insight_are_immutable_and_reference_existing_recor
 
     assert store.get_prepared_context(prepared.prepared_context_id) == prepared
     assert store.get_insight(insight.insight_id) == insight
+
+
+def test_correction_keeps_old_revision_addressable_but_replaces_current_view(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    prepared = store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id, bundle_id=bundle.bundle_id,
+            question="What changed?", validation_status="valid", context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    original = store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Original", explanation="Original.", actual_change="Original change.",
+            why_now="Original now.", personal_relevance="Original relevance.",
+            takeaway="Original takeaway.",
+            claims=[{"text": "Original claim.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    correction = store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Correction", explanation="Corrected.", actual_change="Corrected change.",
+            why_now="Corrected now.", personal_relevance="Corrected relevance.",
+            takeaway="Corrected takeaway.",
+            claims=[{"text": "Corrected claim.", "passage_ids": ["passage-fixture-1"]}],
+            supersedes_insight_id=original.insight_id,
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+
+    assert store.get_insight(original.insight_id) == original
+    assert store.list_current_insights() == [correction]

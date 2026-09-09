@@ -132,6 +132,12 @@ class InsightStore:
                 raise InvalidInsightReference(
                     f"prepared context {insight.prepared_context_id} was not found"
                 )
+            if insight.supersedes_insight_id and session.get(
+                IntelligenceInsightRow, insight.supersedes_insight_id
+            ) is None:
+                raise InvalidInsightReference(
+                    f"superseded insight {insight.supersedes_insight_id} was not found"
+                )
             session.add(
                 IntelligenceInsightRow(
                     insight_id=insight.insight_id,
@@ -147,6 +153,18 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
+
+    def list_insights(self) -> list[InsightRevision]:
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceInsightRow).order_by(IntelligenceInsightRow.created_at.desc())
+            ).scalars()
+            return [InsightRevision.model_validate_json(row.payload_json) for row in rows]
+
+    def list_current_insights(self) -> list[InsightRevision]:
+        insights = self.list_insights()
+        superseded = {insight.supersedes_insight_id for insight in insights}
+        return [insight for insight in insights if insight.insight_id not in superseded]
 
     def complete_job_analysis(
         self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,
