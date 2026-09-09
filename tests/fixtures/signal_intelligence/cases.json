@@ -1,0 +1,56 @@
+{
+  "fixture_version": 1,
+  "cases": [
+    {
+      "case_id": "manual-attributed-context",
+      "disposition": "fixture_only",
+      "candidate": {
+        "origin": "user_supplied",
+        "subject": "Managed Android work-profile behavior",
+        "question_ids": ["android-enterprise-isolation"],
+        "source_ids": [],
+        "policy_revision": "fixture-v1"
+      },
+      "source": {
+        "origin": "user_supplied",
+        "acquisition_status": "ok",
+        "content": "The user observed that a managed work profile can share selected intents.",
+        "url": null
+      }
+    },
+    {
+      "case_id": "duplicate-content",
+      "disposition": "fixture_only",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Platform release evidence",
+        "question_ids": ["platform-release-delta"],
+        "source_ids": [],
+        "policy_revision": "fixture-v1"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "A permitted excerpt describing a platform release mechanism.",
+        "url": "https://example.test/release"
+      }
+    },
+    {
+      "case_id": "missing-date",
+      "disposition": "fixture_only",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Undated background reference",
+        "question_ids": ["historical-context"],
+        "source_ids": [],
+        "policy_revision": "fixture-v1"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "fallback_summary",
+        "content": "A permitted summary with an unknown event date.",
+        "url": "https://example.test/background"
+      }
+    }
+  ]
+}

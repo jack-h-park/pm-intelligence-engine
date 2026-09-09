@@ -30,6 +30,14 @@ class Settings(BaseSettings):
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
+    # Personal Signal Intelligence remains opt-in until its fixture-only slices
+    # have passed release review.  New writes are independently guarded so a
+    # mode change alone can never begin intake.
+    INTELLIGENCE_MODE: str = "legacy"
+    INSIGHT_WRITES_ENABLED: bool = False
+    DECISION_PIPELINE_V2_ENABLED: bool = False
+    INSIGHT_MIGRATION_ACTIVATION_ENABLED: bool = False
+
     # Server-side API authentication. Every endpoint except GET /health requires
     # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is
     # provisioned in the calling client's environment. If left empty, the server fails
