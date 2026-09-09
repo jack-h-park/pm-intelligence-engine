@@ -400,6 +400,56 @@ class SQLiteStore:
 
     # --- WorkflowRun ---
 
+    def create_decision_request_run(self, case) -> dict:
+        """Create the legacy-compatible signal, run, and case link atomically.
+
+        The signal is deliberately typed as a direct decision input through its
+        ``source_ref``.  It is not synthetic external news, and this method
+        creates no portfolio siblings.
+        """
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        with self._Session.begin() as session:
+            signal = Signal(
+                original_product_id=case.product_id,
+                title="Direct product decision input",
+                raw_content=case.decision_question,
+                category=SignalCategory.other,
+                source_type=SourceType.manual,
+                source_ref=f"decision-case:{case.case_id}:{case.revision}",
+            )
+            session.add(signal)
+            session.flush()
+            run = WorkflowRun(
+                product_id=case.product_id,
+                signal_id=signal.signal_id,
+                attempt_no=1,
+                origin="decision_request",
+                lifecycle="running",
+                position=None,
+                outcome=None,
+                reason=None,
+            )
+            session.add(run)
+            session.flush()
+            session.add(
+                DecisionCaseRecord(
+                    case_id=case.case_id,
+                    revision=case.revision,
+                    product_id=case.product_id,
+                    prepared_context_id=case.prepared_context_id,
+                    payload_json=case.model_dump_json(),
+                )
+            )
+            session.add(
+                DecisionCaseRunLink(
+                    run_id=run.run_id, case_id=case.case_id, case_revision=case.revision
+                )
+            )
+            return {"signal_id": signal.signal_id, "run_id": run.run_id}
+
     def save_decision_case(self, run_id: str, case) -> None:
         """Persist a case revision and its run link in one transaction."""
         from app.models.decision_case import DecisionCase
