@@ -385,11 +385,12 @@ def build_decision_memo(data: S5OutputData) -> str:
         return "\n".join(f"- {a.statement}" for a in items)
 
     readiness_md = ""
-    if data.readiness is not None:
-        state = "Ready for PRD" if data.readiness.ready_for_prd else "Provisional — unresolved gaps remain"
+    readiness = getattr(data, "readiness", None)
+    if readiness is not None:
+        state = "Ready for PRD" if readiness.ready_for_prd else "Provisional — unresolved gaps remain"
         findings = "\n".join(
             f"- **{finding.severity} · {finding.category}:** {finding.message}"
-            for finding in data.readiness.findings
+            for finding in readiness.findings
         ) or "- No unresolved evidence_v1 readiness gaps."
         readiness_md = f"\n## Decision Readiness\n**{state}**\n{findings}\n"
 
