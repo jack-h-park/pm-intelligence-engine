@@ -180,7 +180,16 @@ class InsightStore:
                 IntelligenceDeliveryReceiptRow.channel == channel,
             ))
             if existing:
-                return json.loads(existing.payload_json)
+                payload = json.loads(existing.payload_json)
+                # A transport may be confirmed only after the queue record was
+                # committed.  Preserve that one-way acknowledgement, while an
+                # ambiguous result remains a deliberate operator hold rather
+                # than a signal to resend the same revision.
+                if existing.state == "queued" and state in {"sent", "unknown"}:
+                    payload["state"] = state
+                    existing.state = state
+                    existing.payload_json = json.dumps(payload, sort_keys=True)
+                return payload
             payload = {
                 "receipt_id": str(uuid.uuid4()), "insight_id": insight_id,
                 "revision": revision, "channel": channel, "state": state,
