@@ -3,7 +3,7 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
-from app.models.insights import SourceRecord
+from app.models.insights import InsightRevision, PreparedContext, SourceRecord
 
 
 def test_bundle_survives_restart(store_factory, candidate_payload, source_payload, bundle_payload):
@@ -98,3 +98,37 @@ def test_source_content_hash_must_match_the_permitted_content(source_payload):
                 "content_hash": "0" * 64,
             }
         )
+
+
+def test_prepared_context_and_insight_are_immutable_and_reference_existing_records(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    prepared = store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What is the learning?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="A bounded learning",
+            explanation="The source supports a limited observation.",
+            actual_change="A new practice was reported.",
+            why_now="The candidate was submitted now.",
+            personal_relevance="It addresses the question.",
+            takeaway="Try a small test.",
+            claims=[{"text": "A practice was reported.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+
+    assert store.get_prepared_context(prepared.prepared_context_id) == prepared
+    assert store.get_insight(insight.insight_id) == insight

@@ -99,7 +99,7 @@ class EvidenceDate(_Record):
 class EvidenceBundle(_Record):
     bundle_id: str = Field(default_factory=_new_uuid)
     candidate_id: str
-    source_ids: list[str] = Field(min_length=1, max_length=4)
+    source_ids: list[str] = Field(max_length=4)
     passages: list[Passage]
     dates: list[EvidenceDate] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
@@ -121,6 +121,56 @@ class EvidenceBundle(_Record):
         if len(self.passage_ids) != len(self.passages):
             raise ValueError("passage_ids must be unique")
         return self
+
+
+class PreparedFact(_Record):
+    text: str = Field(min_length=1)
+    passage_ids: list[str] = Field(min_length=1)
+
+
+class PreparedContext(_Record):
+    prepared_context_id: str = Field(default_factory=_new_uuid)
+    revision: int = Field(default=1, ge=1)
+    candidate_id: str
+    bundle_id: str
+    question: str = Field(min_length=1)
+    facts: list[PreparedFact] = Field(default_factory=list)
+    hypotheses: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    validation_status: Literal["valid", "needs_evidence"]
+    context_revision: str = Field(min_length=1)
+    context_paths: list[str] = Field(default_factory=list)
+    context_hashes: dict[str, str] = Field(default_factory=dict)
+    relevance_reasons: list[str] = Field(default_factory=list)
+    note_connections: list[str] = Field(default_factory=list)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+
+class InsightClaim(_Record):
+    text: str = Field(min_length=1)
+    passage_ids: list[str] = Field(min_length=1)
+
+
+class InsightRevision(_Record):
+    insight_id: str = Field(default_factory=_new_uuid)
+    revision: int = Field(default=1, ge=1)
+    prepared_context_id: str
+    headline: str = Field(min_length=1)
+    explanation: str = Field(min_length=1)
+    actual_change: str = Field(min_length=1)
+    why_now: str = Field(min_length=1)
+    personal_relevance: str = Field(min_length=1)
+    takeaway: str = Field(min_length=1)
+    claims: list[InsightClaim] = Field(min_length=1)
+    uncertainties: list[str] = Field(default_factory=list)
+    question_ids: list[str] = Field(default_factory=list)
+    related_insight_ids: list[str] = Field(default_factory=list)
+    note_connections: list[str] = Field(default_factory=list)
+    event_cluster_id: str | None = None
+    generation_model: str | None = None
+    context_revision: str = Field(min_length=1)
+    created_at: datetime = Field(default_factory=_utc_now)
 
 
 class InsightJob(_Record):
@@ -207,6 +257,27 @@ class IntelligenceBundleRow(Base):
 
     bundle_id = Column(String, primary_key=True)
     candidate_id = Column(String, nullable=False, index=True)
+    context_revision = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligencePreparedContextRow(Base):
+    __tablename__ = "intelligence_prepared_contexts"
+
+    prepared_context_id = Column(String, primary_key=True)
+    candidate_id = Column(String, nullable=False, index=True)
+    bundle_id = Column(String, nullable=False, index=True)
+    validation_status = Column(String, nullable=False, index=True)
+    context_revision = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceInsightRow(Base):
+    __tablename__ = "intelligence_insights"
+
+    insight_id = Column(String, primary_key=True)
+    prepared_context_id = Column(String, nullable=False, index=True)
     context_revision = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
     payload_json = Column(Text, nullable=False)
