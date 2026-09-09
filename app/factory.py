@@ -4,6 +4,7 @@ from app.llm.protocol import LLMProvider
 from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
+from app.storage.insight_store import InsightStore
 from app.storage.protocol import PMWorkflowStore
 
 
@@ -14,14 +15,16 @@ class PMEngine:
     context_loader: ContextLoader
     template_service: TemplateService
     notifier: FanoutNotifier
+    insight_store: InsightStore | None = None
 
 
 def build_engine(runtime: str = "local") -> PMEngine:
-    from config import settings
     from app.services.notifier import build_notifier
     from app.storage.sqlite_store import SQLiteStore
+    from config import settings
 
     store: PMWorkflowStore = SQLiteStore(settings.DATABASE_URL)
+    insight_store = InsightStore(settings.DATABASE_URL)
     context_loader = ContextLoader(settings.DECISION_SYSTEM_ROOT)
     template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
     llm = _build_llm_provider()
@@ -29,6 +32,7 @@ def build_engine(runtime: str = "local") -> PMEngine:
 
     return PMEngine(
         store=store,
+        insight_store=insight_store,
         llm=llm,
         context_loader=context_loader,
         template_service=template_service,
