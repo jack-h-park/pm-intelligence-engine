@@ -115,3 +115,31 @@ def test_overlay_requires_reconciled_manifest_and_retains_imports_when_disabled(
         "manifest-1", manifest.manifest_hash, enabled=False
     ) == {"enabled": False}
     assert len(store.list_migration_aliases("manifest-1")) == 1
+
+
+def test_import_resumes_after_store_restart_without_duplicate_aliases(tmp_path):
+    database_url = f"sqlite:///{tmp_path}/insights.db"
+    store = InsightStore(database_url)
+    store.initialize_schema()
+    for candidate_id in ("candidate-1", "candidate-2"):
+        store.save_candidate(Candidate(
+            candidate_id=candidate_id, origin="user_supplied", subject=candidate_id,
+            question_ids=["question"], policy_revision="v1",
+        ).model_dump())
+    manifest = build_dry_run_manifest(store)
+    payload = {
+        "manifest_id": "manifest-1", "manifest_hash": manifest.manifest_hash,
+        "high_water_candidate_id": manifest.high_water_candidate_id, "records": manifest.records,
+    }
+    store.save_migration_manifest("manifest-1", manifest.manifest_hash, payload)
+    assert store.import_migration_manifest(
+        "manifest-1", manifest.manifest_hash, batch_size=1
+    ) == {"imported_count": 1, "complete": False}
+
+    restarted = InsightStore(database_url)
+    assert restarted.import_migration_manifest(
+        "manifest-1", manifest.manifest_hash, batch_size=1
+    ) == {"imported_count": 1, "complete": True}
+    assert [alias["original_id"] for alias in restarted.list_migration_aliases("manifest-1")] == [
+        "candidate-1", "candidate-2"
+    ]
