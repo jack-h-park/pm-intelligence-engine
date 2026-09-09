@@ -28,3 +28,10 @@ def project_insight(insight: InsightRevision, projection_root: str | Path) -> Pa
     )
     os.replace(temp, destination)
     return destination
+
+
+def reconcile_projections(
+    current_insights: list[InsightRevision], projection_root: str | Path
+) -> list[Path]:
+    """Restore every current derived projection from authoritative stored revisions."""
+    return [project_insight(insight, projection_root) for insight in current_insights]
