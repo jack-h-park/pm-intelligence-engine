@@ -1,0 +1,52 @@
+name: PR text sensitive-term check
+
+# Catches real product identifiers / private companion-repo names that landed
+# in a PR title or description instead of their public-safe alias. This is
+# the backstop for the case a git-history rewrite can never fix: a PR's own
+# title/description is GitHub metadata, not a git object, so a force-push
+# never reaches it. See workspace-governance's docs/public-safe-aliases.md
+# and docs/pm-intelligence-engine-pr-ref-purge-request.md for the incident
+# that motivated this.
+#
+# Requires a repo secret PR_SENSITIVE_TERMS: one real identifier per line,
+# drawn from the "Real value" column of public-safe-aliases.md. Kept as a
+# secret (not committed here) specifically so this public workflow file
+# doesn't itself have to name the values it's checking for.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title and description
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          SENSITIVE_TERMS: ${{ secrets.PR_SENSITIVE_TERMS }}
+        run: |
+          if [ -z "$SENSITIVE_TERMS" ]; then
+            echo "PR_SENSITIVE_TERMS secret is not set — nothing to check against. Skipping."
+            exit 0
+          fi
+
+          printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" > /tmp/pr_text.txt
+
+          found=0
+          while IFS= read -r term; do
+            [ -z "$term" ] && continue
+            if grep -qF -- "$term" /tmp/pr_text.txt; then
+              echo "::error::PR title/description contains '$term' — use its public-safe alias instead (see workspace-governance/docs/public-safe-aliases.md)."
+              found=1
+            fi
+          done <<< "$SENSITIVE_TERMS"
+
+          if [ "$found" -eq 1 ]; then
+            echo ""
+            echo "This check exists because a git-history rewrite never reaches a PR's own title/description — only its commits. Edit the PR description to use the public-safe alias, not the real value, then this check will re-run automatically."
+            exit 1
+          fi
+
+          echo "Clean."
