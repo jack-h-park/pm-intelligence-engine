@@ -1,10 +1,11 @@
 import json
+from pathlib import Path
 
 import pytest
 
-from app.models.insights import EvidenceBundle, Passage
+from app.models.insights import Candidate, EvidenceBundle, Passage
 from app.services.insight_analysis import analyze_bundle
-from app.services.insight_context import PreparedContext
+from app.services.insight_context import PreparedContext, load_prepared_context
 
 
 class FixtureLLM:
@@ -78,3 +79,36 @@ async def test_analysis_rejects_claims_without_bundle_passages(learning_bundle, 
 
     with pytest.raises(ValueError, match="bundle passage"):
         await analyze_bundle(learning_bundle, context, BadCitationLLM())
+
+
+def test_context_loader_hashes_selected_assets_and_keeps_missing_notes_empty(
+    tmp_path: Path, learning_bundle
+):
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core" / "signal-interest-context.yaml").write_text(
+        "revision: fixture-v1\n"
+        "interests:\n"
+        "  - id: learning-loop\n"
+        "    question: What should I test?\n"
+        "    constraints:\n"
+        "      - Keep claims attributed.\n"
+        "selection:\n"
+        "  identity_paths:\n"
+        "    - core/00-pm-identity.md\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "core" / "00-pm-identity.md").write_text("Identity context.", encoding="utf-8")
+    candidate = Candidate(
+        candidate_id=learning_bundle.candidate_id,
+        origin="user_supplied",
+        subject="A learning lead",
+        question_ids=["learning-loop"],
+        policy_revision="fixture-v1",
+    )
+
+    prepared = load_prepared_context(candidate, learning_bundle, tmp_path)
+
+    assert prepared.question == "What should I test?"
+    assert prepared.context_paths == ["core/00-pm-identity.md"]
+    assert len(prepared.context_hashes["core/00-pm-identity.md"]) == 64
+    assert prepared.note_connections == []

@@ -140,6 +140,10 @@ class PreparedContext(_Record):
     unresolved_questions: list[str] = Field(default_factory=list)
     validation_status: Literal["valid", "needs_evidence"]
     context_revision: str = Field(min_length=1)
+    context_paths: list[str] = Field(default_factory=list)
+    context_hashes: dict[str, str] = Field(default_factory=dict)
+    relevance_reasons: list[str] = Field(default_factory=list)
+    note_connections: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=_utc_now)
 
 
