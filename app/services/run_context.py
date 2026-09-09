@@ -17,4 +17,5 @@ def load_run_context(run_id: str, engine: PMEngine) -> RunContext:
         product_context=full_context.product_context,
         decision_case=engine.store.get_decision_case(run_id),
         origin_trace_id=run.get("origin_trace_id"),
+        decision_pipeline_version=run.get("decision_pipeline_version", "legacy"),
     )

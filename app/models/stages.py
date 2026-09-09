@@ -28,6 +28,7 @@ class RunContext(BaseModel):
     # stage span can name it without re-reading the run (telemetry plan P3).
     # None whenever the caller was not traced.
     origin_trace_id: str | None = Field(default=None)
+    decision_pipeline_version: Literal["legacy", "evidence_v1"] = "legacy"
 
 
 class StageMetadata(BaseModel):
