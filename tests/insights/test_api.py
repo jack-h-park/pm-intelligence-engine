@@ -1,5 +1,8 @@
 import hashlib
 
+from app.api.deps import get_engine
+from app.api.main import app
+
 
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):
     headers = {**auth_headers, "Idempotency-Key": "candidate-fixture-1"}
@@ -135,3 +138,49 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
 
     assert response.status_code == 409
     assert response.json()["detail"] == "budget_denied"
+
+
+def test_authenticated_insight_search_returns_stored_revision(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    from app.models.insights import InsightRevision, PreparedContext
+
+    engine = app.dependency_overrides[get_engine]()
+    candidate = engine.insight_store.save_candidate(candidate_payload)
+    source = engine.insight_store.save_source(
+        {**source_payload, "candidate_id": candidate.candidate_id}
+    )
+    bundle = engine.insight_store.save_bundle(
+        bundle_payload(candidate.candidate_id, source.source_id)
+    )
+    prepared = engine.insight_store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What changed?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = engine.insight_store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Android control",
+            explanation="A bounded change.",
+            actual_change="Android added a control.",
+            why_now="A release documented it.",
+            personal_relevance="It informs device management.",
+            takeaway="Verify it.",
+            claims=[{"text": "A control was added.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+
+    response = client.get("/insights/search?q=Android", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["insight_id"] == insight.insight_id
+
+    detail = client.get(f"/insights/{insight.insight_id}", headers=auth_headers)
+    assert detail.status_code == 200
+    assert detail.json()["takeaway"] == "Verify it."

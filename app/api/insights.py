@@ -4,7 +4,7 @@ import hashlib
 import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.api.deps import get_engine
@@ -14,11 +14,13 @@ from app.models.insights import (
     EvidenceBundle,
     EvidenceDate,
     InsightJob,
+    InsightRevision,
     Passage,
     ResearchRequest,
     SourceExcerpt,
     SourceRecord,
 )
+from app.services.insight_search import search_insights
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,
@@ -87,6 +89,11 @@ class ResearchResults(BaseModel):
     lease_token: str = Field(min_length=1)
     results: list[dict]
     failures: list[dict] = Field(default_factory=list)
+
+
+class InsightSearchResults(BaseModel):
+    items: list[InsightRevision]
+    next_cursor: None = None
 
 
 def _request_hash(body: BaseModel) -> str:
@@ -245,6 +252,33 @@ async def get_job(job_id: str, engine: PMEngine = Depends(get_engine)) -> Insigh
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
+
+
+@router.get("/insights/search", response_model=InsightSearchResults)
+async def search(
+    q: str = Query(min_length=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightSearchResults:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
+
+
+@router.get("/insights/{insight_id}", response_model=InsightRevision)
+async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -> InsightRevision:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    insight = engine.insight_store.get_insight(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    return insight
 
 
 @router.post("/insight-research/claim", response_model=ResearchRequest)

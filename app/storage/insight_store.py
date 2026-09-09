@@ -148,6 +148,13 @@ class InsightStore:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
+    def list_insights(self) -> list[InsightRevision]:
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceInsightRow).order_by(IntelligenceInsightRow.created_at.desc())
+            ).scalars()
+            return [InsightRevision.model_validate_json(row.payload_json) for row in rows]
+
     def complete_job_analysis(
         self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,
         now: datetime | None = None,
