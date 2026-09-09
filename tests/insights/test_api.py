@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 from app.api.deps import get_engine
 from app.api.main import app
@@ -117,6 +118,35 @@ def test_novelty_lookup_returns_only_known_source_hashes(
 
     assert response.status_code == 200
     assert response.json() == {"known_content_hashes": [source_payload["content_hash"]]}
+
+
+def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers, monkeypatch):
+    from config import settings
+
+    class FixtureLLM:
+        async def complete(self, messages, **kwargs):
+            return json.dumps({
+                "disposition": "admit", "relevance": "relevant",
+                "novelty": "meaningful_delta", "reason": "New evidence.",
+            })
+
+    engine = app.dependency_overrides[get_engine]()
+    engine.llm = FixtureLLM()
+    monkeypatch.setattr(settings, "INTELLIGENCE_SENSING_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+    response = client.post(
+        "/insight-triage",
+        json={
+            "question": "What changed?", "title": "Change", "content": "Evidence.",
+            "operation_id": "triage-api", "policy_revision": "fixture-v1", "provider": "fixture",
+            "rate_revision": "fixture-rates", "maximum_micros": 10, "actual_micros": 4,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["disposition"] == "admit"
+    assert engine.insight_store.operational_summary()["cost_micros"]["finalized"] == 4
 
 
 def test_job_intake_is_idempotent_and_requires_an_existing_candidate(

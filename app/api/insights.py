@@ -20,7 +20,9 @@ from app.models.insights import (
     SourceExcerpt,
     SourceRecord,
 )
+from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_search import search_insights
+from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,
@@ -114,6 +116,31 @@ class NoveltyLookup(_Request):
 
 class NoveltyLookupResult(BaseModel):
     known_content_hashes: list[str]
+
+
+class SemanticTriageRequest(_Request):
+    question: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
+    operation_id: str = Field(min_length=1)
+    policy_revision: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    rate_revision: str = Field(min_length=1)
+    maximum_micros: int = Field(gt=0)
+    actual_micros: int | Literal["unknown"] = "unknown"
+
+
+def _triage_budget(engine: PMEngine) -> BudgetService:
+    from config import settings
+
+    store = _processing_store(engine)
+    return BudgetService(
+        store,
+        BudgetPolicy(
+            allowances_micros={"sensing": settings.INTELLIGENCE_SENSING_ALLOWANCE_MICROS or 0},
+            rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+        ),
+    )
 
 
 class DeliveryReceiptCreate(_Request):
@@ -314,6 +341,32 @@ async def novelty_lookup(
     return NoveltyLookupResult(
         known_content_hashes=engine.insight_store.known_source_hashes(body.content_hashes)
     )
+
+
+@router.post("/insight-triage", response_model=TriageDecision)
+async def semantic_triage(
+    body: SemanticTriageRequest, engine: PMEngine = Depends(get_engine)
+) -> TriageDecision:
+    try:
+        return await triage_with_reservation(
+            question=body.question,
+            title=body.title,
+            content=body.content,
+            llm=engine.llm,
+            budget=_triage_budget(engine),
+            reservation_payload={
+                "operation_id": body.operation_id,
+                "operation_type": "semantic_triage",
+                "policy_revision": body.policy_revision,
+                "provider": body.provider,
+                "rate_revision": body.rate_revision,
+                "maximum_micros": body.maximum_micros,
+                "allowance_class": "sensing",
+            },
+            actual_micros=body.actual_micros,
+        )
+    except TriageBudgetDenied as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
 
 
 @router.get("/insight-operations")
