@@ -290,6 +290,30 @@ class WorkflowRun(Base):
     artifacts = relationship("Artifact", back_populates="run")
 
 
+class DecisionCaseRecord(Base):
+    """Immutable case payload; revisions are pinned by ``DecisionCaseRunLink``."""
+
+    __tablename__ = "decision_cases"
+
+    case_id = Column(String, primary_key=True)
+    revision = Column(Integer, primary_key=True)
+    product_id = Column(String, nullable=False, index=True)
+    prepared_context_id = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+
+
+class DecisionCaseRunLink(Base):
+    """One immutable DecisionCase revision for each evidence-aware run."""
+
+    __tablename__ = "decision_case_run_links"
+
+    run_id = Column(String, ForeignKey("workflow_runs.run_id"), primary_key=True)
+    case_id = Column(String, nullable=False)
+    case_revision = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+
+
 class StageOutput(Base):
     __tablename__ = "stage_outputs"
 
