@@ -2,6 +2,7 @@ from app.models.decision_case import DecisionCase
 from app.models.insights import PreparedFact
 from app.models.stages import ArtifactTraceability, RequirementEvidenceLink
 from app.services.artifact_traceability import build_artifact_traceability
+from app.services.artifact_traceability import selected_option_from_approvals
 
 
 def test_evidence_v1_artifact_traceability_preserves_case_and_unknown_baseline():
@@ -86,6 +87,15 @@ def test_poc_renders_proposed_resource_estimate_as_traceability():
 
     assert "## Decision Traceability" in poc
     assert "Proposed resource estimate" in poc
+
+
+def test_traceability_reads_selected_option_and_override_reason_from_gate_three():
+    selected, rationale = selected_option_from_approvals([
+        {"stage": "s5", "action": "override", "feedback_text": "chose=prd; recommended=poc; reason=validated exception; selected_option=Pilot policy"}
+    ])
+
+    assert selected == "Pilot policy"
+    assert rationale == "validated exception"
 
 
 def test_summary_traceability_footer_marks_values_as_proposed():

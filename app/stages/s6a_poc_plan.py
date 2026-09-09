@@ -14,7 +14,7 @@ from app.models.stages import (
     S6AOutputData,
     StageMetadata,
 )
-from app.services.artifact_traceability import build_artifact_traceability
+from app.services.artifact_traceability import build_artifact_traceability, selected_option_from_approvals
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
@@ -110,6 +110,9 @@ Rules:
         usage_sink=usage_sink,
         max_tokens=1024,
     )
+    approved_option, override_rationale = selected_option_from_approvals(
+        store.get_approval_events(context.run_id)
+    )
     output_data = S6AOutputData(
         **data,
         traceability=(
@@ -118,6 +121,8 @@ Rules:
                 s5.readiness,
                 [],
                 [f"Proposed resource estimate: {data.get('resources_needed', '')}"],
+                approved_option,
+                override_rationale,
             )
             if context.decision_pipeline_version == "evidence_v1"
             else None
