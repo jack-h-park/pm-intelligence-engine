@@ -37,6 +37,10 @@ class PMWorkflowStore(Protocol):
     ) -> list[dict]: ...
 
     # --- WorkflowRun ---
+    def save_decision_case(self, run_id: str, case) -> None: ...
+
+    def get_decision_case(self, run_id: str): ...
+
     def create_run(
         self,
         product_id: str,

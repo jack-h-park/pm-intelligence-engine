@@ -11,6 +11,8 @@ from app.models.workflow import (
     ApprovalEvent,
     ArtifactType,
     Base,
+    DecisionCaseRecord,
+    DecisionCaseRunLink,
     PortfolioSynthesis,
     Routing,
     RunBatch,
@@ -400,6 +402,55 @@ class SQLiteStore:
             )
 
     # --- WorkflowRun ---
+
+    def save_decision_case(self, run_id: str, case) -> None:
+        """Persist a case revision and its run link in one transaction."""
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        with self._Session.begin() as session:
+            if session.get(WorkflowRun, run_id) is None:
+                raise ValueError(f"Run {run_id} not found")
+            existing = session.get(
+                DecisionCaseRecord, {"case_id": case.case_id, "revision": case.revision}
+            )
+            payload_json = case.model_dump_json()
+            if existing is None:
+                session.add(
+                    DecisionCaseRecord(
+                        case_id=case.case_id,
+                        revision=case.revision,
+                        product_id=case.product_id,
+                        prepared_context_id=case.prepared_context_id,
+                        payload_json=payload_json,
+                    )
+                )
+            elif existing.payload_json != payload_json:
+                raise ValueError("DecisionCase revisions are immutable")
+            link = session.get(DecisionCaseRunLink, run_id)
+            if link is None:
+                session.add(
+                    DecisionCaseRunLink(
+                        run_id=run_id, case_id=case.case_id, case_revision=case.revision
+                    )
+                )
+            elif (link.case_id, link.case_revision) != (case.case_id, case.revision):
+                raise ValueError("Run already has a different DecisionCase revision")
+
+    def get_decision_case(self, run_id: str):
+        """Return the exact case revision pinned to a run, if it has one."""
+        from app.models.decision_case import DecisionCase
+
+        with self._Session() as session:
+            link = session.get(DecisionCaseRunLink, run_id)
+            if link is None:
+                return None
+            record = session.get(
+                DecisionCaseRecord,
+                {"case_id": link.case_id, "revision": link.case_revision},
+            )
+            return DecisionCase.model_validate_json(record.payload_json) if record else None
 
     def create_run(
         self,
