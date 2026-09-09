@@ -14,6 +14,7 @@ from app.models.stages import (
     S6AOutputData,
     StageMetadata,
 )
+from app.services.artifact_traceability import build_artifact_traceability
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
@@ -109,7 +110,19 @@ Rules:
         usage_sink=usage_sink,
         max_tokens=1024,
     )
-    output_data = S6AOutputData(**data)
+    output_data = S6AOutputData(
+        **data,
+        traceability=(
+            build_artifact_traceability(
+                context.decision_case,
+                s5.readiness,
+                [],
+                [f"Proposed resource estimate: {data.get('resources_needed', '')}"],
+            )
+            if context.decision_pipeline_version == "evidence_v1"
+            else None
+        ),
+    )
 
     output = S6AOutput(
         run_id=context.run_id,
@@ -136,6 +149,14 @@ Rules:
 
 def build_poc_plan(data: S6AOutputData) -> str:
     assumptions = "\n".join(f"- {a}" for a in data.blocking_assumptions_addressed)
+    traceability_md = ""
+    if data.traceability is not None:
+        traceability_md = f"""
+## Decision Traceability
+**Case:** {data.traceability.decision_case_id} revision {data.traceability.decision_case_revision}
+**Status:** {"Provisional" if data.traceability.provisional else "Grounded"}
+**Estimate:** {data.traceability.proposed_metrics[0] if data.traceability.proposed_metrics else "Not supplied"}
+"""
     return f"""# PoC Plan
 
 ## Goal
@@ -155,6 +176,7 @@ def build_poc_plan(data: S6AOutputData) -> str:
 
 ## Resources Needed
 {data.resources_needed}
+{traceability_md}
 """
 
 

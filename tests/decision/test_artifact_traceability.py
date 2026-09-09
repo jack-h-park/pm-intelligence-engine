@@ -69,3 +69,30 @@ def test_prd_renders_traceability_as_provisional_evidence():
 
     assert "## Decision Traceability" in prd
     assert "baseline unknown" in prd
+
+
+def test_poc_renders_proposed_resource_estimate_as_traceability():
+    from app.models.stages import S6AOutputData
+    from app.stages.s6a_poc_plan import build_poc_plan
+
+    traceability = ArtifactTraceability(
+        decision_case_id="case-1", decision_case_revision=1, provisional=True,
+        proposed_metrics=["Proposed resource estimate: PM 10h; baseline unknown."],
+    )
+    poc = build_poc_plan(S6AOutputData(
+        experiment_goal="Test uncertainty", blocking_assumptions_addressed=[], experiment_design="Interview.",
+        success_criteria="One customer confirms.", timeline_weeks=2, resources_needed="PM 10h", traceability=traceability,
+    ))
+
+    assert "## Decision Traceability" in poc
+    assert "Proposed resource estimate" in poc
+
+
+def test_summary_traceability_footer_marks_values_as_proposed():
+    from app.stages.s7_summary import _traceability_footer
+
+    footer = _traceability_footer("case-1", 2, True)
+
+    assert "Case: case-1 revision 2" in footer
+    assert "Provisional" in footer
+    assert "proposed unless explicitly measured" in footer
