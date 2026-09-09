@@ -12,6 +12,12 @@ from app.services.decision_case import render_decision_case
 _JSON_SCHEMA = """{
   "score": <integer 1-5>,
   "key_argument": "<2–4 sentence evaluation from your persona's lens>",
+  "open_question": "<single most important open question — must name who answers it and how>"
+}"""
+
+_EVIDENCE_V1_JSON_SCHEMA = """{
+  "score": <integer 1-5>,
+  "key_argument": "<2–4 sentence evaluation from your persona's lens>",
   "open_question": "<single most important open question — must name who answers it and how>",
   "evidence_passage_ids": ["<case passage ID supporting or contradicting the judgment>"],
   "option_assessments": {"<case option>": "<persona-specific assessment>"},
@@ -52,6 +58,12 @@ class PersonaAgent:
             else ""
         )
 
+        evidence_v1 = context.decision_pipeline_version == "evidence_v1"
+        evidence_rules = """
+- evidence_passage_ids may only name IDs from the pinned DecisionCase.
+- Assess every supplied case option; status quo/defer is a valid conclusion.
+- uncertainties must name what evidence would change the judgment.""" if evidence_v1 else ""
+        schema = _EVIDENCE_V1_JSON_SCHEMA if evidence_v1 else _JSON_SCHEMA
         user = f"""## Product Context
 {context.product_context}
 
@@ -74,14 +86,14 @@ Answer from your persona's lens only. Do NOT consider other personas.
 Scoring dimension you own: **{self.dimension}** (score 1–5).
 
 Respond with a single JSON object — no markdown, no commentary:
-{_JSON_SCHEMA}
+{schema}
 
 Rules:
 - Score must reflect your dimension ({self.dimension}), grounded in specific product context above.
 - key_argument must reference at least one concrete element from the product context (pillar, constraint, pain point, or competitive dynamic).
 - open_question must name *who* can answer it and *how* (e.g., "customer interview", "engineering spike", "legal review").
 - Do NOT default to "insufficient data" — steelman the strongest argument you can from available evidence.
-- Do not recast a hypothesis as a confirmed fact or invent a customer need absent from the case."""
+- Do not recast a hypothesis as a confirmed fact or invent a customer need absent from the case.{evidence_rules}"""
 
         data = await complete_json(
             llm,

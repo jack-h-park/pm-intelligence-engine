@@ -24,6 +24,7 @@ class RunContext(BaseModel):
     # New decision-request runs pin this separately from legacy S1/S2 summaries.
     # Historical runs omit it and retain their exact former context shape.
     decision_case: DecisionCase | None = Field(default=None)
+    decision_pipeline_version: Literal["legacy", "evidence_v1"] = "legacy"
 
 
 class StageMetadata(BaseModel):
