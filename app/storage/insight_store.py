@@ -19,6 +19,7 @@ from app.models.insights import (
     IntelligenceBudgetReservationRow,
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
+    IntelligenceDeliveryReceiptRow,
     IntelligenceIdempotencyRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
@@ -165,6 +166,30 @@ class InsightStore:
         insights = self.list_insights()
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
+
+    def save_delivery_receipt(
+        self, insight_id: str, revision: int, channel: str, state: str
+    ) -> dict:
+        """Persist a channel receipt once; callers reconcile uncertainty instead of resending."""
+        with self._Session.begin() as session:
+            if session.get(IntelligenceInsightRow, insight_id) is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            existing = session.scalar(select(IntelligenceDeliveryReceiptRow).where(
+                IntelligenceDeliveryReceiptRow.insight_id == insight_id,
+                IntelligenceDeliveryReceiptRow.revision == revision,
+                IntelligenceDeliveryReceiptRow.channel == channel,
+            ))
+            if existing:
+                return json.loads(existing.payload_json)
+            payload = {
+                "receipt_id": str(uuid.uuid4()), "insight_id": insight_id,
+                "revision": revision, "channel": channel, "state": state,
+            }
+            session.add(IntelligenceDeliveryReceiptRow(
+                receipt_id=payload["receipt_id"], insight_id=insight_id, revision=revision,
+                channel=channel, state=state, payload_json=json.dumps(payload, sort_keys=True),
+            ))
+            return payload
 
     def complete_job_analysis(
         self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,

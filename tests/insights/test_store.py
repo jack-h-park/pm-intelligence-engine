@@ -133,6 +133,19 @@ def test_prepared_context_and_insight_are_immutable_and_reference_existing_recor
     assert store.get_prepared_context(prepared.prepared_context_id) == prepared
     assert store.get_insight(insight.insight_id) == insight
 
+    first_receipt = store.save_delivery_receipt(
+        insight.insight_id, insight.revision, "telegram", "queued"
+    )
+    repeated_receipt = store.save_delivery_receipt(
+        insight.insight_id, insight.revision, "telegram", "queued"
+    )
+    other_channel = store.save_delivery_receipt(
+        insight.insight_id, insight.revision, "discord", "queued"
+    )
+
+    assert repeated_receipt == first_receipt
+    assert other_channel["receipt_id"] != first_receipt["receipt_id"]
+
 
 def test_correction_keeps_old_revision_addressable_but_replaces_current_view(
     store_factory, candidate_payload, source_payload, bundle_payload
