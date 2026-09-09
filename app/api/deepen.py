@@ -119,14 +119,8 @@ async def _execute_deepen(
         if run is None:
             return
 
-        full_context = engine.context_loader.load_full_context(run["product_id"])
-        context = RunContext(
-            run_id=run_id,
-            product_id=run["product_id"],
-            pm_identity=full_context.pm_identity,
-            company_context=full_context.company_context,
-            product_context=full_context.product_context,
-        )
+        from app.services.run_context import load_run_context
+        context = load_run_context(run_id, engine)
 
         emit_event("run", "deepened", run_id, {"from": from_depth, "to": target})
 

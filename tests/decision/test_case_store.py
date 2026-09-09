@@ -1,7 +1,10 @@
+from types import SimpleNamespace
+
 import pytest
 from sqlalchemy.exc import IntegrityError
 
 from app.models.decision_case import DecisionCase
+from app.services.run_context import load_run_context
 from app.storage.sqlite_store import SQLiteStore
 
 
@@ -71,3 +74,28 @@ def test_failed_duplicate_case_insert_rolls_back_the_new_signal_and_run(tmp_path
 
     assert len(store.list_signals(limit=10)) == 1
     assert len(store.list_runs(limit=10)) == 1
+
+
+def test_context_reloads_the_case_pinned_to_the_run(tmp_path):
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    case = DecisionCase(
+        case_id="case-resume",
+        revision=1,
+        prepared_context_id="prepared-direct",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="Should we inspect this policy behavior?",
+        input_origins=["direct"],
+        authorized_depth="evaluate",
+    )
+    result = store.create_decision_request_run(case)
+    engine = SimpleNamespace(
+        store=store,
+        context_loader=SimpleNamespace(
+            load_full_context=lambda _: SimpleNamespace(
+                pm_identity="identity", company_context="company", product_context="product"
+            )
+        ),
+    )
+
+    assert load_run_context(result["run_id"], engine).decision_case == case
