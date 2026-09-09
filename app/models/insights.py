@@ -376,3 +376,13 @@ class IntelligenceTriageRow(Base):
     operation_id = Column(String, primary_key=True)
     state = Column(String, nullable=False, index=True)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceInsightFeedbackRow(Base):
+    __tablename__ = "intelligence_insight_feedback"
+
+    feedback_id = Column(String, primary_key=True)
+    insight_id = Column(String, nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    label = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)

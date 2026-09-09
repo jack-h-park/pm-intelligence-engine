@@ -157,6 +157,18 @@ class DeliveryReceiptAccepted(BaseModel):
     state: str
 
 
+class InsightFeedbackCreate(_Request):
+    revision: int = Field(ge=1)
+    label: Literal["useful", "already_known", "wrong", "weak_connection", "too_shallow"]
+
+
+class InsightFeedbackAccepted(BaseModel):
+    feedback_id: str
+    insight_id: str
+    revision: int
+    label: str
+
+
 def _request_hash(body: BaseModel) -> str:
     canonical = json.dumps(body.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -417,6 +429,17 @@ async def create_delivery_receipt(
     except MissingInsightRecord as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return DeliveryReceiptAccepted(**receipt)
+
+
+@router.post("/insights/{insight_id}/feedback", response_model=InsightFeedbackAccepted)
+async def create_insight_feedback(
+    insight_id: str, body: InsightFeedbackCreate, engine: PMEngine = Depends(get_engine)
+) -> InsightFeedbackAccepted:
+    try:
+        feedback = _store(engine).save_feedback(insight_id, body.revision, body.label)
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return InsightFeedbackAccepted(**feedback)
 
 
 @router.post("/insight-research/claim", response_model=ResearchRequest)

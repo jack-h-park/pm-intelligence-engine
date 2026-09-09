@@ -260,6 +260,7 @@ def test_authenticated_insight_search_returns_stored_revision(
     assert operations.json()["cost_micros"] == {
         "reserved": 0, "finalized": 0, "unknown": 0,
     }
+    assert operations.json()["feedback"] == {"recorded": 0, "unknown": 0}
 
     receipt = client.post(
         f"/insights/{insight.insight_id}/delivery-receipts",
@@ -273,3 +274,15 @@ def test_authenticated_insight_search_returns_stored_revision(
     )
     assert receipt.status_code == 201
     assert repeated.json() == receipt.json()
+
+    feedback = client.post(
+        f"/insights/{insight.insight_id}/feedback",
+        json={"revision": insight.revision, "label": "useful"},
+        headers=auth_headers,
+    )
+    assert feedback.status_code == 200
+    assert feedback.json()["label"] == "useful"
+    # Silence is not invented as a negative or positive feedback record.
+    assert client.get("/insight-operations", headers=auth_headers).json()["feedback"] == {
+        "recorded": 1, "unknown": 0,
+    }

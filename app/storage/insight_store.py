@@ -22,6 +22,7 @@ from app.models.insights import (
     IntelligenceCandidateRow,
     IntelligenceDeliveryReceiptRow,
     IntelligenceIdempotencyRow,
+    IntelligenceInsightFeedbackRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
     IntelligencePreparedContextRow,
@@ -197,6 +198,20 @@ class InsightStore:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
+    def save_feedback(self, insight_id: str, revision: int, label: str) -> dict:
+        with self._Session.begin() as session:
+            if session.get(IntelligenceInsightRow, insight_id) is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            payload = {
+                "feedback_id": str(uuid.uuid4()), "insight_id": insight_id,
+                "revision": revision, "label": label,
+            }
+            session.add(IntelligenceInsightFeedbackRow(
+                feedback_id=payload["feedback_id"], insight_id=insight_id, revision=revision,
+                label=label, payload_json=json.dumps(payload, sort_keys=True),
+            ))
+            return payload
+
     def list_insights(self) -> list[InsightRevision]:
         with self._Session() as session:
             rows = session.execute(
@@ -229,6 +244,10 @@ class InsightStore:
                 "candidates": session.query(IntelligenceCandidateRow).count(),
                 "jobs": dict(sorted(jobs.items())),
                 "delivery_receipts": dict(sorted(receipts.items())),
+                "feedback": {
+                    "recorded": session.query(IntelligenceInsightFeedbackRow).count(),
+                    "unknown": 0,
+                },
                 "cost_micros": {
                     "reserved": sum(
                         item.maximum_micros
