@@ -394,6 +394,9 @@ class PersonaOutput(BaseModel):
     # E06 evidence_v1 fields. Defaults preserve immutable legacy S4 records.
     evidence_passage_ids: list[str] = Field(default_factory=list)
     option_assessments: dict[str, str] = Field(default_factory=dict)
+    option_positions: dict[str, Literal["support", "oppose", "uncertain"]] = Field(
+        default_factory=dict
+    )
     uncertainties: list[str] = Field(default_factory=list)
 
 
@@ -403,8 +406,26 @@ class S4RubricResult(BaseModel):
     skeptic_quality: int = Field(ge=1, le=3)
     open_question_quality: int = Field(ge=1, le=3)
     persona_independence: int = Field(ge=1, le=3)
+    evidence_linkage_quality: int = Field(default=0, ge=0, le=3)
+    uncertainty_quality: int = Field(default=0, ge=0, le=3)
     passed: bool = Field(description="True if total_score >= 9")
     issues: list[str] = Field(default_factory=list)
+
+
+class OptionDisagreement(BaseModel):
+    """Independent persona positions for one proposed option."""
+
+    option: str
+    positions: dict[str, Literal["support", "oppose", "uncertain"]]
+    evidence_passage_ids: dict[str, list[str]]
+    status: Literal["consensus", "disagreement", "insufficient_assessment"]
+
+
+class DisagreementMatrix(BaseModel):
+    """A deterministic summary; it never infers a disagreement from missing data."""
+
+    options: list[OptionDisagreement] = Field(default_factory=list)
+    material_disagreement_options: list[str] = Field(default_factory=list)
 
 
 class S4OutputData(BaseModel):
@@ -412,6 +433,7 @@ class S4OutputData(BaseModel):
         description="All 4 persona outputs, order: explorer/strategist/builder/skeptic"
     )
     rubric: S4RubricResult
+    disagreement_matrix: DisagreementMatrix | None = None
 
 
 class S4Output(BaseModel):
