@@ -477,6 +477,20 @@ class Assumption(BaseModel):
         return v
 
 
+class ReadinessFinding(BaseModel):
+    category: Literal["evidence", "uncertainty", "disagreement", "blocking_assumption"]
+    severity: Literal["Blocking", "Advisory"]
+    message: str
+
+
+class DecisionReadiness(BaseModel):
+    """Decision-support status; this records gaps and never changes S5 routing."""
+
+    ready_for_prd: bool
+    provisional: bool
+    findings: list[ReadinessFinding] = Field(default_factory=list)
+
+
 class S5OutputData(BaseModel):
     impact_score: int = Field(ge=1, le=5)
     strategic_fit_score: int = Field(ge=1, le=5)
@@ -504,6 +518,7 @@ class S5OutputData(BaseModel):
             "NOT change routing. See core/04-scoring.md 'Value Horizon'."
         ),
     )
+    readiness: DecisionReadiness | None = None
 
 
 class S5Output(BaseModel):

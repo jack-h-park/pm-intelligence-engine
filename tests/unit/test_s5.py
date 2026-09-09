@@ -369,6 +369,31 @@ async def test_s5_prd_routing():
 
 
 @pytest.mark.asyncio
+async def test_evidence_v1_readiness_does_not_replace_prd_routing():
+    from app.stages import s5_prioritization
+
+    s4 = _make_s4_output(explorer=4, strategist=5, builder=4, skeptic=4)
+    for persona in s4.personas:
+        persona.evidence_passage_ids = ["passage-1"]
+        persona.uncertainties = ["Customer validation could change this judgment."]
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=_LLM_RESPONSE_NO_BLOCKING)
+
+    with patch("app.stages.s5_prioritization.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template"
+        output = await s5_prioritization.run(
+            S5Input(s4_output=s4),
+            _make_context().model_copy(update={"decision_pipeline_version": "evidence_v1"}),
+            llm,
+            _make_store(),
+        )
+
+    assert output.output.routing == "prd"
+    assert output.output.readiness is not None
+    assert output.output.readiness.ready_for_prd is True
+
+
+@pytest.mark.asyncio
 async def test_s5_governing_heuristics_flow_through():
     """governing_heuristics from the LLM appear in output and decision memo (US-32)."""
     from app.stages import s5_prioritization
