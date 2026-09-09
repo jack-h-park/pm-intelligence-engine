@@ -13,6 +13,7 @@ from app.models.workflow import (
     Base,
     DecisionCaseRecord,
     DecisionCaseRunLink,
+    DecisionRequestRecord,
     PortfolioSynthesis,
     Routing,
     RunBatch,
@@ -403,6 +404,46 @@ class SQLiteStore:
 
     # --- WorkflowRun ---
 
+    @staticmethod
+    def _create_decision_request_run(session, case) -> dict:
+        signal = Signal(
+            original_product_id=case.product_id,
+            title="Direct product decision input",
+            raw_content=case.decision_question,
+            category=SignalCategory.other,
+            source_type=SourceType.manual,
+            source_ref=f"decision-case:{case.case_id}:{case.revision}",
+        )
+        session.add(signal)
+        session.flush()
+        run = WorkflowRun(
+            product_id=case.product_id,
+            signal_id=signal.signal_id,
+            attempt_no=1,
+            origin="decision_request",
+            lifecycle="running",
+            position=None,
+            outcome=None,
+            reason=None,
+        )
+        session.add(run)
+        session.flush()
+        session.add(
+            DecisionCaseRecord(
+                case_id=case.case_id,
+                revision=case.revision,
+                product_id=case.product_id,
+                prepared_context_id=case.prepared_context_id,
+                payload_json=case.model_dump_json(),
+            )
+        )
+        session.add(
+            DecisionCaseRunLink(
+                run_id=run.run_id, case_id=case.case_id, case_revision=case.revision
+            )
+        )
+        return {"signal_id": signal.signal_id, "run_id": run.run_id}
+
     def create_decision_request_run(self, case) -> dict:
         """Create the legacy-compatible signal, run, and case link atomically.
 
@@ -415,43 +456,40 @@ class SQLiteStore:
         if not isinstance(case, DecisionCase):
             raise TypeError("case must be a DecisionCase")
         with self._Session.begin() as session:
-            signal = Signal(
-                original_product_id=case.product_id,
-                title="Direct product decision input",
-                raw_content=case.decision_question,
-                category=SignalCategory.other,
-                source_type=SourceType.manual,
-                source_ref=f"decision-case:{case.case_id}:{case.revision}",
+            return self._create_decision_request_run(session, case)
+
+    def create_idempotent_decision_request(
+        self, actor: str, idempotency_key: str, request_hash: str, case
+    ) -> tuple[dict, int]:
+        """Atomically create or replay the one workflow-side request result."""
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        with self._Session.begin() as session:
+            existing = session.get(
+                DecisionRequestRecord,
+                {"actor": actor, "idempotency_key": idempotency_key},
             )
-            session.add(signal)
+            if existing is not None:
+                if existing.request_hash != request_hash:
+                    raise ValueError("Idempotency-Key was already used with different content")
+                return {
+                    "request_id": existing.request_id,
+                    "signal_id": existing.signal_id,
+                    "run_id": existing.run_id,
+                }, 200
+            result = self._create_decision_request_run(session, case)
+            request = DecisionRequestRecord(
+                actor=actor,
+                idempotency_key=idempotency_key,
+                request_hash=request_hash,
+                signal_id=result["signal_id"],
+                run_id=result["run_id"],
+            )
+            session.add(request)
             session.flush()
-            run = WorkflowRun(
-                product_id=case.product_id,
-                signal_id=signal.signal_id,
-                attempt_no=1,
-                origin="decision_request",
-                lifecycle="running",
-                position=None,
-                outcome=None,
-                reason=None,
-            )
-            session.add(run)
-            session.flush()
-            session.add(
-                DecisionCaseRecord(
-                    case_id=case.case_id,
-                    revision=case.revision,
-                    product_id=case.product_id,
-                    prepared_context_id=case.prepared_context_id,
-                    payload_json=case.model_dump_json(),
-                )
-            )
-            session.add(
-                DecisionCaseRunLink(
-                    run_id=run.run_id, case_id=case.case_id, case_revision=case.revision
-                )
-            )
-            return {"signal_id": signal.signal_id, "run_id": run.run_id}
+            return {"request_id": request.request_id, **result}, 202
 
     def save_decision_case(self, run_id: str, case) -> None:
         """Persist a case revision and its run link in one transaction."""

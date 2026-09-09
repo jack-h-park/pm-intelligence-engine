@@ -99,3 +99,45 @@ def test_context_reloads_the_case_pinned_to_the_run(tmp_path):
     )
 
     assert load_run_context(result["run_id"], engine).decision_case == case
+
+
+def test_decision_request_idempotency_returns_the_original_run(tmp_path):
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    case = DecisionCase(
+        case_id="case-request",
+        revision=1,
+        prepared_context_id="prepared-direct",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="Should we inspect this policy behavior?",
+        input_origins=["direct"],
+        authorized_depth="evaluate",
+    )
+
+    first, first_status = store.create_idempotent_decision_request(
+        "actor", "request-key", "request-hash", case
+    )
+    repeated, repeated_status = store.create_idempotent_decision_request(
+        "actor", "request-key", "request-hash", case
+    )
+
+    assert first_status == 202
+    assert repeated_status == 200
+    assert repeated == first
+    assert len(store.list_runs(limit=10)) == 1
+
+
+def test_decision_request_idempotency_rejects_changed_content(tmp_path):
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    case = DecisionCase(
+        prepared_context_id="prepared-direct",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="Should we inspect this policy behavior?",
+        input_origins=["direct"],
+        authorized_depth="evaluate",
+    )
+    store.create_idempotent_decision_request("actor", "request-key", "hash-a", case)
+
+    with pytest.raises(ValueError, match="different content"):
+        store.create_idempotent_decision_request("actor", "request-key", "hash-b", case)

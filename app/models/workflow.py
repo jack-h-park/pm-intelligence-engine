@@ -314,6 +314,20 @@ class DecisionCaseRunLink(Base):
     created_at = Column(DateTime, nullable=False, default=_utc_now)
 
 
+class DecisionRequestRecord(Base):
+    """Durable idempotency result for the workflow-side decision bridge."""
+
+    __tablename__ = "decision_requests"
+
+    actor = Column(String, primary_key=True)
+    idempotency_key = Column(String, primary_key=True)
+    request_hash = Column(String, nullable=False)
+    request_id = Column(String, nullable=False, unique=True, default=_new_uuid)
+    signal_id = Column(String, nullable=False)
+    run_id = Column(String, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_utc_now)
+
+
 class StageOutput(Base):
     __tablename__ = "stage_outputs"
 
