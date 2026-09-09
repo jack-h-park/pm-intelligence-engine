@@ -353,3 +353,12 @@ class IntelligenceBudgetReservationRow(Base):
     state = Column(String, nullable=False, index=True)
     maximum_micros = Column(Integer, nullable=False)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceMigrationManifestRow(Base):
+    __tablename__ = "intelligence_migration_manifests"
+
+    manifest_id = Column(String, primary_key=True)
+    manifest_hash = Column(String, nullable=False, unique=True, index=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)

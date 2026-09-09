@@ -28,3 +28,7 @@ def test_dry_run_manifest_is_deterministic_and_does_not_change_records(tmp_path)
     assert first.records[0]["disposition"] == "reference"
     assert first.records[0]["notification_handling"] == "none"
     assert store.get_candidate("candidate-1") is not None
+
+    payload = {"manifest_id": "manifest-1", "manifest_hash": first.manifest_hash, "records": first.records}
+    assert store.save_migration_manifest("manifest-1", first.manifest_hash, payload) == payload
+    assert store.get_migration_manifest("manifest-1") == payload

@@ -22,6 +22,7 @@ from app.models.insights import (
     IntelligenceIdempotencyRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
+    IntelligenceMigrationManifestRow,
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
@@ -115,6 +116,26 @@ class InsightStore:
                 .order_by(IntelligenceSourceRow.retrieved_at)
             ).all()
             return [SourceRecord.model_validate_json(row.payload_json) for row in rows]
+
+    def save_migration_manifest(self, manifest_id: str, manifest_hash: str, payload: dict) -> dict:
+        with self._Session.begin() as session:
+            existing = session.scalar(
+                select(IntelligenceMigrationManifestRow).where(
+                    IntelligenceMigrationManifestRow.manifest_hash == manifest_hash
+                )
+            )
+            if existing:
+                return json.loads(existing.payload_json)
+            session.add(IntelligenceMigrationManifestRow(
+                manifest_id=manifest_id, manifest_hash=manifest_hash,
+                payload_json=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+            ))
+            return payload
+
+    def get_migration_manifest(self, manifest_id: str) -> dict | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceMigrationManifestRow, manifest_id)
+            return json.loads(row.payload_json) if row else None
 
     # --- Prepared analysis records (E03) ---
 
