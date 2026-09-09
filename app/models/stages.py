@@ -390,6 +390,10 @@ class PersonaOutput(BaseModel):
     score: int = Field(ge=1, le=5, description="Score 1–5 for the owned dimension")
     key_argument: str = Field(description="2–4 sentence evaluation from this persona's lens")
     open_question: str = Field(description="Single most important open question")
+    # E06 evidence_v1 fields. Defaults preserve immutable legacy S4 records.
+    evidence_passage_ids: list[str] = Field(default_factory=list)
+    option_assessments: dict[str, str] = Field(default_factory=dict)
+    uncertainties: list[str] = Field(default_factory=list)
 
 
 class S4RubricResult(BaseModel):

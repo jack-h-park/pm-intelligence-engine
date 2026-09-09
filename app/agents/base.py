@@ -15,7 +15,10 @@ from app.services.decision_case import render_decision_case
 _JSON_SCHEMA = """{
   "score": <integer 1-5>,
   "key_argument": "<2–4 sentence evaluation from your persona's lens>",
-  "open_question": "<single most important open question — must name who answers it and how>"
+  "open_question": "<single most important open question — must name who answers it and how>",
+  "evidence_passage_ids": ["<case passage ID supporting or contradicting the judgment>"],
+  "option_assessments": {"<case option>": "<persona-specific assessment>"},
+  "uncertainties": ["<what would change this judgment>"]
 }"""
 
 
@@ -101,4 +104,10 @@ Rules:
             score=int(data["score"]),
             key_argument=data["key_argument"],
             open_question=data["open_question"],
+            evidence_passage_ids=[str(item) for item in data.get("evidence_passage_ids", [])],
+            option_assessments={
+                str(option): str(assessment)
+                for option, assessment in data.get("option_assessments", {}).items()
+            },
+            uncertainties=[str(item) for item in data.get("uncertainties", [])],
         )
