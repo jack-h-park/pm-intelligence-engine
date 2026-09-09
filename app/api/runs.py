@@ -831,14 +831,8 @@ async def _execute_s1_s2(
         if signal is None:
             raise ValueError(f"Signal {signal_id} not found")
 
-        full_context = engine.context_loader.load_full_context(product_id)
-        context = RunContext(
-            run_id=run_id,
-            product_id=product_id,
-            pm_identity=full_context.pm_identity,
-            company_context=full_context.company_context,
-            product_context=full_context.product_context,
-        )
+        from app.services.run_context import load_run_context
+        context = load_run_context(run_id, engine)
 
         engine.store.advance(run_id, "s1")
         s1_out = await s1_signal.run(

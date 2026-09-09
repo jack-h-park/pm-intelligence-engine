@@ -120,14 +120,8 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         if run is None:
             return
 
-        full_context = engine.context_loader.load_full_context(run["product_id"])
-        context = RunContext(
-            run_id=run_id,
-            product_id=run["product_id"],
-            pm_identity=full_context.pm_identity,
-            company_context=full_context.company_context,
-            product_context=full_context.product_context,
-        )
+        from app.services.run_context import load_run_context
+        context = load_run_context(run_id, engine)
 
         # plan_advance("s4", decide) -> run (s5,), pause at Gate 3 (s5).
         plan = plan_advance("s4", target_for_depth("decide"))
