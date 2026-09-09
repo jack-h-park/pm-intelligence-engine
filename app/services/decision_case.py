@@ -12,7 +12,7 @@ def build_decision_case(
     prepared_context: PreparedContext,
     product_id: str,
     decision_question: str,
-    authorized_depth: Literal["archive", "note", "structure", "evaluate", "decide"],
+    authorized_depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None,
     input_origin: Literal["direct", "insight"],
     insight_references: list[InsightRevisionReference] | None = None,
     deadline: datetime | None = None,

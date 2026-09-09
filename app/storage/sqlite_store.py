@@ -428,6 +428,7 @@ class SQLiteStore:
         )
         session.add(run)
         session.flush()
+        signal.status = SignalStatus.in_run
         session.add(
             DecisionCaseRecord(
                 case_id=case.case_id,

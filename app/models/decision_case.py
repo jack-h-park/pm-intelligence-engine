@@ -45,7 +45,9 @@ class DecisionCase(BaseModel):
     constraints: list[str] = Field(default_factory=list)
     deadline: datetime | None = None
     options: list[str] = Field(default_factory=list)
-    authorized_depth: Literal["archive", "note", "structure", "evaluate", "decide"]
+    # None means the requester deliberately left depth to the existing Gate 1
+    # decision path; an explicit depth is still pinned when supplied.
+    authorized_depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None = None
     created_at: datetime = Field(default_factory=_utc_now)
 
     @property
