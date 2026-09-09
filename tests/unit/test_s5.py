@@ -1,9 +1,11 @@
 """Unit tests for Stage 5 — Prioritization and routing."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from app.models.decision_case import DecisionCase
 from app.models.stages import (
     Assumption,
     PersonaOutput,
@@ -71,6 +73,38 @@ _LLM_RESPONSE_BLOCKING = json.dumps({
     ],
     "rationale": "Three Blocking assumptions make this opportunity too risky to proceed.",
 })
+
+
+@pytest.mark.asyncio
+async def test_s5_receives_status_quo_case_without_inventing_an_option():
+    from app.stages import s5_prioritization
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=_LLM_RESPONSE_NO_BLOCKING)
+    context = _make_context().model_copy(
+        update={
+            "decision_case": DecisionCase(
+                prepared_context_id="prepared-status-quo",
+                prepared_context_revision=1,
+                product_id="example-security-product",
+                decision_question="Is retaining the current state the right decision?",
+                input_origins=["direct"],
+                options=["Retain status quo"],
+                constraints=["Do not create an unsupported feature."],
+            )
+        }
+    )
+    with patch("config.settings.BLOCKING_VERIFIER_ENABLED", False), patch(
+        "app.stages.s5_prioritization.TemplateService"
+    ) as template_service:
+        template_service.return_value.load_template.return_value = "template"
+        await s5_prioritization.run(
+            S5Input(s4_output=_make_s4_output()), context, llm, _make_store()
+        )
+
+    prompt = llm.complete.call_args.kwargs["messages"][1]["content"]
+    assert "Retain status quo" in prompt
+    assert "Do not create an unsupported feature." in prompt
 
 
 # ---------------------------------------------------------------------------
