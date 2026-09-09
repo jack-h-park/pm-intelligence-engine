@@ -107,12 +107,30 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
     }
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
+            blocked = client.post(
+                "/decision-requests",
+                json={**payload, "decision_pipeline_version": "evidence_v1"},
+                headers={**headers, "Idempotency-Key": "request-evidence-disabled"},
+            )
+            assert blocked.status_code == 409
+            assert engine.store.list_runs(limit=10) == []
+            monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", True)
+            evidence = client.post(
+                "/decision-requests",
+                json={**payload, "decision_pipeline_version": "evidence_v1"},
+                headers={**headers, "Idempotency-Key": "request-evidence-enabled"},
+            )
+            assert evidence.status_code == 202
+            assert (
+                engine.store.get_run(evidence.json()["run_id"])["decision_pipeline_version"]
+                == "evidence_v1"
+            )
             first = client.post("/decision-requests", json=payload, headers=headers)
             repeated = client.post("/decision-requests", json=payload, headers=headers)
     finally:
         app.dependency_overrides.clear()
 
+    assert len(engine.store.list_runs(limit=10)) == 2
     assert first.status_code == 202
     assert repeated.status_code == 200
     assert repeated.json() == first.json()
-    assert len(engine.store.list_runs(limit=10)) == 1
