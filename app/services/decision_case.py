@@ -39,3 +39,26 @@ def build_decision_case(
         options=list(options or []),
         authorized_depth=authorized_depth,
     )
+
+
+def render_decision_case(case: DecisionCase | None) -> str:
+    """Render the pinned evidence boundary for a stage prompt without relabeling it."""
+    if case is None:
+        return "No DecisionCase was selected for this historical run."
+    facts = "\n".join(f"- {fact.text}" for fact in case.confirmed_facts) or "- None supplied"
+    hypotheses = "\n".join(f"- {item}" for item in case.hypotheses) or "- None supplied"
+    constraints = "\n".join(f"- {item}" for item in case.constraints) or "- None supplied"
+    options = "\n".join(f"- {item}" for item in case.options) or "- None supplied"
+    return f"""Decision question: {case.decision_question}
+
+Confirmed facts (do not promote hypotheses into facts):
+{facts}
+
+Hypotheses:
+{hypotheses}
+
+Constraints:
+{constraints}
+
+Options (status quo/defer can remain the result):
+{options}"""

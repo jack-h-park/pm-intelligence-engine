@@ -4,10 +4,11 @@ LLM call: converts the S2 insight into a structured, evaluatable opportunity
 with a falsifiable hypothesis.
 """
 
-from app.logging import emit_event
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import RunContext, S3Input, S3Output, S3OutputData, StageMetadata
+from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -58,6 +59,11 @@ Why it matters: {input.s2_output.relevance_explanation}
 
 ---
 
+## Pinned Decision Case
+{render_decision_case(context.decision_case)}
+
+---
+
 ## Your Task
 Apply the Stage 3 framework to convert the insight above into a structured opportunity.
 Respond with a single JSON object matching this schema exactly — no markdown, no commentary:
@@ -65,10 +71,13 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
 {_JSON_SCHEMA}
 
 Rules:
-- "hypothesis" must be falsifiable — it must be possible to design an experiment that proves it wrong.
+- "hypothesis" must be falsifiable — it must be possible to design an experiment
+  that proves it wrong.
 - "problem_statement" describes a problem, not a solution or feature.
 - "target_user" must be more specific than the segment defined in context.md.
 - Both value fields must be distinct and concrete — not generic statements.
+- A status-quo or defer option is valid when the case supplies no supported new
+  opportunity; do not manufacture a feature or customer need to fill the schema.
 - "value_horizon": is this opportunity's value **durable** (compounds / defensible
   over time) or **transient** (a closing window — a platform vendor or competitor
   may erase the value, e.g. by shipping a native capability)? Choose "transient"
