@@ -99,6 +99,23 @@ class InsightStore:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
 
+    def list_candidates(self) -> list[Candidate]:
+        """Read-only inventory for migration planning; never schedules analysis."""
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceCandidateRow).order_by(IntelligenceCandidateRow.created_at)
+            ).all()
+            return [Candidate.model_validate_json(row.payload_json) for row in rows]
+
+    def list_sources_for_candidate(self, candidate_id: str) -> list[SourceRecord]:
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceSourceRow)
+                .where(IntelligenceSourceRow.candidate_id == candidate_id)
+                .order_by(IntelligenceSourceRow.retrieved_at)
+            ).all()
+            return [SourceRecord.model_validate_json(row.payload_json) for row in rows]
+
     # --- Prepared analysis records (E03) ---
 
     def save_prepared_context(self, payload: dict) -> PreparedContext:
