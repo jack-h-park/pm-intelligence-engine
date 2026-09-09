@@ -13,7 +13,7 @@ def search_insights(
     terms = [query, *(expand(query) if expand else [])]
     normalized = [term.casefold().strip() for term in terms if term.strip()]
     matches: list[InsightRevision] = []
-    for insight in store.list_insights():
+    for insight in store.list_current_insights():
         corpus = "\n".join(
             [
                 insight.headline,

@@ -166,6 +166,7 @@ class InsightRevision(_Record):
     uncertainties: list[str] = Field(default_factory=list)
     question_ids: list[str] = Field(default_factory=list)
     related_insight_ids: list[str] = Field(default_factory=list)
+    supersedes_insight_id: str | None = None
     note_connections: list[str] = Field(default_factory=list)
     event_cluster_id: str | None = None
     generation_model: str | None = None
