@@ -5,7 +5,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
@@ -20,7 +20,10 @@ from app.models.insights import (
     SourceExcerpt,
     SourceRecord,
 )
+from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
+from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,
@@ -94,6 +97,77 @@ class ResearchResults(BaseModel):
 class InsightSearchResults(BaseModel):
     items: list[InsightRevision]
     next_cursor: None = None
+
+
+class NoveltyLookup(_Request):
+    content_hashes: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("content_hashes")
+    @classmethod
+    def _validate_hashes(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if len(value) != 64:
+                raise ValueError("content hashes must be SHA-256 hex strings")
+            try:
+                int(value, 16)
+            except ValueError as exc:
+                raise ValueError("content hashes must be SHA-256 hex strings") from exc
+        return values
+
+
+class NoveltyLookupResult(BaseModel):
+    known_content_hashes: list[str]
+
+
+class SemanticTriageRequest(_Request):
+    question: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
+    operation_id: str = Field(min_length=1)
+    policy_revision: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    rate_revision: str = Field(min_length=1)
+    maximum_micros: int = Field(gt=0)
+    actual_micros: int | Literal["unknown"] = "unknown"
+
+
+def _triage_budget(engine: PMEngine) -> BudgetService:
+    from config import settings
+
+    store = _processing_store(engine)
+    return BudgetService(
+        store,
+        BudgetPolicy(
+            allowances_micros={"sensing": settings.INTELLIGENCE_SENSING_ALLOWANCE_MICROS or 0},
+            rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+        ),
+    )
+
+
+class DeliveryReceiptCreate(_Request):
+    revision: int = Field(ge=1)
+    channel: Literal["telegram", "discord"]
+    state: Literal["queued", "sent", "unknown"]
+
+
+class DeliveryReceiptAccepted(BaseModel):
+    receipt_id: str
+    insight_id: str
+    revision: int
+    channel: str
+    state: str
+
+
+class InsightFeedbackCreate(_Request):
+    revision: int = Field(ge=1)
+    label: Literal["useful", "already_known", "wrong", "weak_connection", "too_shallow"]
+
+
+class InsightFeedbackAccepted(BaseModel):
+    feedback_id: str
+    insight_id: str
+    revision: int
+    label: str
 
 
 def _request_hash(body: BaseModel) -> str:
@@ -268,6 +342,66 @@ async def search(
     return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
 
 
+@router.post("/insight-triage/novelty", response_model=NoveltyLookupResult)
+async def novelty_lookup(
+    body: NoveltyLookup, engine: PMEngine = Depends(get_engine)
+) -> NoveltyLookupResult:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return NoveltyLookupResult(
+        known_content_hashes=engine.insight_store.known_source_hashes(body.content_hashes)
+    )
+
+
+@router.post("/insight-triage", response_model=TriageDecision)
+async def semantic_triage(
+    body: SemanticTriageRequest, engine: PMEngine = Depends(get_engine)
+) -> TriageDecision:
+    store = _processing_store(engine)
+    claim_state, cached = store.claim_triage(body.operation_id)
+    if claim_state == "complete" and cached is not None:
+        return TriageDecision.model_validate(cached)
+    if claim_state != "claimed":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress")
+    try:
+        decision = await triage_with_reservation(
+            question=body.question,
+            title=body.title,
+            content=body.content,
+            llm=engine.llm,
+            budget=_triage_budget(engine),
+            reservation_payload={
+                "operation_id": body.operation_id,
+                "operation_type": "semantic_triage",
+                "policy_revision": body.policy_revision,
+                "provider": body.provider,
+                "rate_revision": body.rate_revision,
+                "maximum_micros": body.maximum_micros,
+                "allowance_class": "sensing",
+            },
+            actual_micros=body.actual_micros,
+        )
+    except TriageBudgetDenied as exc:
+        store.abandon_triage_claim(body.operation_id)
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
+    store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    return decision
+
+
+@router.get("/insight-operations")
+async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict:
+    """Read-only shadow operations counters; never enables intake or delivery."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return engine.insight_store.operational_summary()
+
+
 @router.get("/insights/{insight_id}", response_model=InsightRevision)
 async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -> InsightRevision:
     if engine.insight_store is None:
@@ -279,6 +413,45 @@ async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -
     if insight is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     return insight
+
+
+@router.post(
+    "/insights/{insight_id}/delivery-receipts",
+    response_model=DeliveryReceiptAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_delivery_receipt(
+    insight_id: str, body: DeliveryReceiptCreate, engine: PMEngine = Depends(get_engine)
+) -> DeliveryReceiptAccepted:
+    try:
+        if body.state == "queued":
+            from config import settings
+
+            receipt = queue_delivery(
+                _store(engine), settings.INTELLIGENCE_MODE, insight_id, body.revision, body.channel
+            )
+            if receipt is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="delivery_suppressed"
+                )
+        else:
+            receipt = confirm_delivery(
+                _store(engine), insight_id, body.revision, body.channel, body.state == "sent"
+            )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return DeliveryReceiptAccepted(**receipt)
+
+
+@router.post("/insights/{insight_id}/feedback", response_model=InsightFeedbackAccepted)
+async def create_insight_feedback(
+    insight_id: str, body: InsightFeedbackCreate, engine: PMEngine = Depends(get_engine)
+) -> InsightFeedbackAccepted:
+    try:
+        feedback = _store(engine).save_feedback(insight_id, body.revision, body.label)
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return InsightFeedbackAccepted(**feedback)
 
 
 @router.post("/insight-research/claim", response_model=ResearchRequest)

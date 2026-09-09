@@ -2,6 +2,7 @@
 
 import json
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import TypeVar
@@ -19,13 +20,16 @@ from app.models.insights import (
     IntelligenceBudgetReservationRow,
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
+    IntelligenceDeliveryReceiptRow,
     IntelligenceIdempotencyRow,
+    IntelligenceInsightFeedbackRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    IntelligenceTriageRow,
     PreparedContext,
     ResearchRequest,
     SourceRecord,
@@ -99,6 +103,46 @@ class InsightStore:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
 
+    def known_source_hashes(self, content_hashes: list[str]) -> list[str]:
+        """Find prior immutable source bodies without exposing their content."""
+        if not content_hashes:
+            return []
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceSourceRow.content_hash).where(
+                    IntelligenceSourceRow.content_hash.in_(content_hashes)
+                )
+            ).all()
+            return sorted({row[0] for row in rows})
+
+    def claim_triage(self, operation_id: str) -> tuple[str, dict | None]:
+        """Claim one triage operation before a model call; completed calls replay safely."""
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is not None:
+                return row.state, json.loads(row.payload_json) if row.payload_json else None
+            session.add(
+                IntelligenceTriageRow(
+                    operation_id=operation_id, state="running", payload_json="{}"
+                )
+            )
+            return "claimed", None
+
+    def complete_triage(self, operation_id: str, payload: dict) -> None:
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is None:
+                raise MissingInsightRecord(f"triage operation {operation_id} was not claimed")
+            row.state = "complete"
+            row.payload_json = json.dumps(payload, sort_keys=True)
+
+    def abandon_triage_claim(self, operation_id: str) -> None:
+        """Release a pre-call denial; ambiguous model calls intentionally stay claimed."""
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceTriageRow, operation_id)
+            if row is not None and row.state == "running":
+                session.delete(row)
+
     # --- Prepared analysis records (E03) ---
 
     def save_prepared_context(self, payload: dict) -> PreparedContext:
@@ -154,6 +198,20 @@ class InsightStore:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
+    def save_feedback(self, insight_id: str, revision: int, label: str) -> dict:
+        with self._Session.begin() as session:
+            if session.get(IntelligenceInsightRow, insight_id) is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            payload = {
+                "feedback_id": str(uuid.uuid4()), "insight_id": insight_id,
+                "revision": revision, "label": label,
+            }
+            session.add(IntelligenceInsightFeedbackRow(
+                feedback_id=payload["feedback_id"], insight_id=insight_id, revision=revision,
+                label=label, payload_json=json.dumps(payload, sort_keys=True),
+            ))
+            return payload
+
     def list_insights(self) -> list[InsightRevision]:
         with self._Session() as session:
             rows = session.execute(
@@ -165,6 +223,76 @@ class InsightStore:
         insights = self.list_insights()
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
+
+    def operational_summary(self) -> dict:
+        """Return read-only counts for shadow operations without admitting work."""
+        with self._Session() as session:
+            jobs = Counter(
+                row.state for row in session.execute(select(IntelligenceJobRow)).scalars()
+            )
+            receipts = Counter(
+                row.state
+                for row in session.execute(select(IntelligenceDeliveryReceiptRow)).scalars()
+            )
+            reservations = [
+                BudgetReservation.model_validate_json(row.payload_json)
+                for row in session.execute(
+                    select(IntelligenceBudgetReservationRow)
+                ).scalars()
+            ]
+            return {
+                "candidates": session.query(IntelligenceCandidateRow).count(),
+                "jobs": dict(sorted(jobs.items())),
+                "delivery_receipts": dict(sorted(receipts.items())),
+                "feedback": {
+                    "recorded": session.query(IntelligenceInsightFeedbackRow).count(),
+                    "unknown": 0,
+                },
+                "cost_micros": {
+                    "reserved": sum(
+                        item.maximum_micros
+                        for item in reservations
+                        if item.state in {"reserved", "unknown"}
+                    ),
+                    "finalized": sum(item.actual_micros or 0 for item in reservations),
+                    "unknown": sum(
+                        item.maximum_micros for item in reservations if item.state == "unknown"
+                    ),
+                },
+            }
+
+    def save_delivery_receipt(
+        self, insight_id: str, revision: int, channel: str, state: str
+    ) -> dict:
+        """Persist a channel receipt once; callers reconcile uncertainty instead of resending."""
+        with self._Session.begin() as session:
+            if session.get(IntelligenceInsightRow, insight_id) is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            existing = session.scalar(select(IntelligenceDeliveryReceiptRow).where(
+                IntelligenceDeliveryReceiptRow.insight_id == insight_id,
+                IntelligenceDeliveryReceiptRow.revision == revision,
+                IntelligenceDeliveryReceiptRow.channel == channel,
+            ))
+            if existing:
+                payload = json.loads(existing.payload_json)
+                # A transport may be confirmed only after the queue record was
+                # committed.  Preserve that one-way acknowledgement, while an
+                # ambiguous result remains a deliberate operator hold rather
+                # than a signal to resend the same revision.
+                if existing.state == "queued" and state in {"sent", "unknown"}:
+                    payload["state"] = state
+                    existing.state = state
+                    existing.payload_json = json.dumps(payload, sort_keys=True)
+                return payload
+            payload = {
+                "receipt_id": str(uuid.uuid4()), "insight_id": insight_id,
+                "revision": revision, "channel": channel, "state": state,
+            }
+            session.add(IntelligenceDeliveryReceiptRow(
+                receipt_id=payload["receipt_id"], insight_id=insight_id, revision=revision,
+                channel=channel, state=state, payload_json=json.dumps(payload, sort_keys=True),
+            ))
+            return payload
 
     def complete_job_analysis(
         self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,

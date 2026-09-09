@@ -354,3 +354,35 @@ class IntelligenceBudgetReservationRow(Base):
     state = Column(String, nullable=False, index=True)
     maximum_micros = Column(Integer, nullable=False)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceDeliveryReceiptRow(Base):
+    __tablename__ = "intelligence_delivery_receipts"
+    __table_args__ = (
+        UniqueConstraint("insight_id", "revision", "channel", name="uq_intelligence_delivery"),
+    )
+
+    receipt_id = Column(String, primary_key=True)
+    insight_id = Column(String, nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    channel = Column(String, nullable=False)
+    state = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceTriageRow(Base):
+    __tablename__ = "intelligence_triage"
+
+    operation_id = Column(String, primary_key=True)
+    state = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceInsightFeedbackRow(Base):
+    __tablename__ = "intelligence_insight_feedback"
+
+    feedback_id = Column(String, primary_key=True)
+    insight_id = Column(String, nullable=False, index=True)
+    revision = Column(Integer, nullable=False)
+    label = Column(String, nullable=False, index=True)
+    payload_json = Column(Text, nullable=False)

@@ -1,4 +1,5 @@
 import hashlib
+import json
 
 from app.api.deps import get_engine
 from app.api.main import app
@@ -95,6 +96,74 @@ def test_identical_source_submission_returns_the_existing_source(
     assert second.json()["source_id"] == first.json()["source_id"]
 
 
+def test_novelty_lookup_returns_only_known_source_hashes(
+    client, auth_headers, candidate_payload, source_payload
+):
+    candidate = client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-for-novelty"},
+    ).json()
+    client.post(
+        "/insight-sources",
+        json={**source_payload, "candidate_id": candidate["candidate_id"]},
+        headers={**auth_headers, "Idempotency-Key": "source-for-novelty"},
+    )
+
+    response = client.post(
+        "/insight-triage/novelty",
+        json={"content_hashes": [source_payload["content_hash"], "b" * 64]},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"known_content_hashes": [source_payload["content_hash"]]}
+
+
+def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers, monkeypatch):
+    from config import settings
+
+    class FixtureLLM:
+        calls = 0
+
+        async def complete(self, messages, **kwargs):
+            self.calls += 1
+            return json.dumps({
+                "disposition": "admit", "relevance": "relevant",
+                "novelty": "meaningful_delta", "reason": "New evidence.",
+            })
+
+    engine = app.dependency_overrides[get_engine]()
+    engine.llm = FixtureLLM()
+    monkeypatch.setattr(settings, "INTELLIGENCE_SENSING_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+    response = client.post(
+        "/insight-triage",
+        json={
+            "question": "What changed?", "title": "Change", "content": "Evidence.",
+            "operation_id": "triage-api", "policy_revision": "fixture-v1", "provider": "fixture",
+            "rate_revision": "fixture-rates", "maximum_micros": 10, "actual_micros": 4,
+        },
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["disposition"] == "admit"
+    assert engine.insight_store.operational_summary()["cost_micros"]["finalized"] == 4
+
+    repeated = client.post(
+        "/insight-triage",
+        json={
+            "question": "What changed?", "title": "Change", "content": "Evidence.",
+            "operation_id": "triage-api", "policy_revision": "fixture-v1", "provider": "fixture",
+            "rate_revision": "fixture-rates", "maximum_micros": 10, "actual_micros": 4,
+        },
+        headers=auth_headers,
+    )
+    assert repeated.json() == response.json()
+    assert engine.llm.calls == 1
+
+
 def test_job_intake_is_idempotent_and_requires_an_existing_candidate(
     client, auth_headers, candidate_payload
 ):
@@ -141,9 +210,10 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
 
 
 def test_authenticated_insight_search_returns_stored_revision(
-    client, auth_headers, candidate_payload, source_payload, bundle_payload
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
 ):
     from app.models.insights import InsightRevision, PreparedContext
+    from config import settings
 
     engine = app.dependency_overrides[get_engine]()
     candidate = engine.insight_store.save_candidate(candidate_payload)
@@ -184,3 +254,43 @@ def test_authenticated_insight_search_returns_stored_revision(
     detail = client.get(f"/insights/{insight.insight_id}", headers=auth_headers)
     assert detail.status_code == 200
     assert detail.json()["takeaway"] == "Verify it."
+
+    operations = client.get("/insight-operations", headers=auth_headers)
+    assert operations.status_code == 200
+    assert operations.json()["candidates"] == 1
+    assert operations.json()["cost_micros"] == {
+        "reserved": 0, "finalized": 0, "unknown": 0,
+    }
+    assert operations.json()["feedback"] == {"recorded": 0, "unknown": 0}
+
+    suppressed = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    assert suppressed.status_code == 409
+    monkeypatch.setattr(settings, "INTELLIGENCE_MODE", "insights")
+    receipt = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    repeated = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    assert receipt.status_code == 201
+    assert repeated.json() == receipt.json()
+
+    feedback = client.post(
+        f"/insights/{insight.insight_id}/feedback",
+        json={"revision": insight.revision, "label": "useful"},
+        headers=auth_headers,
+    )
+    assert feedback.status_code == 200
+    assert feedback.json()["label"] == "useful"
+    # Silence is not invented as a negative or positive feedback record.
+    assert client.get("/insight-operations", headers=auth_headers).json()["feedback"] == {
+        "recorded": 1, "unknown": 0,
+    }
