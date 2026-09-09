@@ -101,6 +101,18 @@ class InsightStore:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
 
+    def known_source_hashes(self, content_hashes: list[str]) -> list[str]:
+        """Find prior immutable source bodies without exposing their content."""
+        if not content_hashes:
+            return []
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceSourceRow.content_hash).where(
+                    IntelligenceSourceRow.content_hash.in_(content_hashes)
+                )
+            ).all()
+            return sorted({row[0] for row in rows})
+
     # --- Prepared analysis records (E03) ---
 
     def save_prepared_context(self, payload: dict) -> PreparedContext:

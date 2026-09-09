@@ -95,6 +95,30 @@ def test_identical_source_submission_returns_the_existing_source(
     assert second.json()["source_id"] == first.json()["source_id"]
 
 
+def test_novelty_lookup_returns_only_known_source_hashes(
+    client, auth_headers, candidate_payload, source_payload
+):
+    candidate = client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-for-novelty"},
+    ).json()
+    client.post(
+        "/insight-sources",
+        json={**source_payload, "candidate_id": candidate["candidate_id"]},
+        headers={**auth_headers, "Idempotency-Key": "source-for-novelty"},
+    )
+
+    response = client.post(
+        "/insight-triage/novelty",
+        json={"content_hashes": [source_payload["content_hash"], "b" * 64]},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"known_content_hashes": [source_payload["content_hash"]]}
+
+
 def test_job_intake_is_idempotent_and_requires_an_existing_candidate(
     client, auth_headers, candidate_payload
 ):

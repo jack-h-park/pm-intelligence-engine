@@ -5,7 +5,7 @@ import json
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
@@ -94,6 +94,26 @@ class ResearchResults(BaseModel):
 class InsightSearchResults(BaseModel):
     items: list[InsightRevision]
     next_cursor: None = None
+
+
+class NoveltyLookup(_Request):
+    content_hashes: list[str] = Field(min_length=1, max_length=20)
+
+    @field_validator("content_hashes")
+    @classmethod
+    def _validate_hashes(cls, values: list[str]) -> list[str]:
+        for value in values:
+            if len(value) != 64:
+                raise ValueError("content hashes must be SHA-256 hex strings")
+            try:
+                int(value, 16)
+            except ValueError as exc:
+                raise ValueError("content hashes must be SHA-256 hex strings") from exc
+        return values
+
+
+class NoveltyLookupResult(BaseModel):
+    known_content_hashes: list[str]
 
 
 class DeliveryReceiptCreate(_Request):
@@ -280,6 +300,20 @@ async def search(
             detail="Insight storage is unavailable",
         )
     return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
+
+
+@router.post("/insight-triage/novelty", response_model=NoveltyLookupResult)
+async def novelty_lookup(
+    body: NoveltyLookup, engine: PMEngine = Depends(get_engine)
+) -> NoveltyLookupResult:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return NoveltyLookupResult(
+        known_content_hashes=engine.insight_store.known_source_hashes(body.content_hashes)
+    )
 
 
 @router.get("/insight-operations")
