@@ -5,6 +5,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.models.decision_case import DecisionCase
+
 
 # ---------------------------------------------------------------------------
 # Shared
@@ -19,6 +21,9 @@ class RunContext(BaseModel):
     pm_identity: str = Field(description="Full text of core/00-pm-identity.md")
     company_context: str = Field(description="Full text of company-context.md")
     product_context: str = Field(description="Full text of products/<name>/context.md")
+    # New decision-request runs pin this separately from legacy S1/S2 summaries.
+    # Historical runs omit it and retain their exact former context shape.
+    decision_case: DecisionCase | None = Field(default=None)
 
 
 class StageMetadata(BaseModel):
