@@ -17,6 +17,7 @@ from app.models.stages import (
     StageMetadata,
 )
 from app.services.decision_case import render_decision_case
+from app.services.decision_readiness import assess_readiness
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -331,6 +332,11 @@ Rules:
         blocking_count=len(blocking),
         governing_heuristics=governing_heuristics,
         closing_window=closing_window,
+        readiness=(
+            assess_readiness(stage_input.s4_output, routing, assumptions)
+            if context.decision_pipeline_version == "evidence_v1"
+            else None
+        ),
     )
 
     output = S5Output(
@@ -378,6 +384,15 @@ def build_decision_memo(data: S5OutputData) -> str:
             return "None"
         return "\n".join(f"- {a.statement}" for a in items)
 
+    readiness_md = ""
+    if data.readiness is not None:
+        state = "Ready for PRD" if data.readiness.ready_for_prd else "Provisional — unresolved gaps remain"
+        findings = "\n".join(
+            f"- **{finding.severity} · {finding.category}:** {finding.message}"
+            for finding in data.readiness.findings
+        ) or "- No unresolved evidence_v1 readiness gaps."
+        readiness_md = f"\n## Decision Readiness\n**{state}**\n{findings}\n"
+
     return f"""# Decision Memo
 
 **Routing:** {routing_label}
@@ -402,6 +417,7 @@ def build_decision_memo(data: S5OutputData) -> str:
 
 ## Governing Heuristics
 {", ".join(data.governing_heuristics) if data.governing_heuristics else "None cited"}
+{readiness_md}
 {"" if not data.closing_window else chr(10) + "## ⏳ Closing Window" + chr(10) + "Value is transient and Impact is high — consider a fast, time-boxed bet over the default track."}
 """
 
