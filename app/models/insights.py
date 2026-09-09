@@ -123,6 +123,61 @@ class EvidenceBundle(_Record):
         return self
 
 
+class InsightJob(_Record):
+    job_id: str = Field(default_factory=_new_uuid)
+    candidate_id: str
+    bundle_id: str | None = None
+    prepared_context_id: str | None = None
+    context_revision: str
+    purpose: Literal["learning", "decision_preparation"]
+    state: Literal[
+        "queued", "running", "waiting_research", "retryable_failed", "complete", "exhausted"
+    ] = "queued"
+    attempt_count: int = 0
+    next_attempt_at: datetime | None = None
+    lease_token: str | None = None
+    lease_expires_at: datetime | None = None
+    error: str | None = None
+    completion_disposition: (
+        Literal["ready", "prepared", "needs_evidence", "no_new_learning"] | None
+    ) = None
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+
+class ResearchRequest(_Record):
+    research_request_id: str = Field(default_factory=_new_uuid)
+    job_id: str
+    parent_lease_token: str
+    targets: list[str] = Field(min_length=1)
+    questions: list[str] = Field(min_length=1)
+    maximum_fetch_count: int = Field(ge=1, le=3)
+    state: Literal["queued", "running", "complete", "expired"] = "queued"
+    adapter_id: str | None = None
+    lease_token: str | None = None
+    lease_expires_at: datetime | None = None
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=_utc_now)
+    completed_at: datetime | None = None
+
+
+class BudgetReservation(_Record):
+    reservation_id: str = Field(default_factory=_new_uuid)
+    operation_id: str
+    operation_type: str
+    candidate_id: str | None = None
+    job_id: str | None = None
+    policy_revision: str
+    provider: str
+    rate_revision: str
+    maximum_micros: int = Field(gt=0)
+    allowance_class: str
+    state: Literal["reserved", "finalized", "unknown"] = "reserved"
+    actual_micros: int | None = None
+    created_at: datetime = Field(default_factory=_utc_now)
+    finalized_at: datetime | None = None
+
+
 class IntelligenceCandidateRow(Base):
     __tablename__ = "intelligence_candidates"
 
@@ -179,3 +234,51 @@ class IntelligenceIdempotencyRow(Base):
     status_code = Column(Integer, nullable=False)
     response_json = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
+
+
+class IntelligenceJobRow(Base):
+    __tablename__ = "intelligence_jobs"
+
+    job_id = Column(String, primary_key=True)
+    candidate_id = Column(String, nullable=False, index=True)
+    state = Column(String, nullable=False, index=True)
+    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
+    lease_token = Column(String, nullable=True)
+    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceResearchRequestRow(Base):
+    __tablename__ = "intelligence_research_requests"
+
+    research_request_id = Column(String, primary_key=True)
+    job_id = Column(String, nullable=False, index=True)
+    state = Column(String, nullable=False, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+    lease_token = Column(String, nullable=True)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceResearchResultRow(Base):
+    __tablename__ = "intelligence_research_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "research_request_id", "content_hash", name="uq_intelligence_research_result"
+        ),
+    )
+
+    result_id = Column(String, primary_key=True, default=_new_uuid)
+    research_request_id = Column(String, nullable=False, index=True)
+    content_hash = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceBudgetReservationRow(Base):
+    __tablename__ = "intelligence_budget_reservations"
+
+    reservation_id = Column(String, primary_key=True)
+    operation_id = Column(String, nullable=False, unique=True)
+    allowance_class = Column(String, nullable=False, index=True)
+    state = Column(String, nullable=False, index=True)
+    maximum_micros = Column(Integer, nullable=False)
+    payload_json = Column(Text, nullable=False)

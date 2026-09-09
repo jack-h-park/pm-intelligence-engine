@@ -8,6 +8,7 @@ from app.api.decision import router as decision_router
 from app.api.deepen import router as deepen_router
 from app.api.deps import require_auth
 from app.api.direction import router as direction_router
+from app.api.insight_budget import router as insight_budget_router
 from app.api.insights import router as insights_router
 from app.api.review import router as review_router
 from app.api.routing_review import router as routing_review_router
@@ -64,6 +65,7 @@ app.include_router(deepen_router, dependencies=_auth)
 app.include_router(decision_router, dependencies=_auth)
 app.include_router(review_router, dependencies=_auth)
 app.include_router(insights_router, dependencies=_auth)
+app.include_router(insight_budget_router, dependencies=_auth)
 
 
 @app.get("/health")

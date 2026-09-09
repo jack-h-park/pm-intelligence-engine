@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     INSIGHT_WRITES_ENABLED: bool = False
     DECISION_PIPELINE_V2_ENABLED: bool = False
     INSIGHT_MIGRATION_ACTIVATION_ENABLED: bool = False
+    # A missing rate revision or allowance denies every paid operation.  Fixture
+    # tests configure these explicitly; production defaults never spend.
+    INTELLIGENCE_RATE_REVISION: str = ""
+    INTELLIGENCE_SENSING_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_DECISION_ALLOWANCE_MICROS: int | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires
     # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is

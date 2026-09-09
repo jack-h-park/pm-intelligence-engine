@@ -90,3 +90,48 @@ def test_identical_source_submission_returns_the_existing_source(
     assert first.status_code == 201
     assert second.status_code == 200
     assert second.json()["source_id"] == first.json()["source_id"]
+
+
+def test_job_intake_is_idempotent_and_requires_an_existing_candidate(
+    client, auth_headers, candidate_payload
+):
+    candidate = client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-for-job"},
+    ).json()
+    payload = {
+        "candidate_id": candidate["candidate_id"],
+        "context_revision": "fixture-context-v1",
+        "purpose": "learning",
+        "bundle_id": None,
+    }
+    headers = {**auth_headers, "Idempotency-Key": "job-fixture-1"}
+
+    first = client.post("/insight-jobs", json=payload, headers=headers)
+    repeated = client.post("/insight-jobs", json=payload, headers=headers)
+    detail = client.get(f"/insight-jobs/{first.json()['job_id']}", headers=auth_headers)
+
+    assert first.status_code == 202
+    assert repeated.status_code == 200
+    assert repeated.json()["job_id"] == first.json()["job_id"]
+    assert detail.json()["state"] == "queued"
+
+
+def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
+    response = client.post(
+        "/insight-budget/reservations",
+        json={
+            "operation_id": "fixture-paid-operation",
+            "operation_type": "analysis",
+            "policy_revision": "fixture-policy-v1",
+            "provider": "fixture-provider",
+            "rate_revision": "fixture-rates-v1",
+            "maximum_micros": 1,
+            "allowance_class": "sensing",
+        },
+        headers={**auth_headers, "Idempotency-Key": "budget-denied"},
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "budget_denied"

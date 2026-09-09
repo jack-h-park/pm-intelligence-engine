@@ -94,6 +94,7 @@ def client(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(settings, "PM_PLATFORM_API_TOKEN", "insight-test-token")
     monkeypatch.setattr(settings, "INSIGHT_WRITES_ENABLED", True)
+    monkeypatch.setattr(settings, "INTELLIGENCE_MODE", "shadow")
     monkeypatch.setattr(settings, "DATABASE_URL", f"sqlite:///{tmp_path}/lifespan.db")
     # The legacy application's lifespan retains its persona-prompt preflight.
     # Build its minimal valid context in tmp_path so the route test remains
