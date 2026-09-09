@@ -141,3 +141,19 @@ def test_decision_request_idempotency_rejects_changed_content(tmp_path):
 
     with pytest.raises(ValueError, match="different content"):
         store.create_idempotent_decision_request("actor", "request-key", "hash-b", case)
+
+
+def test_insight_backed_request_is_not_labeled_as_direct_input(tmp_path):
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    case = DecisionCase(
+        prepared_context_id="prepared-insight",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="What is the lowest-risk next decision?",
+        input_origins=["insight"],
+        insight_references=[{"insight_id": "insight-1", "revision": 2}],
+    )
+
+    result = store.create_decision_request_run(case)
+
+    assert store.get_signal(result["signal_id"])["title"] == "Insight-backed product decision input"

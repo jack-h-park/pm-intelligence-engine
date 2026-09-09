@@ -403,9 +403,14 @@ class SQLiteStore:
 
     @staticmethod
     def _create_decision_request_run(session, case) -> dict:
+        input_title = (
+            "Insight-backed product decision input"
+            if "insight" in case.input_origins
+            else "Direct product decision input"
+        )
         signal = Signal(
             original_product_id=case.product_id,
-            title="Direct product decision input",
+            title=input_title,
             raw_content=case.decision_question,
             category=SignalCategory.other,
             source_type=SourceType.manual,
