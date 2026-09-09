@@ -20,7 +20,7 @@ from app.models.stages import (
     StageMetadata,
     RequirementEvidenceLink,
 )
-from app.services.artifact_traceability import build_artifact_traceability
+from app.services.artifact_traceability import build_artifact_traceability, selected_option_from_approvals
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
@@ -130,12 +130,16 @@ Rules:
         RequirementEvidenceLink(**link) for link in data.pop("requirement_evidence_links", [])
     ]
     proposed_metrics = [str(metric) for metric in data.pop("proposed_metrics", [])]
+    approved_option, override_rationale = selected_option_from_approvals(
+        store.get_approval_events(context.run_id)
+    )
     output_data = S6BOutputData(
         **data,
         completeness=completeness,
         traceability=(
             build_artifact_traceability(
-                context.decision_case, s5.readiness, requirement_links, proposed_metrics
+                context.decision_case, s5.readiness, requirement_links, proposed_metrics,
+                approved_option, override_rationale,
             )
             if context.decision_pipeline_version == "evidence_v1"
             else None

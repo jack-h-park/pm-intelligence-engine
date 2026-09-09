@@ -505,6 +505,7 @@ class ArtifactTraceability(BaseModel):
     decision_case_id: str
     decision_case_revision: int = Field(ge=1)
     approved_option: str | None = None
+    human_override_rationale: str | None = None
     provisional: bool
     requirement_links: list[RequirementEvidenceLink] = Field(default_factory=list)
     proposed_metrics: list[str] = Field(default_factory=list)
