@@ -17,6 +17,69 @@ def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_
     assert changed.status_code == 409
 
 
+def test_migration_import_requires_the_saved_manifest_hash(client, auth_headers, candidate_payload):
+    candidate = client.post(
+        "/insight-candidates", json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-key"},
+    )
+    assert candidate.status_code == 201
+
+    manifest = client.post("/insight-migrations", headers=auth_headers)
+    assert manifest.status_code == 201
+    body = manifest.json()
+
+    rejected = client.post(
+        f"/insight-migrations/{body['manifest_id']}/import",
+        json={"manifest_hash": "0" * 64, "batch_size": 100}, headers=auth_headers,
+    )
+    accepted = client.post(
+        f"/insight-migrations/{body['manifest_id']}/import",
+        json={"manifest_hash": body["manifest_hash"], "batch_size": 100}, headers=auth_headers,
+    )
+
+    assert rejected.status_code == 409
+    assert accepted.status_code == 202
+    assert accepted.json() == {
+        "manifest_id": body["manifest_id"], "imported_count": 1, "complete": True,
+    }
+
+
+def test_migration_overlay_requires_release_flag(
+    client, auth_headers, candidate_payload, monkeypatch
+):
+    from config import settings
+
+    candidate = client.post(
+        "/insight-candidates", json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-key"},
+    )
+    assert candidate.status_code == 201
+    manifest = client.post("/insight-migrations", headers=auth_headers).json()
+    imported = client.post(
+        f"/insight-migrations/{manifest['manifest_id']}/import",
+        json={"manifest_hash": manifest["manifest_hash"]}, headers=auth_headers,
+    )
+    assert imported.status_code == 202
+
+    blocked = client.post(
+        f"/insight-migrations/{manifest['manifest_id']}/overlay",
+        json={"manifest_hash": manifest["manifest_hash"], "enabled": True}, headers=auth_headers,
+    )
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", True)
+    enabled = client.post(
+        f"/insight-migrations/{manifest['manifest_id']}/overlay",
+        json={"manifest_hash": manifest["manifest_hash"], "enabled": True}, headers=auth_headers,
+    )
+    disabled = client.post(
+        f"/insight-migrations/{manifest['manifest_id']}/overlay",
+        json={"manifest_hash": manifest["manifest_hash"], "enabled": False}, headers=auth_headers,
+    )
+
+    assert blocked.status_code == 409
+    assert enabled.json() == {"manifest_id": manifest["manifest_id"], "enabled": True}
+    assert disabled.json() == {"manifest_id": manifest["manifest_id"], "enabled": False}
+
+
 def test_intake_routes_require_bearer_authentication(client, candidate_payload):
     response = client.post(
         "/insight-candidates",

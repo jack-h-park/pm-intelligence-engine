@@ -22,7 +22,9 @@ from app.models.insights import (
     IntelligenceIdempotencyRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
+    IntelligenceMigrationAliasRow,
     IntelligenceMigrationManifestRow,
+    IntelligenceMigrationOverlayRow,
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
@@ -136,6 +138,85 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceMigrationManifestRow, manifest_id)
             return json.loads(row.payload_json) if row else None
+
+    def import_migration_manifest(
+        self, manifest_id: str, manifest_hash: str, *, batch_size: int
+    ) -> dict[str, int | bool]:
+        """Add bounded migration aliases without modifying the original insight records."""
+        if not 1 <= batch_size <= 100:
+            raise ValueError("migration import batch size must be between 1 and 100")
+        with self._Session.begin() as session:
+            manifest = session.get(IntelligenceMigrationManifestRow, manifest_id)
+            if manifest is None:
+                raise MissingInsightRecord(f"migration manifest {manifest_id} was not found")
+            if manifest.manifest_hash != manifest_hash:
+                raise ValueError("migration manifest changed; create and reconcile a new dry run")
+            records = json.loads(manifest.payload_json).get("records", [])
+            existing_ids = set(session.scalars(
+                select(IntelligenceMigrationAliasRow.original_id).where(
+                    IntelligenceMigrationAliasRow.manifest_id == manifest_id
+                )
+            ).all())
+            pending = [record for record in records if record["original_id"] not in existing_ids]
+            for record in pending[:batch_size]:
+                original_id = record["original_id"]
+                alias_payload = {
+                    "original_id": original_id,
+                    "disposition": record["disposition"],
+                    "notification_handling": "none",
+                    "llm_handling": "none",
+                }
+                session.add(IntelligenceMigrationAliasRow(
+                    alias_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{manifest_id}:{original_id}")),
+                    manifest_id=manifest_id,
+                    original_id=original_id,
+                    disposition=record["disposition"],
+                    payload_json=json.dumps(alias_payload, sort_keys=True, separators=(",", ":")),
+                ))
+            imported_count = min(len(pending), batch_size)
+            return {"imported_count": imported_count, "complete": imported_count == len(pending)}
+
+    def list_migration_aliases(self, manifest_id: str) -> list[dict]:
+        """Read migration metadata only; never joins or rewrites original records."""
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceMigrationAliasRow)
+                .where(IntelligenceMigrationAliasRow.manifest_id == manifest_id)
+                .order_by(IntelligenceMigrationAliasRow.original_id)
+            ).all()
+            return [json.loads(row.payload_json) for row in rows]
+
+    def set_migration_overlay(
+        self, manifest_id: str, manifest_hash: str, *, enabled: bool
+    ) -> dict[str, bool]:
+        """Toggle the read overlay only after the saved manifest is fully imported."""
+        with self._Session.begin() as session:
+            manifest = session.get(IntelligenceMigrationManifestRow, manifest_id)
+            if manifest is None:
+                raise MissingInsightRecord(f"migration manifest {manifest_id} was not found")
+            if manifest.manifest_hash != manifest_hash:
+                raise ValueError("migration manifest changed; create and reconcile a new dry run")
+            if enabled:
+                records = json.loads(manifest.payload_json).get("records", [])
+                imported_ids = set(session.scalars(
+                    select(IntelligenceMigrationAliasRow.original_id).where(
+                        IntelligenceMigrationAliasRow.manifest_id == manifest_id
+                    )
+                ).all())
+                if any(record["original_id"] not in imported_ids for record in records):
+                    raise ValueError("migration batch is not reconciled")
+            overlay = session.get(IntelligenceMigrationOverlayRow, manifest_id)
+            if overlay is None:
+                overlay = IntelligenceMigrationOverlayRow(manifest_id=manifest_id, enabled=enabled)
+                session.add(overlay)
+            else:
+                overlay.enabled = enabled
+            return {"enabled": enabled}
+
+    def get_migration_overlay(self, manifest_id: str) -> dict[str, bool] | None:
+        with self._Session() as session:
+            overlay = session.get(IntelligenceMigrationOverlayRow, manifest_id)
+            return {"enabled": overlay.enabled} if overlay else None
 
     # --- Prepared analysis records (E03) ---
 

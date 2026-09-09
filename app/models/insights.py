@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
 
 from app.models.workflow import Base
 
@@ -373,3 +373,13 @@ class IntelligenceMigrationAliasRow(Base):
     original_id = Column(String, nullable=False)
     disposition = Column(String, nullable=False)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceMigrationOverlayRow(Base):
+    __tablename__ = "intelligence_migration_overlays"
+
+    manifest_id = Column(String, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )
