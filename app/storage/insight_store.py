@@ -1,24 +1,34 @@
 """Immutable SQLite-backed persistence for the E01 insight records."""
 
 import json
+import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 from typing import TypeVar
 
+from pydantic import BaseModel
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.insights import (
+    BudgetReservation,
     Candidate,
     EvidenceBundle,
+    InsightJob,
+    IntelligenceBudgetReservationRow,
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
     IntelligenceIdempotencyRow,
+    IntelligenceJobRow,
+    IntelligenceResearchRequestRow,
+    IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    ResearchRequest,
     SourceRecord,
 )
 from app.storage.insight_migrations import initialize_insight_schema
 
-Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle)
+Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle, InsightJob)
 
 
 class MissingInsightRecord(ValueError):
@@ -33,8 +43,16 @@ class IdempotencyConflict(ValueError):
     pass
 
 
-def _json(record: Candidate | SourceRecord | EvidenceBundle) -> str:
+class StaleLease(ValueError):
+    pass
+
+
+def _json(record: BaseModel) -> str:
     return json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+
+
+def _now(value: datetime | None = None) -> datetime:
+    return value or datetime.now(UTC)
 
 
 class InsightStore:
@@ -76,6 +94,305 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
+
+    # --- Jobs and acquisition research (E02) ---
+
+    def create_job(self, payload: dict) -> InsightJob:
+        job = InsightJob.model_validate(payload)
+        with self._Session.begin() as session:
+            if session.get(IntelligenceCandidateRow, job.candidate_id) is None:
+                raise MissingInsightRecord(f"candidate {job.candidate_id} was not found")
+            if job.bundle_id and session.get(IntelligenceBundleRow, job.bundle_id) is None:
+                raise InvalidInsightReference(f"bundle {job.bundle_id} was not found")
+            session.add(
+                IntelligenceJobRow(
+                    job_id=job.job_id,
+                    candidate_id=job.candidate_id,
+                    state=job.state,
+                    next_attempt_at=job.next_attempt_at,
+                    lease_token=job.lease_token,
+                    lease_expires_at=job.lease_expires_at,
+                    payload_json=_json(job),
+                )
+            )
+            return job
+
+    def create_idempotent_job(
+        self, actor: str, key: str, request_hash: str, payload: dict
+    ) -> tuple[InsightJob, int]:
+        job = InsightJob.model_validate(payload)
+
+        def save(session: Session) -> tuple[InsightJob, bool]:
+            if session.get(IntelligenceCandidateRow, job.candidate_id) is None:
+                raise MissingInsightRecord(f"candidate {job.candidate_id} was not found")
+            if job.bundle_id and session.get(IntelligenceBundleRow, job.bundle_id) is None:
+                raise InvalidInsightReference(f"bundle {job.bundle_id} was not found")
+            session.add(
+                IntelligenceJobRow(
+                    job_id=job.job_id,
+                    candidate_id=job.candidate_id,
+                    state=job.state,
+                    next_attempt_at=job.next_attempt_at,
+                    lease_token=job.lease_token,
+                    lease_expires_at=job.lease_expires_at,
+                    payload_json=_json(job),
+                )
+            )
+            return job, True
+
+        return self.create_idempotent("job", actor, key, request_hash, InsightJob, save)
+
+    def get_job(self, job_id: str) -> InsightJob | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            return InsightJob.model_validate_json(row.payload_json) if row else None
+
+    def claim_job(self, now: datetime | None = None) -> InsightJob | None:
+        current = _now(now)
+        with self._Session.begin() as session:
+            expired = session.execute(
+                select(IntelligenceJobRow).where(
+                    IntelligenceJobRow.state == "running",
+                    IntelligenceJobRow.lease_expires_at <= current,
+                )
+            ).scalars().all()
+            for row in expired:
+                job = InsightJob.model_validate_json(row.payload_json)
+                job.state = "queued"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.error = "Worker lease expired before completion"
+                job.next_attempt_at = current
+                job.updated_at = current
+                self._write_job(row, job)
+            row = session.execute(
+                select(IntelligenceJobRow)
+                .where(
+                    IntelligenceJobRow.state.in_(["queued", "retryable_failed"]),
+                    (IntelligenceJobRow.next_attempt_at.is_(None))
+                    | (IntelligenceJobRow.next_attempt_at <= current),
+                )
+                .order_by(IntelligenceJobRow.job_id)
+            ).scalars().first()
+            if row is None:
+                return None
+            job = InsightJob.model_validate_json(row.payload_json)
+            job.state = "running"
+            job.attempt_count += 1
+            job.lease_token = str(uuid.uuid4())
+            job.lease_expires_at = current + timedelta(seconds=120)
+            job.next_attempt_at = None
+            job.updated_at = current
+            self._write_job(row, job)
+            return job
+
+    def create_research_request(
+        self, job_id: str, lease_token: str, targets: list[str], questions: list[str],
+        maximum_fetch_count: int, now: datetime | None = None,
+    ) -> ResearchRequest:
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if job.state != "running" or job.lease_token != lease_token or (
+                job.lease_expires_at and job.lease_expires_at <= current
+            ):
+                raise StaleLease("job lease is stale")
+            request = ResearchRequest(
+                job_id=job_id,
+                parent_lease_token=lease_token,
+                targets=targets,
+                questions=questions,
+                maximum_fetch_count=maximum_fetch_count,
+                expires_at=current + timedelta(minutes=10),
+            )
+            job.state = "waiting_research"
+            job.lease_token = None
+            job.lease_expires_at = None
+            job.updated_at = current
+            self._write_job(row, job)
+            session.add(
+                IntelligenceResearchRequestRow(
+                    research_request_id=request.research_request_id,
+                    job_id=request.job_id,
+                    state=request.state,
+                    expires_at=request.expires_at,
+                    lease_token=None,
+                    payload_json=_json(request),
+                )
+            )
+            return request
+
+    def get_research_request(self, request_id: str) -> ResearchRequest | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceResearchRequestRow, request_id)
+            return ResearchRequest.model_validate_json(row.payload_json) if row else None
+
+    def claim_research(
+        self, adapter_id: str, now: datetime | None = None
+    ) -> ResearchRequest | None:
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.execute(
+                select(IntelligenceResearchRequestRow)
+                .where(
+                    IntelligenceResearchRequestRow.state == "queued",
+                    IntelligenceResearchRequestRow.expires_at > current,
+                )
+                .order_by(IntelligenceResearchRequestRow.research_request_id)
+            ).scalars().first()
+            if row is None:
+                return None
+            request = ResearchRequest.model_validate_json(row.payload_json)
+            request.state = "running"
+            request.adapter_id = adapter_id
+            request.lease_token = str(uuid.uuid4())
+            request.lease_expires_at = current + timedelta(seconds=120)
+            self._write_research(row, request)
+            return request
+
+    def submit_research_results(
+        self, request_id: str, lease_token: str, results: list[dict], failures: list[dict],
+        now: datetime | None = None,
+    ) -> ResearchRequest:
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceResearchRequestRow, request_id)
+            if row is None:
+                raise MissingInsightRecord(f"research request {request_id} was not found")
+            request = ResearchRequest.model_validate_json(row.payload_json)
+            if request.state == "complete":
+                return request
+            if request.state != "running" or request.lease_token != lease_token:
+                raise StaleLease("research lease is stale")
+            for result in results:
+                content_hash = str(result.get("content_hash", ""))
+                if len(content_hash) != 64:
+                    raise ValueError("research result requires a content_hash")
+                exists = session.execute(
+                    select(IntelligenceResearchResultRow).where(
+                        IntelligenceResearchResultRow.research_request_id == request_id,
+                        IntelligenceResearchResultRow.content_hash == content_hash,
+                    )
+                ).scalar_one_or_none()
+                if exists is None:
+                    session.add(
+                        IntelligenceResearchResultRow(
+                            research_request_id=request_id,
+                            content_hash=content_hash,
+                            payload_json=json.dumps(result, sort_keys=True),
+                        )
+                    )
+            request.state = "complete"
+            request.completed_at = current
+            request.lease_token = None
+            request.lease_expires_at = None
+            self._write_research(row, request)
+            job_row = session.get(IntelligenceJobRow, request.job_id)
+            if job_row is not None:
+                job = InsightJob.model_validate_json(job_row.payload_json)
+                if job.state == "waiting_research":
+                    job.state = "queued"
+                    job.error = None
+                    job.next_attempt_at = current
+                    job.updated_at = current
+                    self._write_job(job_row, job)
+            return request
+
+    def expire_research_requests(self, now: datetime | None = None) -> None:
+        current = _now(now)
+        with self._Session.begin() as session:
+            rows = session.execute(
+                select(IntelligenceResearchRequestRow).where(
+                    IntelligenceResearchRequestRow.state.in_(["queued", "running"]),
+                    IntelligenceResearchRequestRow.expires_at <= current,
+                )
+            ).scalars().all()
+            for row in rows:
+                request = ResearchRequest.model_validate_json(row.payload_json)
+                request.state = "expired"
+                request.lease_token = None
+                request.lease_expires_at = None
+                self._write_research(row, request)
+                job_row = session.get(IntelligenceJobRow, request.job_id)
+                if job_row is not None:
+                    job = InsightJob.model_validate_json(job_row.payload_json)
+                    if job.state == "waiting_research":
+                        job.state = "queued"
+                        job.error = "Research request expired; evidence gap retained"
+                        job.next_attempt_at = current
+                        job.updated_at = current
+                        self._write_job(job_row, job)
+
+    # --- Budget reservations (E02) ---
+
+    def reserve_budget(self, payload: dict, allowance_micros: int) -> BudgetReservation | None:
+        reservation = BudgetReservation.model_validate(payload)
+        with self._Session.begin() as session:
+            existing = session.execute(
+                select(IntelligenceBudgetReservationRow).where(
+                    IntelligenceBudgetReservationRow.operation_id == reservation.operation_id
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return BudgetReservation.model_validate_json(existing.payload_json)
+            reserved = sum(
+                row.maximum_micros
+                for row in session.execute(
+                    select(IntelligenceBudgetReservationRow).where(
+                        IntelligenceBudgetReservationRow.allowance_class
+                        == reservation.allowance_class,
+                        IntelligenceBudgetReservationRow.state.in_(["reserved", "unknown"]),
+                    )
+                ).scalars()
+            )
+            if reserved + reservation.maximum_micros > allowance_micros:
+                return None
+            session.add(
+                IntelligenceBudgetReservationRow(
+                    reservation_id=reservation.reservation_id,
+                    operation_id=reservation.operation_id,
+                    allowance_class=reservation.allowance_class,
+                    state=reservation.state,
+                    maximum_micros=reservation.maximum_micros,
+                    payload_json=_json(reservation),
+                )
+            )
+            return reservation
+
+    def finalize_budget(
+        self, reservation_id: str, actual_micros: int | str
+    ) -> BudgetReservation | None:
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceBudgetReservationRow, reservation_id)
+            if row is None:
+                return None
+            reservation = BudgetReservation.model_validate_json(row.payload_json)
+            if reservation.state != "reserved":
+                return reservation
+            reservation.state = "unknown" if actual_micros == "unknown" else "finalized"
+            reservation.actual_micros = None if actual_micros == "unknown" else int(actual_micros)
+            reservation.finalized_at = datetime.now(UTC)
+            row.state = reservation.state
+            row.payload_json = _json(reservation)
+            return reservation
+
+    @staticmethod
+    def _write_job(row: IntelligenceJobRow, job: InsightJob) -> None:
+        row.state = job.state
+        row.next_attempt_at = job.next_attempt_at
+        row.lease_token = job.lease_token
+        row.lease_expires_at = job.lease_expires_at
+        row.payload_json = _json(job)
+
+    @staticmethod
+    def _write_research(row: IntelligenceResearchRequestRow, request: ResearchRequest) -> None:
+        row.state = request.state
+        row.expires_at = request.expires_at
+        row.lease_token = request.lease_token
+        row.payload_json = _json(request)
 
     def create_idempotent(
         self,
