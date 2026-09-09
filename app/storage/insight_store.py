@@ -15,14 +15,18 @@ from app.models.insights import (
     Candidate,
     EvidenceBundle,
     InsightJob,
+    InsightRevision,
     IntelligenceBudgetReservationRow,
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
     IntelligenceIdempotencyRow,
+    IntelligenceInsightRow,
     IntelligenceJobRow,
+    IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    PreparedContext,
     ResearchRequest,
     SourceRecord,
 )
@@ -94,6 +98,121 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
+
+    # --- Prepared analysis records (E03) ---
+
+    def save_prepared_context(self, payload: dict) -> PreparedContext:
+        prepared = PreparedContext.model_validate(payload)
+        with self._Session.begin() as session:
+            if session.get(IntelligenceCandidateRow, prepared.candidate_id) is None:
+                raise InvalidInsightReference(f"candidate {prepared.candidate_id} was not found")
+            if session.get(IntelligenceBundleRow, prepared.bundle_id) is None:
+                raise InvalidInsightReference(f"bundle {prepared.bundle_id} was not found")
+            session.add(
+                IntelligencePreparedContextRow(
+                    prepared_context_id=prepared.prepared_context_id,
+                    candidate_id=prepared.candidate_id,
+                    bundle_id=prepared.bundle_id,
+                    validation_status=prepared.validation_status,
+                    context_revision=prepared.context_revision,
+                    payload_json=_json(prepared),
+                )
+            )
+            return prepared
+
+    def get_prepared_context(self, prepared_context_id: str) -> PreparedContext | None:
+        with self._Session() as session:
+            row = session.get(IntelligencePreparedContextRow, prepared_context_id)
+            return PreparedContext.model_validate_json(row.payload_json) if row else None
+
+    def save_insight(self, payload: dict) -> InsightRevision:
+        insight = InsightRevision.model_validate(payload)
+        with self._Session.begin() as session:
+            if session.get(IntelligencePreparedContextRow, insight.prepared_context_id) is None:
+                raise InvalidInsightReference(
+                    f"prepared context {insight.prepared_context_id} was not found"
+                )
+            session.add(
+                IntelligenceInsightRow(
+                    insight_id=insight.insight_id,
+                    prepared_context_id=insight.prepared_context_id,
+                    context_revision=insight.context_revision,
+                    created_at=insight.created_at,
+                    payload_json=_json(insight),
+                )
+            )
+            return insight
+
+    def get_insight(self, insight_id: str) -> InsightRevision | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceInsightRow, insight_id)
+            return InsightRevision.model_validate_json(row.payload_json) if row else None
+
+    def complete_job_analysis(
+        self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,
+        now: datetime | None = None,
+    ) -> InsightRevision:
+        """Persist analysis and job completion in one transaction under the active lease."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            job_row = session.get(IntelligenceJobRow, job_id)
+            if job_row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(job_row.payload_json)
+            if job.state != "running" or job.lease_token != lease_token:
+                raise StaleLease("job lease is stale")
+            if job.bundle_id != prepared.bundle_id or prepared.candidate_id != job.candidate_id:
+                raise InvalidInsightReference("prepared context does not match the leased job")
+            if insight.prepared_context_id != prepared.prepared_context_id:
+                raise InvalidInsightReference("insight does not reference the prepared context")
+            session.add(
+                IntelligencePreparedContextRow(
+                    prepared_context_id=prepared.prepared_context_id,
+                    candidate_id=prepared.candidate_id,
+                    bundle_id=prepared.bundle_id,
+                    validation_status=prepared.validation_status,
+                    context_revision=prepared.context_revision,
+                    payload_json=_json(prepared),
+                )
+            )
+            session.add(
+                IntelligenceInsightRow(
+                    insight_id=insight.insight_id,
+                    prepared_context_id=insight.prepared_context_id,
+                    context_revision=insight.context_revision,
+                    created_at=insight.created_at,
+                    payload_json=_json(insight),
+                )
+            )
+            job.prepared_context_id = prepared.prepared_context_id
+            job.state = "complete"
+            job.completion_disposition = "ready"
+            job.lease_token = None
+            job.lease_expires_at = None
+            job.updated_at = current
+            self._write_job(job_row, job)
+            return insight
+
+    def complete_job_needs_evidence(
+        self, job_id: str, lease_token: str, now: datetime | None = None
+    ) -> InsightJob:
+        """Close an unanalysable job explicitly instead of stranding its lease."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if job.state != "running" or job.lease_token != lease_token:
+                raise StaleLease("job lease is stale")
+            job.state = "complete"
+            job.completion_disposition = "needs_evidence"
+            job.lease_token = None
+            job.lease_expires_at = None
+            job.error = "No evidence bundle is available for analysis"
+            job.updated_at = current
+            self._write_job(row, job)
+            return job
 
     # --- Jobs and acquisition research (E02) ---
 
@@ -330,37 +449,53 @@ class InsightStore:
 
     def reserve_budget(self, payload: dict, allowance_micros: int) -> BudgetReservation | None:
         reservation = BudgetReservation.model_validate(payload)
-        with self._Session.begin() as session:
-            existing = session.execute(
-                select(IntelligenceBudgetReservationRow).where(
-                    IntelligenceBudgetReservationRow.operation_id == reservation.operation_id
-                )
-            ).scalar_one_or_none()
-            if existing is not None:
-                return BudgetReservation.model_validate_json(existing.payload_json)
-            reserved = sum(
-                row.maximum_micros
-                for row in session.execute(
+        # SQLite's deferred transactions allow two workers to read the same
+        # remaining allowance before either writes. Acquire the write lock
+        # before computing the reservation total so the check and insert are
+        # one serializable operation.
+        with self._engine.connect() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            session = Session(bind=connection)
+            try:
+                existing = session.execute(
                     select(IntelligenceBudgetReservationRow).where(
-                        IntelligenceBudgetReservationRow.allowance_class
-                        == reservation.allowance_class,
-                        IntelligenceBudgetReservationRow.state.in_(["reserved", "unknown"]),
+                        IntelligenceBudgetReservationRow.operation_id == reservation.operation_id
                     )
-                ).scalars()
-            )
-            if reserved + reservation.maximum_micros > allowance_micros:
-                return None
-            session.add(
-                IntelligenceBudgetReservationRow(
-                    reservation_id=reservation.reservation_id,
-                    operation_id=reservation.operation_id,
-                    allowance_class=reservation.allowance_class,
-                    state=reservation.state,
-                    maximum_micros=reservation.maximum_micros,
-                    payload_json=_json(reservation),
+                ).scalar_one_or_none()
+                if existing is not None:
+                    connection.commit()
+                    return BudgetReservation.model_validate_json(existing.payload_json)
+                reserved = sum(
+                    row.maximum_micros
+                    for row in session.execute(
+                        select(IntelligenceBudgetReservationRow).where(
+                            IntelligenceBudgetReservationRow.allowance_class
+                            == reservation.allowance_class,
+                            IntelligenceBudgetReservationRow.state.in_(["reserved", "unknown"]),
+                        )
+                    ).scalars()
                 )
-            )
-            return reservation
+                if reserved + reservation.maximum_micros > allowance_micros:
+                    connection.commit()
+                    return None
+                session.add(
+                    IntelligenceBudgetReservationRow(
+                        reservation_id=reservation.reservation_id,
+                        operation_id=reservation.operation_id,
+                        allowance_class=reservation.allowance_class,
+                        state=reservation.state,
+                        maximum_micros=reservation.maximum_micros,
+                        payload_json=_json(reservation),
+                    )
+                )
+                session.flush()
+                connection.commit()
+                return reservation
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                session.close()
 
     def finalize_budget(
         self, reservation_id: str, actual_micros: int | str
