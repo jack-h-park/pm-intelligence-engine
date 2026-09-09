@@ -173,21 +173,22 @@ def build_prd(data: S6BOutputData) -> str:
         return "\n".join(f"- {item}" for item in items) if items else "—"
 
     traceability_md = ""
-    if data.traceability is not None:
+    traceability = getattr(data, "traceability", None)
+    if traceability is not None:
         links = "\n".join(
             f"- **{link.requirement}** — evidence: {', '.join(link.evidence_passage_ids) or 'none'}; {link.decision_rationale}"
-            for link in data.traceability.requirement_links
+            for link in traceability.requirement_links
         ) or "- No requirement-to-evidence links supplied."
         traceability_md = f"""
 ## Decision Traceability
-**Case:** {data.traceability.decision_case_id} revision {data.traceability.decision_case_revision}
-**Status:** {"Provisional" if data.traceability.provisional else "Grounded"}
+**Case:** {traceability.decision_case_id} revision {traceability.decision_case_revision}
+**Status:** {"Provisional" if traceability.provisional else "Grounded"}
 
 ### Requirement Evidence Links
 {links}
 
 ### Proposed Metrics
-{_fmt_list(data.traceability.proposed_metrics)}
+{_fmt_list(traceability.proposed_metrics)}
 """
 
     return f"""# PRD
