@@ -21,6 +21,7 @@ from app.models.insights import (
     SourceRecord,
 )
 from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.storage.insight_store import (
@@ -423,9 +424,20 @@ async def create_delivery_receipt(
     insight_id: str, body: DeliveryReceiptCreate, engine: PMEngine = Depends(get_engine)
 ) -> DeliveryReceiptAccepted:
     try:
-        receipt = _store(engine).save_delivery_receipt(
-            insight_id, body.revision, body.channel, body.state
-        )
+        if body.state == "queued":
+            from config import settings
+
+            receipt = queue_delivery(
+                _store(engine), settings.INTELLIGENCE_MODE, insight_id, body.revision, body.channel
+            )
+            if receipt is None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT, detail="delivery_suppressed"
+                )
+        else:
+            receipt = confirm_delivery(
+                _store(engine), insight_id, body.revision, body.channel, body.state == "sent"
+            )
     except MissingInsightRecord as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     return DeliveryReceiptAccepted(**receipt)

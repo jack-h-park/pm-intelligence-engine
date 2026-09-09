@@ -210,9 +210,10 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
 
 
 def test_authenticated_insight_search_returns_stored_revision(
-    client, auth_headers, candidate_payload, source_payload, bundle_payload
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
 ):
     from app.models.insights import InsightRevision, PreparedContext
+    from config import settings
 
     engine = app.dependency_overrides[get_engine]()
     candidate = engine.insight_store.save_candidate(candidate_payload)
@@ -262,6 +263,13 @@ def test_authenticated_insight_search_returns_stored_revision(
     }
     assert operations.json()["feedback"] == {"recorded": 0, "unknown": 0}
 
+    suppressed = client.post(
+        f"/insights/{insight.insight_id}/delivery-receipts",
+        json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
+        headers=auth_headers,
+    )
+    assert suppressed.status_code == 409
+    monkeypatch.setattr(settings, "INTELLIGENCE_MODE", "insights")
     receipt = client.post(
         f"/insights/{insight.insight_id}/delivery-receipts",
         json={"revision": insight.revision, "channel": "telegram", "state": "queued"},
