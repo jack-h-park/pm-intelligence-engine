@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text, UniqueConstraint
 
 from app.models.workflow import Base
 
@@ -353,3 +353,33 @@ class IntelligenceBudgetReservationRow(Base):
     state = Column(String, nullable=False, index=True)
     maximum_micros = Column(Integer, nullable=False)
     payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceMigrationManifestRow(Base):
+    __tablename__ = "intelligence_migration_manifests"
+
+    manifest_id = Column(String, primary_key=True)
+    manifest_hash = Column(String, nullable=False, unique=True, index=True)
+    payload_json = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
+
+
+class IntelligenceMigrationAliasRow(Base):
+    __tablename__ = "intelligence_migration_aliases"
+    __table_args__ = (UniqueConstraint("manifest_id", "original_id", name="uq_migration_alias"),)
+
+    alias_id = Column(String, primary_key=True)
+    manifest_id = Column(String, nullable=False, index=True)
+    original_id = Column(String, nullable=False)
+    disposition = Column(String, nullable=False)
+    payload_json = Column(Text, nullable=False)
+
+
+class IntelligenceMigrationOverlayRow(Base):
+    __tablename__ = "intelligence_migration_overlays"
+
+    manifest_id = Column(String, primary_key=True)
+    enabled = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )

@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Response, status
@@ -21,6 +22,7 @@ from app.models.insights import (
     SourceRecord,
 )
 from app.services.decision_case import build_decision_case
+from app.services.insight_migration import build_dry_run_manifest
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,
@@ -104,6 +106,34 @@ class ResearchResults(BaseModel):
     lease_token: str = Field(min_length=1)
     results: list[dict]
     failures: list[dict] = Field(default_factory=list)
+
+
+class MigrationManifestAccepted(BaseModel):
+    manifest_id: str
+    manifest_hash: str
+    high_water_candidate_id: str | None
+    records: list[dict]
+
+
+class MigrationImportRequest(_Request):
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    batch_size: int = Field(default=100, ge=1, le=100)
+
+
+class MigrationImportAccepted(BaseModel):
+    manifest_id: str
+    imported_count: int
+    complete: bool
+
+
+class MigrationOverlayRequest(_Request):
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    enabled: bool
+
+
+class MigrationOverlayAccepted(BaseModel):
+    manifest_id: str
+    enabled: bool
 
 
 def _request_hash(body: BaseModel) -> str:
@@ -220,6 +250,92 @@ async def create_decision_request(
         )
     response.status_code = stored_status
     return DecisionRequestAccepted(request_id=result["request_id"], run_id=result["run_id"])
+
+
+@router.post(
+    "/insight-migrations",
+    response_model=MigrationManifestAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_migration_manifest(
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationManifestAccepted:
+    """Create a durable, read-only migration plan; no import or delivery work occurs."""
+    store = _store(engine)
+    manifest = build_dry_run_manifest(store)
+    manifest_id = str(uuid.uuid4())
+    payload = {
+        "manifest_id": manifest_id,
+        "manifest_hash": manifest.manifest_hash,
+        "high_water_candidate_id": manifest.high_water_candidate_id,
+        "records": manifest.records,
+    }
+    stored = store.save_migration_manifest(manifest_id, manifest.manifest_hash, payload)
+    return MigrationManifestAccepted(**stored)
+
+
+@router.get("/insight-migrations/{manifest_id}", response_model=MigrationManifestAccepted)
+async def get_migration_manifest(
+    manifest_id: str, engine: PMEngine = Depends(get_engine)
+) -> MigrationManifestAccepted:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    manifest = engine.insight_store.get_migration_manifest(manifest_id)
+    if manifest is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Migration manifest not found"
+        )
+    return MigrationManifestAccepted(**manifest)
+
+
+@router.post(
+    "/insight-migrations/{manifest_id}/import",
+    response_model=MigrationImportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def import_migration_manifest(
+    manifest_id: str,
+    body: MigrationImportRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationImportAccepted:
+    """Import only reconciled migration metadata; no source or delivery data changes."""
+    try:
+        result = _store(engine).import_migration_manifest(
+            manifest_id, body.manifest_hash, batch_size=body.batch_size
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return MigrationImportAccepted(manifest_id=manifest_id, **result)
+
+
+@router.post("/insight-migrations/{manifest_id}/overlay", response_model=MigrationOverlayAccepted)
+async def set_migration_overlay(
+    manifest_id: str,
+    body: MigrationOverlayRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationOverlayAccepted:
+    """Activate an imported read overlay only when the operator release flag permits it."""
+    from config import settings
+
+    if body.enabled and not settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Migration overlay activation is disabled by the release flag",
+        )
+    try:
+        result = _store(engine).set_migration_overlay(
+            manifest_id, body.manifest_hash, enabled=body.enabled
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return MigrationOverlayAccepted(manifest_id=manifest_id, **result)
 
 
 @router.post("/insight-candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)
