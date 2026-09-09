@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from app.models.insights import InsightRevision
+from app.storage.insight_store import InsightStore
 
 
 def project_insight(insight: InsightRevision, projection_root: str | Path) -> Path:
@@ -35,3 +36,8 @@ def reconcile_projections(
 ) -> list[Path]:
     """Restore every current derived projection from authoritative stored revisions."""
     return [project_insight(insight, projection_root) for insight in current_insights]
+
+
+def reconcile_store_projections(store: InsightStore, projection_root: str | Path) -> list[Path]:
+    """Rebuild the derived current view from the store without reading wiki content."""
+    return reconcile_projections(store.list_current_insights(), projection_root)
