@@ -15,6 +15,7 @@ from app.logging import emit_event
 from app.llm.protocol import LLMProvider
 from app.models.stages import (
     PersonaOutput,
+    DisagreementMatrix,
     RunContext,
     S4Input,
     S4Output,
@@ -24,6 +25,7 @@ from app.models.stages import (
 from app.storage.protocol import PMWorkflowStore
 from app.models.stages import S4RubricResult
 from app.services.template_service import TemplateService
+from app.services.disagreement_matrix import build_disagreement_matrix
 from eval.rubrics.s4_rubric import check as check_s4_rubric
 
 
@@ -73,7 +75,16 @@ async def run(
 
     rubric = check_s4_rubric(personas, context.product_context)
 
-    output_data = S4OutputData(personas=personas, rubric=rubric)
+    disagreement_matrix = (
+        build_disagreement_matrix(personas)
+        if context.decision_pipeline_version == "evidence_v1"
+        else None
+    )
+    output_data = S4OutputData(
+        personas=personas,
+        rubric=rubric,
+        disagreement_matrix=disagreement_matrix,
+    )
     output = S4Output(
         run_id=context.run_id,
         version=stage_input.version,
@@ -90,7 +101,7 @@ async def run(
     store.save_artifact(
         run_id=context.run_id,
         artifact_type="evaluation_brief",
-        content_md=build_evaluation_brief(personas, rubric),
+        content_md=build_evaluation_brief(personas, rubric, disagreement_matrix),
         source_stage="s4",
     )
 
@@ -115,7 +126,11 @@ _PERSONA_LABELS = {
 }
 
 
-def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult) -> str:
+def build_evaluation_brief(
+    personas: list[PersonaOutput],
+    rubric: S4RubricResult,
+    disagreement_matrix: DisagreementMatrix | None = None,
+) -> str:
     rows = []
     for p in personas:
         label, icon = _PERSONA_LABELS.get(p.persona, (p.dimension, ""))
@@ -137,6 +152,21 @@ def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult
     if rubric.issues:
         issues_md = "\n\n## Rubric Issues\n" + "\n".join(f"- {i}" for i in rubric.issues)
 
+    positions_md = ""
+    if disagreement_matrix is not None:
+        rows = "\n".join(
+            "| {option} | {status} | {positions} |".format(
+                option=row.option,
+                status=row.status,
+                positions=", ".join(
+                    f"{persona}: {position}" for persona, position in row.positions.items()
+                ),
+            )
+            for row in disagreement_matrix.options
+        )
+        positions_md = "\n\n## Option Positions\n| Option | State | Independent positions |\n|---|---|---|\n"
+        positions_md += rows or "| No option positions supplied | insufficient_assessment | — |"
+
     return f"""# Evaluation Brief
 
 ## Persona Scores
@@ -155,7 +185,7 @@ def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult
 | Score Grounding | {rubric.score_grounding}/3 |
 | Skeptic Quality | {rubric.skeptic_quality}/3 |
 | Open Question Quality | {rubric.open_question_quality}/3 |
-| Persona Independence | {rubric.persona_independence}/3 |{issues_md}
+| Persona Independence | {rubric.persona_independence}/3 |{positions_md}{issues_md}
 """
 
 

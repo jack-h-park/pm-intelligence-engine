@@ -23,6 +23,7 @@ class RoutingReviewRequest(BaseModel):
     action: str  # "confirm" or "override"
     routing: Optional[str] = None  # required when action == "override": "poc" | "prd" | "kill"
     reason: Optional[str] = None  # optional PM note
+    selected_option: Optional[str] = None
 
 
 def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict:
@@ -63,22 +64,24 @@ async def routing_review(
 
     if body.action == "confirm":
         routing = run.get("routing", "kill")
-        _record_routing_decision(engine, run_id, "confirm", routing, s5_recommended, body.reason)
+        _record_routing_decision(engine, run_id, "confirm", routing, s5_recommended, body.reason, body.selected_option)
         return await _apply_routing(run_id, routing, engine, background_tasks, body.reason, confirmed=True)
 
     # override: PM changes the routing from S5's recommendation
     effective_routing = body.routing
-    _record_routing_decision(engine, run_id, "override", effective_routing, s5_recommended, body.reason)
+    _record_routing_decision(engine, run_id, "override", effective_routing, s5_recommended, body.reason, body.selected_option)
     engine.store.update_run(run_id, routing=effective_routing)
     return await _apply_routing(run_id, effective_routing, engine, background_tasks, body.reason, confirmed=False)
 
 
-def _record_routing_decision(engine, run_id, action, chosen, recommended, reason):
+def _record_routing_decision(engine, run_id, action, chosen, recommended, reason, selected_option=None):
     """Persist the Gate 3 decision as a labeled calibration datapoint (US-44):
     what S5 recommended vs what the PM chose."""
     note = f"chose={chosen}; recommended={recommended}"
     if reason:
         note += f"; reason={reason}"
+    if selected_option:
+        note += f"; selected_option={selected_option}"
     engine.store.record_approval(run_id=run_id, stage="s5", action=action, feedback_text=note)
 
 

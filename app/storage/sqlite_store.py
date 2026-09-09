@@ -176,6 +176,16 @@ class SQLiteStore:
                         "ADD COLUMN origin VARCHAR NOT NULL DEFAULT 'start'"
                     )
                 )
+        if "decision_pipeline_version" not in {
+            c["name"] for c in inspect(self._engine).get_columns("workflow_runs")
+        }:
+            with self._engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN decision_pipeline_version "
+                        "VARCHAR NOT NULL DEFAULT 'legacy'"
+                    )
+                )
 
         # (The legacy `ended_by` column was added here in US-52 and dropped in
         # US-55 step 7d-3 — its terminal-reason now lives in `reason`.)
@@ -402,7 +412,7 @@ class SQLiteStore:
     # --- WorkflowRun ---
 
     @staticmethod
-    def _create_decision_request_run(session, case) -> dict:
+    def _create_decision_request_run(session, case, pipeline_version: str = "legacy") -> dict:
         input_title = (
             "Insight-backed product decision input"
             if "insight" in case.input_origins
@@ -423,6 +433,7 @@ class SQLiteStore:
             signal_id=signal.signal_id,
             attempt_no=1,
             origin="decision_request",
+            decision_pipeline_version=pipeline_version,
             lifecycle="running",
             position=None,
             outcome=None,
@@ -447,7 +458,7 @@ class SQLiteStore:
         )
         return {"signal_id": signal.signal_id, "run_id": run.run_id}
 
-    def create_decision_request_run(self, case) -> dict:
+    def create_decision_request_run(self, case, pipeline_version: str = "legacy") -> dict:
         """Create the legacy-compatible signal, run, and case link atomically.
 
         The signal is deliberately typed as a direct decision input through its
@@ -459,10 +470,10 @@ class SQLiteStore:
         if not isinstance(case, DecisionCase):
             raise TypeError("case must be a DecisionCase")
         with self._Session.begin() as session:
-            return self._create_decision_request_run(session, case)
+            return self._create_decision_request_run(session, case, pipeline_version)
 
     def create_idempotent_decision_request(
-        self, actor: str, idempotency_key: str, request_hash: str, case
+        self, actor: str, idempotency_key: str, request_hash: str, case, pipeline_version: str = "legacy"
     ) -> tuple[dict, int]:
         """Atomically create or replay the one workflow-side request result."""
         from app.models.decision_case import DecisionCase
@@ -482,7 +493,7 @@ class SQLiteStore:
                     "signal_id": existing.signal_id,
                     "run_id": existing.run_id,
                 }, 200
-            result = self._create_decision_request_run(session, case)
+            result = self._create_decision_request_run(session, case, pipeline_version)
             request = DecisionRequestRecord(
                 actor=actor,
                 idempotency_key=idempotency_key,
@@ -549,6 +560,7 @@ class SQLiteStore:
         signal_id: str,
         batch_id: Optional[str] = None,
         origin: str = "start",
+        decision_pipeline_version: str = "legacy",
     ) -> str:
         with self._Session() as session:
             # Derive retry lineage from prior runs of the same (signal_id,
@@ -591,6 +603,7 @@ class SQLiteStore:
                 attempt_no=attempt_no,
                 root_run_id=root_run_id,
                 origin=origin,
+                decision_pipeline_version=decision_pipeline_version,
                 # Authoritative initial state (US-55 step 7d-1): a fresh run is live
                 # with no position yet. advance("s1") sets the first position.
                 lifecycle="running",
@@ -986,6 +999,7 @@ class SQLiteStore:
             "attempt_no": r.attempt_no,
             "root_run_id": r.root_run_id,
             "origin": r.origin,
+            "decision_pipeline_version": r.decision_pipeline_version,
             # Canonical (position, lifecycle) run-state columns.
             "lifecycle": r.lifecycle,
             "position": r.position,

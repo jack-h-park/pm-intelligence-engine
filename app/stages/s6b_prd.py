@@ -14,7 +14,9 @@ from app.models.stages import (
     S6BOutput,
     S6BOutputData,
     StageMetadata,
+    RequirementEvidenceLink,
 )
+from app.services.artifact_traceability import build_artifact_traceability, selected_option_from_approvals
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
@@ -36,6 +38,13 @@ _JSON_SCHEMA = """{
   "open_questions": ["<question — owner: [role]>"],
   "risks": ["<risk description>"]
 }"""
+
+_EVIDENCE_V1_JSON_SCHEMA = _JSON_SCHEMA.replace(
+    '"risks": ["<risk description>"]',
+    '"risks": ["<risk description>"],\n'
+    '  "requirement_evidence_links": [{"requirement": "<exact requirement>", "evidence_passage_ids": ["<pinned case passage ID>"], "decision_rationale": "<why this supports the requirement>"}],\n'
+    '  "proposed_metrics": ["Proposed: <metric>; baseline unknown or measured baseline; target requires validation."]',
+)
 
 
 async def run(
@@ -89,13 +98,14 @@ Produce a PRD that an engineer unfamiliar with this run can implement with at mo
 
 Respond with a single JSON object matching this schema exactly — no markdown, no commentary:
 
-{_JSON_SCHEMA}
+{_EVIDENCE_V1_JSON_SCHEMA if context.decision_pipeline_version == "evidence_v1" else _JSON_SCHEMA}
 
 Rules:
 - user_stories must have at least 3 entries; each must be independently testable.
 - out_of_scope must have at least 2 explicit exclusions.
 - success_metrics must have at least 2 entries, each with a measurement method.
-- open_questions must name a suggested owner role in parentheses."""
+- open_questions must name a suggested owner role in parentheses.
+- In evidence_v1, requirement_evidence_links may only use IDs from the pinned DecisionCase; write "baseline unknown" rather than inventing a baseline."""
 
     usage_sink: list = []
     data = await complete_json(
@@ -110,7 +120,25 @@ Rules:
         max_tokens=2048,
     )
     completeness = _compute_completeness(data)
-    output_data = S6BOutputData(**data, completeness=completeness)
+    requirement_links = [
+        RequirementEvidenceLink(**link) for link in data.pop("requirement_evidence_links", [])
+    ]
+    proposed_metrics = [str(metric) for metric in data.pop("proposed_metrics", [])]
+    approved_option, override_rationale = selected_option_from_approvals(
+        store.get_approval_events(context.run_id)
+    )
+    output_data = S6BOutputData(
+        **data,
+        completeness=completeness,
+        traceability=(
+            build_artifact_traceability(
+                context.decision_case, s5.readiness, requirement_links, proposed_metrics,
+                approved_option, override_rationale,
+            )
+            if context.decision_pipeline_version == "evidence_v1"
+            else None
+        ),
+    )
 
     output = S6BOutput(
         run_id=context.run_id,
@@ -144,6 +172,25 @@ def build_prd(data: S6BOutputData) -> str:
     def _fmt_list(items: list[str]) -> str:
         return "\n".join(f"- {item}" for item in items) if items else "—"
 
+    traceability_md = ""
+    traceability = getattr(data, "traceability", None)
+    if traceability is not None:
+        links = "\n".join(
+            f"- **{link.requirement}** — evidence: {', '.join(link.evidence_passage_ids) or 'none'}; {link.decision_rationale}"
+            for link in traceability.requirement_links
+        ) or "- No requirement-to-evidence links supplied."
+        traceability_md = f"""
+## Decision Traceability
+**Case:** {traceability.decision_case_id} revision {traceability.decision_case_revision}
+**Status:** {"Provisional" if traceability.provisional else "Grounded"}
+
+### Requirement Evidence Links
+{links}
+
+### Proposed Metrics
+{_fmt_list(traceability.proposed_metrics)}
+"""
+
     return f"""# PRD
 
 ## Problem Statement
@@ -175,6 +222,7 @@ def build_prd(data: S6BOutputData) -> str:
 
 ---
 **Completeness:** {data.completeness.score}/12
+{traceability_md}
 """
 
 
