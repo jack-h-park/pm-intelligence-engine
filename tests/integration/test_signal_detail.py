@@ -64,5 +64,24 @@ def test_list_omits_raw_content(client, engine):
     assert "raw_content" not in items[0]
 
 
+def test_list_filters_by_source_ref_for_idempotent_intake_recovery(client, engine):
+    """Ignoring source_ref would make a failed intake retry create a duplicate signal."""
+    wanted = engine.store.save_signal(
+        title="S2K-held source",
+        raw_content=_BODY,
+        source_ref="s2k:6c9be5f1",
+    )
+    engine.store.save_signal(
+        title="Different source",
+        raw_content=_BODY,
+        source_ref="s2k:other",
+    )
+
+    resp = client.get("/signals", params={"source_ref": "s2k:6c9be5f1"})
+
+    assert resp.status_code == 200
+    assert [item["signal_id"] for item in resp.json()] == [wanted]
+
+
 def test_detail_unknown_signal_404(client):
     assert client.get("/signals/does-not-exist").status_code == 404

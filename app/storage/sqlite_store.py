@@ -284,6 +284,7 @@ class SQLiteStore:
         original_product_id: Optional[str] = None,
         status: Optional[str] = None,
         tag: Optional[str] = None,
+        source_ref: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -292,6 +293,8 @@ class SQLiteStore:
                 q = q.filter(Signal.original_product_id == original_product_id)
             if status:
                 q = q.filter(Signal.status == SignalStatus(status))
+            if source_ref:
+                q = q.filter(Signal.source_ref == source_ref)
             if tag:
                 # Normalised at the boundary so a caller can pass the tag as typed.
                 q = q.filter(

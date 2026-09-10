@@ -31,6 +31,8 @@ class PMWorkflowStore(Protocol):
         self,
         original_product_id: Optional[str] = None,
         status: Optional[str] = None,
+        tag: Optional[str] = None,
+        source_ref: Optional[str] = None,
         limit: int = 50,
     ) -> list[dict]: ...
 
