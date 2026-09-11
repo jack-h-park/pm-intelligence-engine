@@ -19,18 +19,12 @@ on:
 
 jobs:
   check:
-    # Self-hosted. The job is a ~3-second grep over the PR's own text with no
-    # checkout, but GitHub-hosted runners bill per job rounded up to a minute,
-    # and `edited` fires on every description edit — which is the case this
-    # check exists for, so that trigger stays. Measured over its first three
-    # days it was the fastest-growing consumer of this account's included
-    # Actions minutes (12 runs in one day) at 3s of real work each. On a
-    # self-hosted runner that costs nothing.
-    #
-    # What changes on a runner that is not rebuilt per job: see the RUNNER_TEMP
-    # note below. A disconnected runner queues this check as pending rather
-    # than failing it; the host's runner watchdog covers that.
-    runs-on: [self-hosted, ops-host]
+    # GitHub-hosted, deliberately, and it must stay that way while this repo is
+    # public. Hosted minutes are free for public repos, so there is nothing to
+    # save — and a self-hosted runner must never serve a public repo: a pull
+    # request from a fork can edit this file, GitHub runs the PR's version of
+    # it, and that would execute arbitrary code on the runner's machine.
+    runs-on: ubuntu-latest
     steps:
       - name: Check PR title and description
         env:
@@ -43,11 +37,10 @@ jobs:
             exit 0
           fi
 
-          # $RUNNER_TEMP, not /tmp. On a hosted runner /tmp vanished with the VM;
-          # on a self-hosted one it persists across jobs and is shared by every
-          # runner on the host — and this file holds exactly the PR text that
-          # may contain a term this check exists to keep out of circulation.
-          # The runner empties $RUNNER_TEMP after each job.
+          # $RUNNER_TEMP rather than /tmp: the runner's own scratch space, cleared
+          # after each job on any kind of runner. This file holds exactly the PR
+          # text that may contain a term this check exists to keep out of
+          # circulation, so it should not outlive the job anywhere.
           pr_text="$RUNNER_TEMP/pr_text.txt"
           printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" > "$pr_text"
 
