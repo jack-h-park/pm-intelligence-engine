@@ -20,7 +20,7 @@
 #
 # See docs/ARCHITECTURE.md Section 11 for the full hosting and Tailscale setup.
 
-.PHONY: start stop restart status logs dev \
+.PHONY: start stop restart status logs dev fixture-replay \
         service-start service-stop service-restart service-status service-logs \
         install-service uninstall-service \
         test eval lint
@@ -105,6 +105,9 @@ service-logs:
 
 dev:
 	uvicorn app.api.main:app --reload
+
+fixture-replay:
+	python -m app.s2k_fixture_replay
 
 
 # ---------------------------------------------------------------------------
