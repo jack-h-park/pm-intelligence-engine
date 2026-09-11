@@ -52,9 +52,11 @@ def _display_status(run: dict[str, Any]) -> str:
     """Reconstruct the legacy display-status key from the canonical columns."""
     lifecycle = run.get("lifecycle")
     if lifecycle == "done":
-        return _OUTCOME_STATUS.get(run.get("outcome"), "unknown")
+        outcome = run.get("outcome")
+        return _OUTCOME_STATUS.get(outcome, "unknown") if isinstance(outcome, str) else "unknown"
     if lifecycle == "paused":
-        return _GATE_STATUS.get(run.get("position"), "running")
+        position = run.get("position")
+        return _GATE_STATUS.get(position, "running") if isinstance(position, str) else "running"
     if lifecycle == "running":
         return "running"
     return "unknown"

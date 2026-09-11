@@ -18,7 +18,6 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TypeVar
 
 from pydantic import BaseModel
 
@@ -33,8 +32,6 @@ from app.models.stages import (
     S7OutputData,
 )
 from app.storage.protocol import PMWorkflowStore
-
-_StageModel = TypeVar("_StageModel", bound=BaseModel)
 
 
 def export_run(
@@ -192,12 +189,12 @@ def _render_s6b(s6b: S6BOutputData, date_str: str) -> str:
     return _archive_doc("Stage 6B: PRD", [f"**Date:** {date_str}"], build_prd(s6b))
 
 
-def _load_stage(
+def _load_stage[T: BaseModel](
     store: PMWorkflowStore,
     run_id: str,
     stage: str,
-    model_class: type[_StageModel],
-) -> _StageModel | None:
+    model_class: type[T],
+) -> T | None:
     raw = store.get_stage_output(run_id, stage)
     if raw is None:
         return None

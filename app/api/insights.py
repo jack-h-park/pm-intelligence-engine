@@ -37,6 +37,7 @@ from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.storage.insight_store import (
     IdempotencyConflict,
+    InsightStore,
     InvalidInsightReference,
     MissingInsightRecord,
     StaleLease,
@@ -219,7 +220,7 @@ def _actor_fingerprint(authorization: str | None) -> str:
     return hashlib.sha256((authorization or "").encode("utf-8")).hexdigest()
 
 
-def _store(engine: PMEngine):
+def _store(engine: PMEngine) -> InsightStore:
     from config import settings
 
     if not settings.INSIGHT_WRITES_ENABLED:
@@ -235,7 +236,7 @@ def _store(engine: PMEngine):
     return engine.insight_store
 
 
-def _processing_store(engine: PMEngine):
+def _processing_store(engine: PMEngine) -> InsightStore:
     from config import settings
 
     store = _store(engine)

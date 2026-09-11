@@ -1,3 +1,4 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -20,7 +21,7 @@ from app.api.void import router as void_router
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.agents.builder import BuilderAgent
     from app.agents.explorer import ExplorerAgent
     from app.agents.skeptic import SkepticAgent

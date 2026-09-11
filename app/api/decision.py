@@ -148,7 +148,7 @@ async def decide(
             from app.api.runs import reopen_run
 
             resp = await reopen_run(run_id, engine)
-            return resp.model_dump() if hasattr(resp, "model_dump") else resp
+            return resp.model_dump()
         raise _invalid(action, state, "advance_to {target} (deepen) | advance (reopen)")
 
     # --- Any other non-terminal state: administrative void ---------------

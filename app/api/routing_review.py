@@ -69,7 +69,9 @@ async def routing_review(
             run_id, routing, engine, background_tasks, body.reason, confirmed=True
         )
 
-    # override: PM changes the routing from S5's recommendation
+    # override: PM changes the routing from S5's recommendation. Already
+    # validated non-None above (action == "override" requires a valid routing).
+    assert body.routing is not None
     effective_routing = body.routing
     _record_routing_decision(
         engine, run_id, "override", effective_routing, s5_recommended, body.reason
@@ -80,7 +82,14 @@ async def routing_review(
     )
 
 
-def _record_routing_decision(engine, run_id, action, chosen, recommended, reason):
+def _record_routing_decision(
+    engine: PMEngine,
+    run_id: str,
+    action: str,
+    chosen: str | None,
+    recommended: Any,
+    reason: str | None,
+) -> None:
     """Persist the Gate 3 decision as a labeled calibration datapoint (US-44):
     what S5 recommended vs what the PM chose."""
     note = f"chose={chosen}; recommended={recommended}"

@@ -1,5 +1,7 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
+from typing import Literal
+
 from app.factory import build_insight_llm_provider
 from app.llm.protocol import LLMProvider
 from app.models.insights import InsightRevision, PreparedContext
@@ -26,7 +28,7 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     if not bundle.passages:
         store.complete_job_needs_evidence(job.job_id, job.lease_token or "")
         return None
-    status = "valid" if bundle.passages else "needs_evidence"
+    status: Literal["valid", "needs_evidence"] = "valid" if bundle.passages else "needs_evidence"
     prepared = PreparedContext(
         candidate_id=candidate.candidate_id,
         bundle_id=bundle.bundle_id,

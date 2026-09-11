@@ -6,7 +6,9 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
+from app.models.stages import PortfolioTriageOutput, ProductRelevance, RunContext, S2OutputData
 from app.services import runtime_overrides
+from config import Settings
 
 # Actions that mean "the system chose this depth, not the PM". Both are revivable by
 # `reopen`; a PM's own `direction` never is.
@@ -110,7 +112,7 @@ class RunResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _depth_from_store_mode(cls, data):
+    def _depth_from_store_mode(cls, data: Any) -> Any:
         # The store dict still uses the legacy "mode" key; surface it as the
         # canonical `depth`. `mode` is no longer returned in the response (US-43
         # deprecation complete) — clients read `depth`. Input still accepts `mode`
@@ -418,7 +420,7 @@ async def _start_fanout_runs(
     )
 
 
-def _select_primary(triage) -> str | None:
+def _select_primary(triage: PortfolioTriageOutput) -> str | None:
     """The fan-out primary: highest-relevance product among the relevant set.
 
     Returns None when Triage found nothing relevant (no run is spawned). ``max``
@@ -430,7 +432,7 @@ def _select_primary(triage) -> str | None:
     return max(relevant, key=lambda p: p.relevance_score).product_id
 
 
-def _triage_dict_with_family(product_relevance) -> dict[str, Any]:
+def _triage_dict_with_family(product_relevance: ProductRelevance) -> dict[str, Any]:
     """Triage verdict enriched with its product family, so ops can group the
     deferred candidates it offers for promotion ("also relevant, same family")."""
     from config import family_of
@@ -445,8 +447,9 @@ def _inherited_depth(siblings: list[dict[str, Any]]) -> str | None:
     chosen depth (the first sibling with a depth set), else None (the promoted
     run then takes its own Gate 1 — there is no depth to carry yet)."""
     for r in siblings:
-        if r.get("mode"):
-            return r["mode"]
+        mode = r.get("mode")
+        if mode:
+            return str(mode)
     return None
 
 
@@ -813,6 +816,8 @@ async def reopen_run(
     emit_event("run", "reopened", run_id, {"from": revivable[-1]})
 
     updated = engine.store.get_run(run_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Run not found")
     return RunResponse(**updated, gate3_review=None)
 
 
@@ -1009,7 +1014,7 @@ async def _execute_s1_s2(
 async def _continue_after_direction(
     run_id: str,
     mode: str,
-    context,
+    context: RunContext,
     engine: PMEngine,
 ) -> None:
     """Advance a run from S2 to its chosen depth's target, pausing at any gate.
@@ -1043,7 +1048,9 @@ async def _continue_after_direction(
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
-async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict[str, Any]) -> None:
+async def _pause_at_gate2(
+    run_id: str, context: RunContext, engine: PMEngine, s2_raw: dict[str, Any]
+) -> None:
     """Pause a decide run at Gate 2 (post-S4 human approval) and notify the PM."""
     import json as _json
 
@@ -1052,6 +1059,8 @@ async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict[s
     from config import review_url_for as _notify_review_url
 
     s4_raw = engine.store.get_stage_output(run_id, "s4")
+    if s4_raw is None:
+        raise ValueError(f"Run {run_id} has no s4 output at Gate 2")
     s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
 
     engine.store.pause(run_id, "s4")
@@ -1081,8 +1090,8 @@ def _archive_auto_triaged_if_enabled(
     run_id: str,
     product_id: str,
     signal_title: str,
-    s2_output,  # S2OutputData — avoid circular import at module level
-    settings_obj,
+    s2_output: S2OutputData,
+    settings_obj: Settings,
 ) -> None:
     """Archive auto-triaged signals locally only while the legacy cutover flag is on."""
     if not settings_obj.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED:
@@ -1101,7 +1110,7 @@ def _archive_auto_triaged(
     run_id: str,
     product_id: str,
     signal_title: str,
-    s2_output,  # S2OutputData — avoid circular import at module level
+    s2_output: S2OutputData,
     wiki_root: str,
 ) -> None:
     """Delegate to wiki_sync.archive_auto_triaged; swallow OSError so run never fails."""

@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
+from app.models.stages import RunContext
 
 router = APIRouter(prefix="/runs", tags=["approvals"])
 
@@ -139,7 +140,9 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
-async def _pause_at_gate3(run_id: str, run: dict[str, Any], context, engine: PMEngine) -> None:
+async def _pause_at_gate3(
+    run_id: str, run: dict[str, Any], context: RunContext, engine: PMEngine
+) -> None:
     """Pause a decide run at Gate 3 (post-S5 routing review) and notify the PM.
 
     Reads the stored S5/S4 outputs rather than threading them in, so the caller is
@@ -149,12 +152,12 @@ async def _pause_at_gate3(run_id: str, run: dict[str, Any], context, engine: PME
     from app.logging import emit_event
     from app.models.stages import S4OutputData, S5OutputData
 
-    s5 = S5OutputData(
-        **json.loads(engine.store.get_stage_output(run_id, "s5")["output_json"])["output"]
-    )
-    s4 = S4OutputData(
-        **json.loads(engine.store.get_stage_output(run_id, "s4")["output_json"])["output"]
-    )
+    s5_raw = engine.store.get_stage_output(run_id, "s5")
+    s4_raw = engine.store.get_stage_output(run_id, "s4")
+    if s5_raw is None or s4_raw is None:
+        raise ValueError(f"Run {run_id} is missing s4 or s5 output at Gate 3")
+    s5 = S5OutputData(**json.loads(s5_raw["output_json"])["output"])
+    s4 = S4OutputData(**json.loads(s4_raw["output_json"])["output"])
 
     engine.store.pause(run_id, "s5")
     emit_event(

@@ -58,7 +58,9 @@ async def set_direction(
             detail=f"Unknown origin '{body.origin}'. Must be one of: "
             f"{', '.join(sorted(AUTOMATED_ORIGINS))} (omit it for a human decision)",
         )
-    body.depth = normalize_mode(body.depth)  # accept legacy file/brief/opportunity (US-43)
+    normalized_depth = normalize_mode(body.depth)  # accept legacy file/brief/opportunity (US-43)
+    assert normalized_depth is not None, "normalize_mode(str) only returns None for None input"
+    body.depth = normalized_depth
     if body.depth not in _VALID_MODES:
         raise HTTPException(
             status_code=422,
