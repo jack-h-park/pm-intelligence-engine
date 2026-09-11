@@ -268,6 +268,22 @@ def test_list_runs_rejects_unknown_event(client):
     assert resp.status_code == 422
 
 
+def test_list_runs_filters_by_signal_id(client, engine):
+    matching_signal = _seed_signal(engine)
+    other_signal = engine.store.save_signal(
+        original_product_id="example-security-product",
+        title="A different signal",
+        raw_content="Different signal text.",
+    )
+    matching_run = engine.store.create_run("example-security-product", matching_signal)
+    engine.store.create_run("example-security-product", other_signal)
+
+    resp = client.get("/runs", params={"signal_id": matching_signal})
+
+    assert resp.status_code == 200
+    assert [run["run_id"] for run in resp.json()] == [matching_run]
+
+
 def test_list_runs_since_filter(client, engine):
     run_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
 
