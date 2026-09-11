@@ -1,6 +1,5 @@
-from typing import Any
-
 import json
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
@@ -112,7 +111,7 @@ class RunResponse(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def _depth_from_store_mode(cls, data):
-        # The store dict[str, Any] still uses the legacy "mode" key; surface it as the
+        # The store dict still uses the legacy "mode" key; surface it as the
         # canonical `depth`. `mode` is no longer returned in the response (US-43
         # deprecation complete) — clients read `depth`. Input still accepts `mode`
         # as an alias (see RunStartRequest/PromoteRequest). The leftover "mode" key
@@ -143,7 +142,8 @@ class BatchStartResponse(BaseModel):
 
     batch_id: str
     runs: list[RunResponse]
-    triage: list[dict[str, Any]]  # per-product verdicts (product_id, relevance_score, reason, relevant)
+    # per-product verdicts (product_id, relevance_score, reason, relevant)
+    triage: list[dict[str, Any]]
 
 
 class ScanResponse(BaseModel):

@@ -5,7 +5,7 @@ with a falsifiable hypothesis.
 """
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import RunContext, S3Input, S3Output, S3OutputData, StageMetadata
 from app.services.decision_case import render_decision_case
@@ -30,7 +30,7 @@ async def run(
 ) -> S3Output:
     from config import settings
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s3")
 
     system_message = (
@@ -83,7 +83,7 @@ Rules:
   may erase the value, e.g. by shipping a native capability)? Choose "transient"
   only when there is a concrete reason the window may close; otherwise "durable"."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[

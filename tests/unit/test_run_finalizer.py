@@ -317,7 +317,7 @@ async def test_maybe_export_calls_export_run_for_decide_mode(tmp_path):
     with patch("app.services.run_exporter.export_run", return_value=fake_path) as mock_export_run:
         with patch("config.settings") as mock_settings:
             with patch("app.logging.emit_event") as mock_emit:
-                mock_settings.DECISION_SYSTEM_ROOT = str(tmp_path)
+                mock_settings.decision_system_root = str(tmp_path)
                 _maybe_export("run-abc", engine)
 
     mock_export_run.assert_called_once_with(
@@ -344,7 +344,7 @@ async def test_maybe_export_emits_skipped_on_os_error():
     with patch("app.services.run_exporter.export_run", side_effect=OSError("disk full")):
         with patch("config.settings") as mock_settings:
             with patch("app.logging.emit_event") as mock_emit:
-                mock_settings.DECISION_SYSTEM_ROOT = "/nonexistent"
+                mock_settings.decision_system_root = "/nonexistent"
                 _maybe_export("run-abc", engine)
 
     skipped_calls = [c for c in mock_emit.call_args_list if c.args[1] == "export_skipped"]

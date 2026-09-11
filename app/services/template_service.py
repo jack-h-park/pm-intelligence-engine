@@ -1,7 +1,6 @@
-from typing import Any
-
 import re
 from pathlib import Path
+from typing import Any
 
 
 def _parse_sections(text: str) -> dict[str, Any]:

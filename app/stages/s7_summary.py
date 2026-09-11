@@ -12,7 +12,7 @@ Output is saved as both a StageOutput and an Artifact (Markdown).
 import json
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     RunContext,
@@ -54,7 +54,7 @@ async def run(
     """Synthesize all prior stage outputs into an executive summary."""
     from config import settings
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s7")
 
     # Load S1–S4 outputs from store (S5/S6 come from stage_input)
@@ -139,7 +139,7 @@ Rules:
 - "markdown" must include a Run Summary table filled with actual data from the stages that ran.
 - A stakeholder who reads only the markdown should understand what was done and why."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[

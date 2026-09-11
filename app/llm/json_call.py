@@ -29,7 +29,8 @@ def parse_json(raw: str) -> dict[str, Any]:
     if text.startswith("```"):
         lines = text.splitlines()
         text = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-    return json.loads(text)
+    parsed: dict[str, Any] = json.loads(text)
+    return parsed
 
 
 async def complete_json(
@@ -40,7 +41,7 @@ async def complete_json(
     run_id: str,
     max_repair_attempts: int = MAX_REPAIR_ATTEMPTS,
     usage_sink: list[Usage] | None = None,
-    **llm_kwargs,
+    **llm_kwargs: Any,
 ) -> dict[str, Any]:
     """Call the LLM and parse its response as JSON, repairing on parse failure.
 

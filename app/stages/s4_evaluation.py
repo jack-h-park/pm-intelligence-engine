@@ -11,7 +11,7 @@ from app.agents.builder import BuilderAgent
 from app.agents.explorer import ExplorerAgent
 from app.agents.skeptic import SkepticAgent
 from app.agents.strategist import StrategistAgent
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     PersonaOutput,
@@ -39,7 +39,7 @@ async def run(
     agents = [ExplorerAgent(), StrategistAgent(), BuilderAgent(), SkepticAgent()]
 
     # Persona lens + question are owned by decision-context (US-37); load once.
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     prompts = {
         agent.persona: template_service.load_persona_prompt(agent.persona) for agent in agents
     }
@@ -47,7 +47,7 @@ async def run(
     # Parallel execution — agents cannot see each other's outputs. All four share
     # one usage_sink; each appends its call's tokens (asyncio.gather on a single
     # event loop, so list.append between awaits is safe) → S4 stage total.
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     personas: list[PersonaOutput] = list(
         await asyncio.gather(
             *[

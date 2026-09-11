@@ -7,14 +7,12 @@ The page uses plain fetch() calls to POST to the existing JSON API endpoints
 (/approve, /revise, /reject), so no new backend logic is needed here.
 The Telegram Gate 2 notification includes a link to this page.
 """
-from typing import Any
-
 # ruff: noqa: E501 — this module's long lines are inline HTML/CSS inside the
 # f-string templates below, not Python logic. A per-line noqa comment isn't an
 # option (it would become part of the rendered markup), and wrapping CSS rules
 # across lines just to satisfy a Python line-length limit doesn't read as CSS.
-
 import json
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse

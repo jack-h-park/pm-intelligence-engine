@@ -1,7 +1,6 @@
-from typing import Any
-
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI
 
@@ -33,7 +32,7 @@ async def lifespan(app: FastAPI):
     # Preflight: persona prompts live in decision-context (US-37). Fail fast at
     # boot if that checkout is stale rather than crashing mid-run at S4.
     personas = [a.persona for a in (ExplorerAgent, StrategistAgent, BuilderAgent, SkepticAgent)]
-    TemplateService(settings.DECISION_SYSTEM_ROOT).validate_persona_prompts(personas)
+    TemplateService(settings.decision_system_root).validate_persona_prompts(personas)
 
     engine = build_engine("local")
     # Insight schema initialization is an explicit startup operation.  Request

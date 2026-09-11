@@ -59,7 +59,10 @@ class ClaudeProvider:
             # reliably the answer — scan for the text block instead.
             for block in response.content:
                 if block.type == "text":
-                    return block.text
+                    text = block.text
+                    if not isinstance(text, str):
+                        raise TypeError(f"Anthropic returned a non-string text: {type(text)!r}")
+                    return text
             raise ValueError("Anthropic response contained no text block")
 
         return await with_retries(_call, _is_retryable, "Anthropic")

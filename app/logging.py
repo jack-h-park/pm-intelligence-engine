@@ -1,8 +1,7 @@
-from typing import Any
-
 import json
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 
 def emit_event(

@@ -18,7 +18,7 @@ and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app import pipeline
 
@@ -150,7 +150,7 @@ def _sum_run_tokens(run_id: str, engine: PMEngine) -> dict[str, Any]:
 
     Reads every stage output's ``metadata.input_tokens`` / ``output_tokens`` and
     sums them — all versions included, since each version's tokens were really
-    spent (a revise re-runs S4, etc.). Returns an empty dict[str, Any] when no stage recorded
+    spent (a revise re-runs S4, etc.). Returns an empty dict when no stage recorded
     tokens, so older runs / no-LLM runs leave the columns NULL.
     """
     import json
@@ -191,7 +191,7 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
         path = export_run(
             run_id=run_id,
             store=engine.store,
-            decision_system_root=settings.DECISION_SYSTEM_ROOT,
+            decision_system_root=settings.decision_system_root,
         )
         emit_event("run_exporter", "exported", run_id, {
             "path": str(path),
@@ -201,7 +201,7 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
         # decision_system_root not mounted — non-fatal.
         emit_event("run_exporter", "export_skipped", run_id, {
             "reason": "decision_system_root not writable",
-            "decision_system_root": settings.DECISION_SYSTEM_ROOT,
+            "decision_system_root": settings.decision_system_root,
         })
 
 

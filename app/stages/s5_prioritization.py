@@ -4,15 +4,14 @@ Composite score is computed deterministically from S4 persona scores.
 LLM classifies assumptions (Blocking / Adjusting) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
-from typing import Any
+from typing import Any, Literal
 
 # ruff: noqa: E501 — the long lines below are LLM prompt/schema text and the
 # rendered decision-memo template. Wrapping them would change what gets sent
 # to the model or rendered to the PM, and a noqa on a specific line would
 # become part of that text.
-
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     Assumption,
@@ -60,7 +59,8 @@ def _value_horizon_from_store(store: PMWorkflowStore, run_id: str) -> str:
     if raw is None:
         return "durable"
     try:
-        return json.loads(raw["output_json"])["output"].get("value_horizon", "durable")
+        value_horizon = json.loads(raw["output_json"])["output"].get("value_horizon", "durable")
+        return str(value_horizon)
     except Exception:  # noqa: BLE001
         return "durable"
 
@@ -191,7 +191,7 @@ async def run(
     from config import settings
 
     personas = stage_input.s4_output.personas
-    scores = {p.persona: p.score for p in personas}
+    scores: dict[str, int] = {p.persona: p.score for p in personas}
 
     weights = _load_weights(context.product_id)
     # Deterministic composite score
@@ -200,7 +200,7 @@ async def run(
     )
     skeptic_score = scores.get("skeptic", 3)
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s5")
 
     system_message = (
@@ -271,7 +271,7 @@ Rules:
   decision (e.g. ["#7", "#14"]); use [] if none clearly apply.
 - Limit to 5 assumptions maximum."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[
@@ -428,7 +428,7 @@ async def _verify_blocking_assumptions(
     system_message: str,
     llm: LLMProvider,
     run_id: str,
-    usage_sink: list | None = None,
+    usage_sink: list[Usage] | None = None,
 ) -> dict[str, Any]:
     """Adversarially audit Blocking classifications (US-42).
 
@@ -486,7 +486,7 @@ def _compute_routing(
     confidence: int,
     blocking: list[Assumption],
     thresholds: dict[str, Any] | None = None,
-) -> str:
+) -> Literal["prd", "poc", "kill"]:
     """Deterministic two-axis hybrid routing — not delegated to the LLM.
 
     Two axes:

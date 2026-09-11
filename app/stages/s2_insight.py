@@ -8,7 +8,7 @@ and why the signal matters for the specific product.
 # model, and a noqa on a specific line would become part of that prompt text.
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import RunContext, S2Input, S2Output, S2OutputData, StageMetadata
 from app.services.template_service import TemplateService
@@ -101,7 +101,7 @@ async def run(
 ) -> S2Output:
     from config import settings
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s2")
 
     system_message = (
@@ -149,7 +149,7 @@ Rules:
 - "suggested_mode" must be exactly one of: archive, note, structure, evaluate, decide, and must follow from "depth_basis" per the table above.
 - Do not hallucinate facts not present in the signal or product context."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[

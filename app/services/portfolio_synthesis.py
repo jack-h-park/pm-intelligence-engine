@@ -14,7 +14,7 @@ The operations plane owns any wiki sync (EXPORT_AND_SYNC_CONTRACT.md).
 from __future__ import annotations
 
 import json
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.llm.json_call import complete_json
 from app.logging import emit_event
@@ -126,7 +126,7 @@ async def synthesize_batch(batch_id: str, engine: PMEngine) -> bool:
     from app.services.template_service import TemplateService
     from config import settings
 
-    framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt(
+    framework = TemplateService(settings.decision_system_root).load_portfolio_prompt(
         "synthesis"
     )
     pm_identity = engine.context_loader.load_pm_identity()

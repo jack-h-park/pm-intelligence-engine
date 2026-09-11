@@ -8,10 +8,8 @@ from typing import Any
 # ruff: noqa: E501 — the long lines below are LLM prompt/schema text.
 # Wrapping them would change what gets sent to the model, and a noqa on a
 # specific line would become part of that prompt text.
-
-
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     PRDCompletenessCheck,
@@ -53,7 +51,7 @@ async def run(
     """Generate a complete PRD actionable by an engineering team."""
     from config import settings
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s6b")
 
     s5 = stage_input.s5_output
@@ -105,7 +103,7 @@ Rules:
 - success_metrics must have at least 2 entries, each with a measurement method.
 - open_questions must name a suggested owner role in parentheses."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[

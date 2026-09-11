@@ -41,9 +41,7 @@ class OpenAIProvider:
             from openai import BadRequestError
 
             try:
-                response = await self._client.chat.completions.create(
-                    **kwargs  # type: ignore[arg-type]
-                )
+                response = await self._client.chat.completions.create(**kwargs)
             except BadRequestError as exc:
                 # Reasoning-tier GPT-5.x models (unlike the `-chat-latest`
                 # variants) reject `temperature` outright. Drop it and retry
@@ -51,14 +49,14 @@ class OpenAIProvider:
                 # only ever a best-effort determinism hint.
                 if exc.param == "temperature" and "temperature" in kwargs:
                     del kwargs["temperature"]
-                    response = await self._client.chat.completions.create(
-                        **kwargs  # type: ignore[arg-type]
-                    )
+                    response = await self._client.chat.completions.create(**kwargs)
                 else:
                     raise
             content = response.choices[0].message.content
             if content is None:
                 raise ValueError("OpenAI returned an empty response")
+            if not isinstance(content, str):
+                raise TypeError(f"OpenAI returned a non-string content: {type(content)!r}")
             if usage_sink is not None and response.usage is not None:
                 usage_sink.append(
                     {

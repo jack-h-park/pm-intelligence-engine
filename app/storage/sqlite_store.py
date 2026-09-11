@@ -279,7 +279,7 @@ class SQLiteStore:
         audited path that overwrites ``raw_content`` — used when the original
         crawl captured site-chrome / a bot-wall page and a better fetch recovered
         the article. Stamps ``refreshed_at`` and, when given, re-infers category.
-        Returns the updated signal dict[str, Any], or None if the signal does not exist.
+        Returns the updated signal dict, or None if the signal does not exist.
         """
         with self._Session() as session:
             s = session.get(Signal, signal_id)

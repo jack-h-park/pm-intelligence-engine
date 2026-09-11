@@ -58,7 +58,7 @@ async def run(
         from app.services.template_service import TemplateService
         from config import settings
 
-        framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt("triage")
+        framework = TemplateService(settings.decision_system_root).load_portfolio_prompt("triage")
 
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy "

@@ -1,8 +1,7 @@
 """Reservation-first budget policy for fixture and future paid operations."""
 
-from typing import Any
-
 from dataclasses import dataclass
+from typing import Any
 
 from app.models.insights import BudgetReservation
 from app.storage.insight_store import InsightStore
