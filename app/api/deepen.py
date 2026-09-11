@@ -111,7 +111,6 @@ async def _execute_deepen(
     run_id: str, target: str, from_depth: str, engine: PMEngine
 ) -> None:
     from app.logging import emit_event
-    from app.models.stages import RunContext
     from app.services.run_finalizer import finalize_run
 
     try:

@@ -3,10 +3,13 @@
 LLM call: extracts "what changed", reframing, strategy pillar references,
 and why the signal matters for the specific product.
 """
+# ruff: noqa: E501 — the long lines below are the LLM prompt/schema text itself
+# (JSON example, table rows). Wrapping them would change what gets sent to the
+# model, and a noqa on a specific line would become part of that prompt text.
 
-from app.logging import emit_event
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import RunContext, S2Input, S2Output, S2OutputData, StageMetadata
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
@@ -180,7 +183,6 @@ Rules:
         source_stage="s2",
     )
 
-
     emit_event("s2", "completed", context.run_id, {"signal_id": input.signal_id})
     return output
 
@@ -204,7 +206,6 @@ def _render_claims(data: S2OutputData) -> str:
             tag = f"{tag} ← {', '.join(str(g) for g in claim.grounds)}"
         lines.append(f"{i}. [{tag}] {claim.text}")
     return "\n".join(lines)
-
 
 
 def build_insight_memo(title: str, category: str, data: S2OutputData) -> str:

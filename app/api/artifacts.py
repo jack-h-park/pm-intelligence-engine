@@ -1,4 +1,3 @@
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -25,7 +24,7 @@ _ARTIFACT_TYPE_ALIASES = {
 }
 
 
-def _normalize_artifact_type(artifact_type: Optional[str]) -> Optional[str]:
+def _normalize_artifact_type(artifact_type: str | None) -> str | None:
     """Resolve an artifact_type query param to a canonical value, or 422.
 
     A previously-unhandled value reached ``ArtifactType(<bad>)`` → ValueError →
@@ -55,7 +54,7 @@ class ArtifactResponse(BaseModel):
 @router.get("/{run_id}/artifacts", response_model=list[ArtifactResponse])
 async def list_artifacts(
     run_id: str,
-    artifact_type: Optional[str] = None,
+    artifact_type: str | None = None,
     limit: int = 20,
     engine: PMEngine = Depends(get_engine),
 ) -> list[ArtifactResponse]:

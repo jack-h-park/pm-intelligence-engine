@@ -1,8 +1,8 @@
 """Integration tests for Portfolio Triage fan-out at POST /runs/start (US-49)."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine
@@ -13,7 +13,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-from tests.integration.conftest import run_status, seed_run_state
+from tests.integration.conftest import seed_run_state
 
 
 @pytest.fixture()
@@ -168,6 +168,7 @@ def test_get_batch_unknown_404(client):
 
 # --- C-3: manual Portfolio Scan ------------------------------------------------
 
+
 def _manual_run(engine, product_id="example-mobile-product", status="waiting_direction") -> str:
     """A manually-started single run (no batch), as if it reached Gate 1."""
     signal_id = engine.store.save_signal(
@@ -256,6 +257,7 @@ def test_scan_works_on_auto_triaged_completed_run(client, engine, monkeypatch):
 
 # --- §0: human-pull promotion --------------------------------------------------
 
+
 def _open_batch_with_primary(engine, primary="prod-a", mode="decide") -> str:
     """An open fan-out batch whose primary run has a chosen depth."""
     signal_id = _seed_signal(engine)
@@ -281,8 +283,8 @@ def test_promote_adds_sibling_at_s2_inheriting_depth(client, engine, monkeypatch
     assert {r["product_id"] for r in runs} == {"prod-a", "prod-b"}
     # it re-enters at S2 via _execute_s1_s2 with the inherited depth ("decide")
     args = exec_mock.call_args.args
-    assert args[2] == "prod-b"      # product_id
-    assert args[3] == "decide"      # inherited depth -> skips Gate 1
+    assert args[2] == "prod-b"  # product_id
+    assert args[3] == "decide"  # inherited depth -> skips Gate 1
     # membership stays open for further promotion
     assert engine.store.get_batch(batch_id)["membership_closed"] is False
 
@@ -333,9 +335,7 @@ def test_close_batch_sets_membership_and_triggers_synthesis(client, engine, monk
         seed_run_state(engine.store, rid, "completed")
 
     synth = AsyncMock(return_value=True)
-    monkeypatch.setattr(
-        "app.services.portfolio_synthesis.synthesize_batch", synth
-    )
+    monkeypatch.setattr("app.services.portfolio_synthesis.synthesize_batch", synth)
 
     resp = client.post(f"/runs/batch/{batch_id}/close")
     assert resp.status_code == 200, resp.text
@@ -393,14 +393,16 @@ def test_a_close_call_is_distinguishable_from_a_settled_one(client, engine, monk
     # Every product scored explicitly, so the runner-up is unambiguous — the
     # helper's default of 2 for unlisted products would otherwise BE the runner-up
     # and the fixture would not say what it looks like it says.
-    close = _start_with_triage(client, engine, monkeypatch,
-                               {"prod-a": 5, "prod-b": 4, "prod-c": 1})
-    settled = _start_with_triage(client, engine, monkeypatch,
-                                 {"prod-a": 5, "prod-b": 1, "prod-c": 1})
+    close = _start_with_triage(client, engine, monkeypatch, {"prod-a": 5, "prod-b": 4, "prod-c": 1})
+    settled = _start_with_triage(
+        client, engine, monkeypatch, {"prod-a": 5, "prod-b": 1, "prod-c": 1}
+    )
 
     def spread(body):
-        s = sorted((p["relevance_score"] for p in engine.store.get_batch(body["batch_id"])["triage"]),
-                   reverse=True)
+        s = sorted(
+            (p["relevance_score"] for p in engine.store.get_batch(body["batch_id"])["triage"]),
+            reverse=True,
+        )
         return s[0] - s[1]
 
     assert spread(close) == 1
@@ -427,6 +429,7 @@ def test_a_run_with_no_batch_reports_none_not_empty(client, engine, monkeypatch)
 
 def _batch_triage_is_none(engine):
     from app.api.runs import _batch_triage
+
     return _batch_triage(None, engine) is None
 
 
@@ -434,7 +437,7 @@ def test_a_batch_predating_the_column_reads_as_not_recorded(engine):
     """Existing batches keep NULL. The reader must not take that for "no other
     product was relevant"."""
     signal_id = _seed_signal(engine)
-    batch_id = engine.store.create_batch(signal_id)      # no triage given
+    batch_id = engine.store.create_batch(signal_id)  # no triage given
 
     assert engine.store.get_batch(batch_id)["triage"] is None
 
@@ -442,10 +445,13 @@ def test_a_batch_predating_the_column_reads_as_not_recorded(engine):
 def test_a_malformed_blob_reads_as_absent_rather_than_raising(engine):
     """A 500 on a batch read would take a gate message down with it."""
     from sqlalchemy import text
+
     signal_id = _seed_signal(engine)
     batch_id = engine.store.create_batch(signal_id, triage=[{"product_id": "prod-a"}])
     with engine.store._engine.begin() as conn:
-        conn.execute(text("UPDATE run_batches SET triage_json='{ not json' WHERE batch_id=:b"),
-                     {"b": batch_id})
+        conn.execute(
+            text("UPDATE run_batches SET triage_json='{ not json' WHERE batch_id=:b"),
+            {"b": batch_id},
+        )
 
     assert engine.store.get_batch(batch_id)["triage"] is None

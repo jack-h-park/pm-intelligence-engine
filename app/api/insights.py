@@ -4,7 +4,16 @@ import hashlib
 import json
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    status,
+)
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
@@ -21,11 +30,11 @@ from app.models.insights import (
     SourceExcerpt,
     SourceRecord,
 )
+from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
-from app.services.decision_case import build_decision_case
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,

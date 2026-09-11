@@ -129,7 +129,9 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
             )
             unconfirmed_product = client.post(
                 "/decision-requests",
-                json={key: value for key, value in payload.items() if key != "confirmed_product_id"},
+                json={
+                    key: value for key, value in payload.items() if key != "confirmed_product_id"
+                },
                 headers={**headers, "Idempotency-Key": "unconfirmed-product"},
             )
             insufficient_evidence = client.post(

@@ -2,9 +2,9 @@
 
 import pytest
 
-from app.modes import MODES, normalize_mode
 from app.models.stages import S2OutputData, S7Input
 from app.models.workflow import RunMode
+from app.modes import MODES, normalize_mode
 
 
 def test_canonical_ladder():

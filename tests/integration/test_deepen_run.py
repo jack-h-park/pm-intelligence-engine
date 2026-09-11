@@ -112,6 +112,7 @@ def test_deepen_note_to_structure_runs_only_s3(client, engine, monkeypatch):
         s3 = dict(_S3_OUTPUT, run_id=run_id)
         store.save_stage_output(run_id, "s3", json.dumps(s3))
         from app.models.stages import S3Output, S3OutputData, StageMetadata
+
         return S3Output(
             run_id=run_id,
             output=S3OutputData(**_S3_OUTPUT["output"]),
@@ -119,6 +120,7 @@ def test_deepen_note_to_structure_runs_only_s3(client, engine, monkeypatch):
         )
 
     from app.stages import s3_opportunity
+
     monkeypatch.setattr(s3_opportunity, "run", fake_s3_run)
 
     resp = client.post(f"/runs/{run_id}/deepen", json={"depth": "structure"})
@@ -129,7 +131,7 @@ def test_deepen_note_to_structure_runs_only_s3(client, engine, monkeypatch):
     assert body["depth"] == "structure"
 
     run = engine.store.get_run(run_id)
-    assert run_status(run) == "completed"           # background task ran to finalize
+    assert run_status(run) == "completed"  # background task ran to finalize
     assert run["mode"] == "structure"
     assert run["completed_at"] is not None
     assert ran == ["s3"]
@@ -161,19 +163,29 @@ def test_deepen_structure_to_decide_reuses_s3_and_pauses_at_gate2(client, engine
             S4RubricResult,
             StageMetadata,
         )
+
         personas = [
             PersonaOutput(
-                persona=p, dimension=d, score=4,
-                key_argument="arg", open_question="q?",
+                persona=p,
+                dimension=d,
+                score=4,
+                key_argument="arg",
+                open_question="q?",
             )
             for p, d in [
-                ("explorer", "Impact"), ("strategist", "Strategic Fit"),
-                ("builder", "Feasibility"), ("skeptic", "Confidence"),
+                ("explorer", "Impact"),
+                ("strategist", "Strategic Fit"),
+                ("builder", "Feasibility"),
+                ("skeptic", "Confidence"),
             ]
         ]
         rubric = S4RubricResult(
-            total_score=10, score_grounding=3, skeptic_quality=3,
-            open_question_quality=2, persona_independence=2, passed=True,
+            total_score=10,
+            score_grounding=3,
+            skeptic_quality=3,
+            open_question_quality=2,
+            persona_independence=2,
+            passed=True,
         )
         out = S4Output(
             run_id=run_id,
@@ -184,6 +196,7 @@ def test_deepen_structure_to_decide_reuses_s3_and_pauses_at_gate2(client, engine
         return out
 
     from app.stages import s3_opportunity, s4_evaluation
+
     monkeypatch.setattr(s3_opportunity, "run", fail_s3_run)
     monkeypatch.setattr(s4_evaluation, "run", fake_s4_run)
     engine.notifier.send_gate2 = AsyncMock()
@@ -192,9 +205,9 @@ def test_deepen_structure_to_decide_reuses_s3_and_pauses_at_gate2(client, engine
     assert resp.status_code == 202
 
     run = engine.store.get_run(run_id)
-    assert run_status(run) == "waiting_approval"    # Gate 2, as any decide run
+    assert run_status(run) == "waiting_approval"  # Gate 2, as any decide run
     assert run["mode"] == "decide"
-    assert run["completed_at"] is None            # no longer terminal
+    assert run["completed_at"] is None  # no longer terminal
     assert ran == ["s4"]
     engine.notifier.send_gate2.assert_awaited_once()
 
@@ -207,7 +220,9 @@ def test_deepen_rejects_shallower_or_equal_depth(client, engine):
         assert "not deeper" in resp.json()["detail"]
 
 
-@pytest.mark.parametrize("status", ["running", "waiting_direction", "waiting_approval", "killed", "failed"])
+@pytest.mark.parametrize(
+    "status", ["running", "waiting_direction", "waiting_approval", "killed", "failed"]
+)
 def test_deepen_rejects_non_completed_runs(client, engine, status):
     run_id, _ = _seed_completed_run(engine, "note", stages=["s2"])
     seed_run_state(engine.store, run_id, status)
@@ -230,6 +245,7 @@ def test_deepen_accepts_legacy_mode_alias(client, engine, monkeypatch):
 
     async def fake_s3_run(input, context, llm, store):  # noqa: A002
         from app.models.stages import S3Output, S3OutputData, StageMetadata
+
         return S3Output(
             run_id=run_id,
             output=S3OutputData(**_S3_OUTPUT["output"]),
@@ -237,6 +253,7 @@ def test_deepen_accepts_legacy_mode_alias(client, engine, monkeypatch):
         )
 
     from app.stages import s3_opportunity
+
     monkeypatch.setattr(s3_opportunity, "run", fake_s3_run)
 
     resp = client.post(f"/runs/{run_id}/deepen", json={"mode": "opportunity"})
@@ -261,6 +278,7 @@ def test_deepen_filterable_in_run_list(client, engine, monkeypatch):
 
     async def fake_s3_run(input, context, llm, store):  # noqa: A002
         from app.models.stages import S3Output, S3OutputData, StageMetadata
+
         return S3Output(
             run_id=run_id,
             output=S3OutputData(**_S3_OUTPUT["output"]),
@@ -268,6 +286,7 @@ def test_deepen_filterable_in_run_list(client, engine, monkeypatch):
         )
 
     from app.stages import s3_opportunity
+
     monkeypatch.setattr(s3_opportunity, "run", fake_s3_run)
 
     client.post(f"/runs/{run_id}/deepen", json={"depth": "structure"})
@@ -284,4 +303,5 @@ def test_run_response_includes_review_url(client, engine):
     resp = client.get(f"/runs/{run_id}")
     assert resp.status_code == 200
     from config import settings
+
     assert resp.json()["review_url"] == f"{settings.BASE_URL}/runs/{run_id}/review"

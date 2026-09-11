@@ -26,7 +26,6 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-
 from tests.integration.conftest import run_status, seed_run_state
 
 # ---------------------------------------------------------------------------

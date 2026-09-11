@@ -1,8 +1,9 @@
 """Unit tests for Stage 2 — Insight Extraction."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.models.stages import RunContext, S1OutputData, S2Input, S2Output
 from app.stages import s2_insight
@@ -14,7 +15,7 @@ def _make_context() -> RunContext:
         product_id="test-product",
         pm_identity="PM identity text",
         company_context="Company context text",
-        product_context="## Strategy Pillars\n1. Reduce attack surface\n2. Protect remaining attack surface",
+        product_context="## Strategy Pillars\n1. Reduce attack surface\n2. Protect remaining attack surface",  # noqa: E501
     )
 
 
@@ -48,7 +49,7 @@ _VALID_S2_RESPONSE = {
     "relevance_explanation": "Aligns directly with Pillar 1 — attack surface reduction.",
     "relevance_score": 4,
     "suggested_mode": "evaluate",
-    "suggestion_reasoning": "Signal is directly relevant to a named strategy pillar and warrants full persona evaluation.",
+    "suggestion_reasoning": "Signal is directly relevant to a named strategy pillar and warrants full persona evaluation.",  # noqa: E501
 }
 
 _LOW_RELEVANCE_S2_RESPONSE = {
@@ -58,7 +59,7 @@ _LOW_RELEVANCE_S2_RESPONSE = {
     "relevance_explanation": "This signal has no connection to enterprise security.",
     "relevance_score": 1,
     "suggested_mode": "file",
-    "suggestion_reasoning": "Signal is consumer-focused with no actionable implication for this product.",
+    "suggestion_reasoning": "Signal is consumer-focused with no actionable implication for this product.",  # noqa: E501
 }
 
 
@@ -129,8 +130,16 @@ _CLAIMS_S2_RESPONSE = {
     "pillar_references": ["Reduce attack surface (Ingress & Egress)"],
     "claims": [
         {"text": "APM ships with no admin enforcement API.", "source": "signal", "grounds": []},
-        {"text": "The platform's Pillar 1 is attack-surface reduction.", "source": "product_context", "grounds": []},
-        {"text": "The missing API blocks enforcing Pillar 1 on managed fleets.", "source": "inference", "grounds": [1, 2]},
+        {
+            "text": "The platform's Pillar 1 is attack-surface reduction.",
+            "source": "product_context",
+            "grounds": [],
+        },
+        {
+            "text": "The missing API blocks enforcing Pillar 1 on managed fleets.",
+            "source": "inference",
+            "grounds": [1, 2],
+        },
     ],
     "relevance_score": 4,
     "suggested_mode": "evaluate",

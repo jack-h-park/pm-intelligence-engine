@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @runtime_checkable
@@ -9,14 +9,14 @@ class PMWorkflowStore(Protocol):
         self,
         title: str,
         raw_content: str,
-        original_product_id: Optional[str] = None,
-        source_url: Optional[str] = None,
+        original_product_id: str | None = None,
+        source_url: str | None = None,
         category: str = "other",
         source_type: str = "manual",
-        source_ref: Optional[str] = None,
+        source_ref: str | None = None,
     ) -> str: ...
 
-    def get_signal(self, signal_id: str) -> Optional[dict]: ...
+    def get_signal(self, signal_id: str) -> dict | None: ...
 
     def update_signal_status(self, signal_id: str, status: str) -> None: ...
 
@@ -24,15 +24,15 @@ class PMWorkflowStore(Protocol):
         self,
         signal_id: str,
         raw_content: str,
-        category: Optional[str] = None,
-    ) -> Optional[dict]: ...
+        category: str | None = None,
+    ) -> dict | None: ...
 
     def list_signals(
         self,
-        original_product_id: Optional[str] = None,
-        status: Optional[str] = None,
-        tag: Optional[str] = None,
-        source_ref: Optional[str] = None,
+        original_product_id: str | None = None,
+        status: str | None = None,
+        tag: str | None = None,
+        source_ref: str | None = None,
         limit: int = 50,
     ) -> list[dict]: ...
 
@@ -51,11 +51,11 @@ class PMWorkflowStore(Protocol):
         self,
         product_id: str,
         signal_id: str,
-        batch_id: Optional[str] = None,
+        batch_id: str | None = None,
         origin: str = "start",
     ) -> str: ...
 
-    def get_run(self, run_id: str) -> Optional[dict]: ...
+    def get_run(self, run_id: str) -> dict | None: ...
 
     def update_run(self, run_id: str, **kwargs) -> None: ...
 
@@ -72,22 +72,22 @@ class PMWorkflowStore(Protocol):
 
     def list_runs(
         self,
-        product_id: Optional[str] = None,
-        routing: Optional[str] = None,
-        event: Optional[str] = None,
-        since: Optional[datetime] = None,
-        batch_id: Optional[str] = None,
-        signal_id: Optional[str] = None,
-        lifecycle: Optional[str] = None,
-        position: Optional[str] = None,
-        outcome: Optional[str] = None,
+        product_id: str | None = None,
+        routing: str | None = None,
+        event: str | None = None,
+        since: datetime | None = None,
+        batch_id: str | None = None,
+        signal_id: str | None = None,
+        lifecycle: str | None = None,
+        position: str | None = None,
+        outcome: str | None = None,
         limit: int = 50,
     ) -> list[dict]: ...
 
     # --- RunBatch (US-49) ---
-    def create_batch(self, signal_id: str, triage: Optional[list] = None) -> str: ...
+    def create_batch(self, signal_id: str, triage: list | None = None) -> str: ...
 
-    def get_batch(self, batch_id: str) -> Optional[dict]: ...
+    def get_batch(self, batch_id: str) -> dict | None: ...
 
     def close_batch_membership(self, batch_id: str) -> None: ...
 
@@ -101,7 +101,7 @@ class PMWorkflowStore(Protocol):
         run_ids_json: str,
     ) -> bool: ...
 
-    def get_portfolio_synthesis(self, batch_id: str) -> Optional[dict]: ...
+    def get_portfolio_synthesis(self, batch_id: str) -> dict | None: ...
 
     # --- StageOutput ---
     def save_stage_output(
@@ -116,8 +116,8 @@ class PMWorkflowStore(Protocol):
         self,
         run_id: str,
         stage: str,
-        version: Optional[int] = None,
-    ) -> Optional[dict]: ...
+        version: int | None = None,
+    ) -> dict | None: ...
 
     def get_all_stage_outputs(self, run_id: str) -> list[dict]: ...
 
@@ -127,7 +127,7 @@ class PMWorkflowStore(Protocol):
         run_id: str,
         stage: str,
         action: str,
-        feedback_text: Optional[str] = None,
+        feedback_text: str | None = None,
     ) -> str: ...
 
     def get_approval_events(self, run_id: str) -> list[dict]: ...
@@ -138,12 +138,12 @@ class PMWorkflowStore(Protocol):
         run_id: str,
         artifact_type: str,
         content_md: str,
-        source_stage: Optional[str] = None,
+        source_stage: str | None = None,
     ) -> str: ...
 
     def list_artifacts(
         self,
         run_id: str,
-        artifact_type: Optional[str] = None,
+        artifact_type: str | None = None,
         limit: int = 20,
     ) -> list[dict]: ...

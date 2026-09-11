@@ -123,8 +123,8 @@ async def synthesize_batch(batch_id: str, engine: PMEngine) -> bool:
     signal_title = signal["title"] if signal else batch_id
     signal_id = batch["signal_id"] if batch else ""
 
-    from config import settings
     from app.services.template_service import TemplateService
+    from config import settings
 
     framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt(
         "synthesis"

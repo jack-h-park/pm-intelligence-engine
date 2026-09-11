@@ -7,6 +7,10 @@ The page uses plain fetch() calls to POST to the existing JSON API endpoints
 (/approve, /revise, /reject), so no new backend logic is needed here.
 The Telegram Gate 2 notification includes a link to this page.
 """
+# ruff: noqa: E501 — this module's long lines are inline HTML/CSS inside the
+# f-string templates below, not Python logic. A per-line noqa comment isn't an
+# option (it would become part of the rendered markup), and wrapping CSS rules
+# across lines just to satisfy a Python line-length limit doesn't read as CSS.
 
 import json
 
@@ -20,19 +24,19 @@ router = APIRouter(prefix="/runs", tags=["review"])
 
 # Persona display metadata
 _PERSONA_META = {
-    "explorer":   {"label": "Explorer",   "dimension": "Impact",        "color": "#0071e3"},
+    "explorer": {"label": "Explorer", "dimension": "Impact", "color": "#0071e3"},
     "strategist": {"label": "Strategist", "dimension": "Strategic Fit", "color": "#1a7f37"},
-    "builder":    {"label": "Builder",    "dimension": "Feasibility",   "color": "#bf8700"},
-    "skeptic":    {"label": "Skeptic",    "dimension": "Confidence",    "color": "#cf222e"},
+    "builder": {"label": "Builder", "dimension": "Feasibility", "color": "#bf8700"},
+    "skeptic": {"label": "Skeptic", "dimension": "Confidence", "color": "#cf222e"},
 }
 
 _STATUS_LABELS = {
-    "waiting_approval":       ("Awaiting review", "waiting"),
-    "running":                ("Running",          "running"),
-    "completed":              ("Completed",        "completed"),
-    "killed":                 ("Killed",           "killed"),
-    "failed":                 ("Failed",           "killed"),
-    "waiting_routing_review": ("Routing review",   "waiting"),
+    "waiting_approval": ("Awaiting review", "waiting"),
+    "running": ("Running", "running"),
+    "completed": ("Completed", "completed"),
+    "killed": ("Killed", "killed"),
+    "failed": ("Failed", "killed"),
+    "waiting_routing_review": ("Routing review", "waiting"),
 }
 
 # Gate position -> the legacy display-status key the labels above are keyed on.
@@ -115,7 +119,9 @@ def _render_persona_cards(personas: list[dict]) -> str:
     cards = []
     for p in personas:
         name = p.get("persona", "")
-        meta = _PERSONA_META.get(name, {"label": name.capitalize(), "dimension": "", "color": "#555"})
+        meta = _PERSONA_META.get(
+            name, {"label": name.capitalize(), "dimension": "", "color": "#555"}
+        )
         score = p.get("score", 0)
         score_class = f"score-{min(max(score, 1), 5)}"
         argument = _esc(p.get("key_argument", ""))
@@ -125,8 +131,8 @@ def _render_persona_cards(personas: list[dict]) -> str:
         <div class="persona">
             <div class="persona-header">
                 <div>
-                    <span class="persona-name" style="color:{meta['color']}">{meta['label']}</span>
-                    <span class="persona-dim"> · {meta['dimension']}</span>
+                    <span class="persona-name" style="color:{meta["color"]}">{meta["label"]}</span>
+                    <span class="persona-dim"> · {meta["dimension"]}</span>
                 </div>
                 <span class="persona-score {score_class}">{score}/5</span>
             </div>
@@ -139,9 +145,9 @@ def _render_persona_cards(personas: list[dict]) -> str:
 
 # Provenance tag → (label, CSS class) for the "why it matters" claims.
 _CLAIM_TAG = {
-    "signal":          ("signal",   "tag-signal"),
-    "product_context": ("context",  "tag-context"),
-    "inference":       ("inferred", "tag-inferred"),
+    "signal": ("signal", "tag-signal"),
+    "product_context": ("context", "tag-context"),
+    "inference": ("inferred", "tag-inferred"),
 }
 
 
@@ -165,7 +171,11 @@ def _render_insight(s2: dict) -> str:
         for i, c in enumerate(claims, start=1):
             label, css = _CLAIM_TAG.get(c.get("source", ""), (c.get("source", ""), "tag-inferred"))
             grounds = c.get("grounds") or []
-            trace = f" ← {', '.join(str(g) for g in grounds)}" if css == "tag-inferred" and grounds else ""
+            trace = (
+                f" ← {', '.join(str(g) for g in grounds)}"
+                if css == "tag-inferred" and grounds
+                else ""
+            )
             items.append(
                 f'<li><span class="tag {css}">{label}{trace}</span> {_esc(c.get("text", ""))}</li>'
             )
@@ -177,11 +187,15 @@ def _render_insight(s2: dict) -> str:
 
     blocks = []
     if what_changed:
-        blocks.append(f'<div class="insight-label">What changed</div><p class="insight-body">{what_changed}</p>')
+        blocks.append(
+            f'<div class="insight-label">What changed</div><p class="insight-body">{what_changed}</p>'
+        )
     if why_html:
         blocks.append(f'<div class="insight-label">Why it matters</div>{why_html}')
     if reframing:
-        blocks.append(f'<div class="insight-label">Reframing</div><p class="insight-body">{reframing}</p>')
+        blocks.append(
+            f'<div class="insight-label">Reframing</div><p class="insight-body">{reframing}</p>'
+        )
     if not blocks:
         return ""
     return f'<div class="insight">{"".join(blocks)}</div>'
@@ -195,7 +209,7 @@ def _render_actions(run_id: str, is_actionable: bool, status_label: str) -> str:
             <strong>Current status: {status_label}</strong>
         </div>"""
 
-    return f"""
+    return """
     <div class="actions" id="action-zone">
         <button class="btn-approve" onclick="doApprove()">✅ Approve</button>
         <button class="btn-revise" onclick="showReviseForm()">🔁 Revise</button>
@@ -218,10 +232,7 @@ def _render_actions(run_id: str, is_actionable: bool, status_label: str) -> str:
 def _esc(text: str) -> str:
     """Minimal HTML escaping for user-supplied strings."""
     return (
-        text.replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace('"', "&quot;")
+        text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
     )
 
 

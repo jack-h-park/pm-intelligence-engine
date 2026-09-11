@@ -19,7 +19,6 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-
 from tests.integration.conftest import run_status, seed_run_state
 
 
@@ -63,12 +62,12 @@ def test_void_from_waiting_direction(client, engine):
     assert resp.status_code == 200
     body = resp.json()
     assert body["action"] == "voided"
-    assert body["voided_from"] == "paused@s2"   # Gate 1
+    assert body["voided_from"] == "paused@s2"  # Gate 1
 
     run = engine.store.get_run(run_id)
     assert run_status(run) == "killed"
-    assert run["completed_at"] is not None          # killed stamps completed_at
-    assert run["mode"] is None                       # NOT archive — never evaluated
+    assert run["completed_at"] is not None  # killed stamps completed_at
+    assert run["mode"] is None  # NOT archive — never evaluated
 
     # Distinct from a routing kill / Gate 2 reject: recorded as a `void` event.
     events = engine.store.get_approval_events(run_id)
@@ -79,7 +78,9 @@ def test_void_from_waiting_direction(client, engine):
     assert engine.store.get_signal(signal_id)["status"] == "done"
 
 
-@pytest.mark.parametrize("status", ["pending", "running", "waiting_approval", "waiting_routing_review"])
+@pytest.mark.parametrize(
+    "status", ["pending", "running", "waiting_approval", "waiting_routing_review"]
+)
 def test_void_from_other_non_terminal_states(client, engine, status):
     run_id, _ = _seed_run(engine, status)
     resp = client.post(f"/runs/{run_id}/void", json={"reason": "void it"})

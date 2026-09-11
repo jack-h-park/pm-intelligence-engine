@@ -1,7 +1,7 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
-from app.llm.protocol import LLMProvider
 from app.factory import build_insight_llm_provider
+from app.llm.protocol import LLMProvider
 from app.models.insights import InsightRevision, PreparedContext
 from app.services.insight_analysis import analyze_bundle
 from app.storage.insight_store import InsightStore

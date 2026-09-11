@@ -1,8 +1,9 @@
 """Unit tests for Portfolio Triage (US-49) — cross-product relevance routing."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock
+
+import pytest
 
 from app.models.stages import PortfolioTriageOutput
 from app.services.context_loader import ProductProfile

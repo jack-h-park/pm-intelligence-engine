@@ -20,11 +20,10 @@ Modes that are NOT wiki sync targets: brief, opportunity, evaluate.
 """
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.models.stages import S2OutputData
-
 
 # ---------------------------------------------------------------------------
 # Auto-triage archive
@@ -48,7 +47,7 @@ def archive_auto_triaged(
     Returns the path written, or raises on unexpected errors after logging.
     """
     try:
-        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = datetime.now(UTC).strftime("%Y-%m-%d")
         slug = _slugify(signal_title)
         filename = f"{date_str}-{slug}.md"
 
@@ -114,7 +113,7 @@ def sync_executive_summary(
             f"Expected one of: {', '.join(routing_to_dir)}"
         )
 
-    date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = datetime.now(UTC).strftime("%Y-%m-%d")
     slug = _slugify(signal_title)
     filename = f"{date_str}-{slug}.md"
 

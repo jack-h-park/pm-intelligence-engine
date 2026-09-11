@@ -69,8 +69,14 @@ class TelegramNotifier:
         pillar_references: list[str] | None = None,
     ) -> None:
         pillars = ", ".join(pillar_references) if pillar_references else "—"
-        changed_block = f"\n<b>What changed:</b> {_short(what_changed, 280)}\n" if what_changed else ""
-        why_block = f"<b>Why it matters:</b> {_short(relevance_explanation, 280)}\n" if relevance_explanation else ""
+        changed_block = (
+            f"\n<b>What changed:</b> {_short(what_changed, 280)}\n" if what_changed else ""
+        )
+        why_block = (
+            f"<b>Why it matters:</b> {_short(relevance_explanation, 280)}\n"
+            if relevance_explanation
+            else ""
+        )
         text = (
             f"📡 <b>[Gate 1] New Signal</b>\n\n"
             f"Product: <code>{product_id}</code>\n"
@@ -79,7 +85,7 @@ class TelegramNotifier:
             f"{changed_block}"
             f"{why_block}"
             f"Pillars: {pillars}\n"
-            f"<i>\"{reasoning}\"</i>\n\n"
+            f'<i>"{reasoning}"</i>\n\n'
             f"Depth ladder: archive &lt; note &lt; structure &lt; evaluate &lt; decide\n"
             f"To proceed:\n"
             f"<code>POST /runs/{run_id}/direction</code>\n"
@@ -99,10 +105,7 @@ class TelegramNotifier:
         key_concern: str,
         review_url: str = "",
     ) -> None:
-        link_line = (
-            f'\n\n🔗 <a href="{review_url}">Open Review Page</a>'
-            if review_url else ""
-        )
+        link_line = f'\n\n🔗 <a href="{review_url}">Open Review Page</a>' if review_url else ""
         text = (
             f"🧠 <b>[Gate 2] S4 Evaluation Ready</b>\n\n"
             f"Product: <code>{product_id}</code>\n"
@@ -110,7 +113,7 @@ class TelegramNotifier:
             f"Run: <code>{run_id}</code>\n\n"
             f"Explorer: {explorer_score} · Strategist: {strategist_score} · "
             f"Builder: {builder_score} · Skeptic: {skeptic_score}\n"
-            f"<i>\"{key_concern}\"</i>"
+            f'<i>"{key_concern}"</i>'
             f"{link_line}"
         )
         await self._send(text, run_id)
@@ -134,11 +137,13 @@ class TelegramNotifier:
         closing_line = (
             "\n⏳ <b>Closing window</b> — value is transient and Impact is high; "
             f"consider a fast time-boxed bet over the default {routing_label}.\n"
-            if closing_window else ""
+            if closing_window
+            else ""
         )
         persona_block = (
             "\n" + "\n".join(f"• {_short(line)}" for line in persona_lines) + "\n"
-            if persona_lines else ""
+            if persona_lines
+            else ""
         )
         assumption_block = ""
         if assumptions:
@@ -218,7 +223,10 @@ class SlackNotifier:
                     "type": "section",
                     "fields": [
                         {"type": "mrkdwn", "text": f"*Product:*\n`{product_id}`"},
-                        {"type": "mrkdwn", "text": f"*Relevance:*\n{relevance_score}/5 · depth `{suggested_mode}`"},
+                        {
+                            "type": "mrkdwn",
+                            "text": f"*Relevance:*\n{relevance_score}/5 · depth `{suggested_mode}`",
+                        },
                     ],
                 },
                 {
@@ -280,13 +288,15 @@ class SlackNotifier:
             },
         ]
         if review_url:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"🔗 <{review_url}|Open Review Page>",
-                },
-            })
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"🔗 <{review_url}|Open Review Page>",
+                    },
+                }
+            )
         await self._send({"blocks": blocks}, run_id)
 
     async def send_gate3(
@@ -308,17 +318,20 @@ class SlackNotifier:
         closing_part = (
             f"\n⏳ *Closing window* — value is transient and Impact is high; "
             f"consider a fast time-boxed bet over the default {routing_label}."
-            if closing_window else ""
+            if closing_window
+            else ""
         )
         overrides = [r for r in ("kill", "poc", "prd") if r != routing]
         override_cmds = "\n".join(
-            f'{{ "action": "override", "routing": "{r}" }}  → {r.upper()}'
-            for r in overrides
+            f'{{ "action": "override", "routing": "{r}" }}  → {r.upper()}' for r in overrides
         )
         blocks = [
             {
                 "type": "header",
-                "text": {"type": "plain_text", "text": f"{icon} Gate 3 — Routing Review ({routing_label})"},
+                "text": {
+                    "type": "plain_text",
+                    "text": f"{icon} Gate 3 — Routing Review ({routing_label})",
+                },
             },
             {
                 "type": "section",
@@ -340,37 +353,43 @@ class SlackNotifier:
             },
         ]
         if persona_lines:
-            blocks.append({
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": "\n".join(f"• {_short(line)}" for line in persona_lines),
-                },
-            })
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "\n".join(f"• {_short(line)}" for line in persona_lines),
+                    },
+                }
+            )
         if assumptions:
             rows = "\n".join(
                 f"{'❗' if a.get('severity') == 'Blocking' else '·'} "
                 f"[{a.get('severity', '?')}] {_short(a.get('statement', ''))}"
                 for a in assumptions
             )
-            blocks.append({
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": f"*Assumptions ({blocking_count} blocking):*\n{rows}",
+                    },
+                }
+            )
+        blocks.append(
+            {
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*Assumptions ({blocking_count} blocking):*\n{rows}",
+                    "text": (
+                        f"```POST /runs/{run_id}/routing-review\n"
+                        f'{{ "action": "confirm" }}  → {routing_label}\n'
+                        f"{override_cmds}```"
+                    ),
                 },
-            })
-        blocks.append({
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": (
-                    f"```POST /runs/{run_id}/routing-review\n"
-                    f'{{ "action": "confirm" }}  → {routing_label}\n'
-                    f"{override_cmds}```"
-                ),
-            },
-        })
+            }
+        )
         await self._send({"blocks": blocks}, run_id)
 
     async def _send(self, payload: dict, run_id: str) -> None:
@@ -421,10 +440,15 @@ class FanoutNotifier:
                     pillar_references=pillar_references,
                 )
             except Exception as exc:  # noqa: BLE001
-                emit_event("notifier", "send_failed", run_id, {
-                    "provider": type(provider).__name__,
-                    "error": str(exc),
-                })
+                emit_event(
+                    "notifier",
+                    "send_failed",
+                    run_id,
+                    {
+                        "provider": type(provider).__name__,
+                        "error": str(exc),
+                    },
+                )
 
     async def send_gate2(
         self,
@@ -452,10 +476,15 @@ class FanoutNotifier:
                     review_url=review_url,
                 )
             except Exception as exc:  # noqa: BLE001
-                emit_event("notifier", "send_failed", run_id, {
-                    "provider": type(provider).__name__,
-                    "error": str(exc),
-                })
+                emit_event(
+                    "notifier",
+                    "send_failed",
+                    run_id,
+                    {
+                        "provider": type(provider).__name__,
+                        "error": str(exc),
+                    },
+                )
 
     async def send_gate3(
         self,
@@ -485,10 +514,15 @@ class FanoutNotifier:
                     closing_window=closing_window,
                 )
             except Exception as exc:  # noqa: BLE001
-                emit_event("notifier", "send_failed", run_id, {
-                    "provider": type(provider).__name__,
-                    "error": str(exc),
-                })
+                emit_event(
+                    "notifier",
+                    "send_failed",
+                    run_id,
+                    {
+                        "provider": type(provider).__name__,
+                        "error": str(exc),
+                    },
+                )
 
 
 # ---------------------------------------------------------------------------

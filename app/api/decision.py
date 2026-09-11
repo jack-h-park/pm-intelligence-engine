@@ -1,3 +1,6 @@
+# ruff: noqa: E501 — the action/gate table in the module docstring below is
+# aligned by hand; wrapping it would break the alignment and make it harder
+# to read, not easier.
 """Unified decision endpoint — ``POST /runs/{id}/decision`` (US-55 step 4).
 
 One endpoint replaces the six per-gate/terminal ones. A run's human decision is
@@ -30,12 +33,12 @@ _ACTIONS = {"advance", "advance_to", "revise", "stop"}
 
 
 class DecisionRequest(BaseModel):
-    action: str                      # advance | advance_to | revise | stop
-    target: str | None = None        # depth for advance_to at Gate 1 / on a completed run (deepen)
-    routing: str | None = None       # prd|poc|kill for advance_to at Gate 3 (override)
-    reason: str | None = None        # for stop (reject / kill / void)
-    feedback: str | None = None      # for revise
-    origin: str | None = None        # who is deciding; absent = a human (see direction.py)
+    action: str  # advance | advance_to | revise | stop
+    target: str | None = None  # depth for advance_to at Gate 1 / on a completed run (deepen)
+    routing: str | None = None  # prd|poc|kill for advance_to at Gate 3 (override)
+    reason: str | None = None  # for stop (reject / kill / void)
+    feedback: str | None = None  # for revise
+    origin: str | None = None  # who is deciding; absent = a human (see direction.py)
 
 
 @router.post("/{run_id}/decision", status_code=202)
@@ -66,9 +69,12 @@ async def decide(
     if lifecycle == "paused" and position == "s2":
         if action == "advance_to":
             from app.api.direction import DirectionRequest, set_direction
+
             return await set_direction(
-                run_id, DirectionRequest(depth=body.target, origin=body.origin),
-                background_tasks, engine,
+                run_id,
+                DirectionRequest(depth=body.target, origin=body.origin),
+                background_tasks,
+                engine,
             )
         raise _invalid(action, state, "advance_to {target}")
 
@@ -81,12 +87,15 @@ async def decide(
             reject_run,
             revise_run,
         )
+
         if action == "advance":
             return await approve_run(run_id, background_tasks, engine)
         if action == "revise":
             return await revise_run(
-                run_id, ReviseRequest(feedback=body.feedback or body.reason or ""),
-                background_tasks, engine,
+                run_id,
+                ReviseRequest(feedback=body.feedback or body.reason or ""),
+                background_tasks,
+                engine,
             )
         if action == "stop":
             return await reject_run(run_id, RejectRequest(reason=body.reason or ""), engine)
@@ -95,23 +104,28 @@ async def decide(
     # --- Gate 3 (paused@s5): confirm / override routing ------------------
     if lifecycle == "paused" and position == "s5":
         from app.api.routing_review import RoutingReviewRequest, routing_review
+
         if action == "advance":
             return await routing_review(
-                run_id, RoutingReviewRequest(action="confirm", reason=body.reason),
-                background_tasks, engine,
+                run_id,
+                RoutingReviewRequest(action="confirm", reason=body.reason),
+                background_tasks,
+                engine,
             )
         if action == "advance_to":
             return await routing_review(
                 run_id,
                 RoutingReviewRequest(action="override", routing=body.routing, reason=body.reason),
-                background_tasks, engine,
+                background_tasks,
+                engine,
             )
         if action == "stop":
             # A stop at Gate 3 is a routing kill, recorded via the override path.
             return await routing_review(
                 run_id,
                 RoutingReviewRequest(action="override", routing="kill", reason=body.reason),
-                background_tasks, engine,
+                background_tasks,
+                engine,
             )
         raise _invalid(action, state, "advance | advance_to {routing} | stop")
 
@@ -119,12 +133,14 @@ async def decide(
     if lifecycle == "done" and outcome == "completed":
         if action == "advance_to":
             from app.api.deepen import DeepenRequest, deepen_run
+
             return await deepen_run(
                 run_id, DeepenRequest(depth=body.target), background_tasks, engine
             )
         if action == "advance":
             # Revive an auto-triaged run back to Gate 1 (reopen validates eligibility).
             from app.api.runs import reopen_run
+
             resp = await reopen_run(run_id, engine)
             return resp.model_dump() if hasattr(resp, "model_dump") else resp
         raise _invalid(action, state, "advance_to {target} (deepen) | advance (reopen)")
@@ -132,6 +148,7 @@ async def decide(
     # --- Any other non-terminal state: administrative void ---------------
     if action == "stop" and lifecycle != "done":
         from app.api.void import VoidRequest, void_run
+
         return await void_run(run_id, VoidRequest(reason=body.reason or ""), engine)
 
     raise _invalid(action, state, "(none — run is terminal or state has no such decision)")

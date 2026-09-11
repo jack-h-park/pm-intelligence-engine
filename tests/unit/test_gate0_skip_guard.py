@@ -6,8 +6,9 @@ a filename in gate0-state.json's `skipped` bucket returns 409. All other cases
 no source_ref) pass through unchanged.
 """
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine, require_auth
@@ -18,7 +19,6 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────────
 

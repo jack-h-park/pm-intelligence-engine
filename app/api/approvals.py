@@ -40,7 +40,7 @@ def _require_waiting_approval(run_id: str, engine: PMEngine) -> dict:
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
-                   "expected paused at Gate 2 (s4)",
+            "expected paused at Gate 2 (s4)",
         )
     return run
 
@@ -94,8 +94,11 @@ async def reject_run(
     engine.store.update_run(run_id, routing=None)  # clear routing before finalizing
 
     from app.services.run_finalizer import finalize_run
+
     await finalize_run(
-        run_id, "killed", engine,
+        run_id,
+        "killed",
+        engine,
         event_action="rejected",
         event_detail={"reason": body.reason},
     )
@@ -111,7 +114,6 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
     the background-task call site; it stops at Gate 3, not S7.
     """
     from app import runner
-    from app.models.stages import RunContext
     from app.runner import plan_advance, target_for_depth
     from app.services.run_finalizer import finalize_run
 
@@ -121,6 +123,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
             return
 
         from app.services.run_context import load_run_context
+
         context = load_run_context(run_id, engine)
 
         # plan_advance("s4", decide) -> run (s5,), pause at Gate 3 (s5).
@@ -144,15 +147,24 @@ async def _pause_at_gate3(run_id: str, run: dict, context, engine: PMEngine) -> 
     from app.logging import emit_event
     from app.models.stages import S4OutputData, S5OutputData
 
-    s5 = S5OutputData(**json.loads(engine.store.get_stage_output(run_id, "s5")["output_json"])["output"])
-    s4 = S4OutputData(**json.loads(engine.store.get_stage_output(run_id, "s4")["output_json"])["output"])
+    s5 = S5OutputData(
+        **json.loads(engine.store.get_stage_output(run_id, "s5")["output_json"])["output"]
+    )
+    s4 = S4OutputData(
+        **json.loads(engine.store.get_stage_output(run_id, "s4")["output_json"])["output"]
+    )
 
     engine.store.pause(run_id, "s5")
-    emit_event("run", "waiting_routing_review", run_id, {
-        "routing": s5.routing,
-        "composite": s5.composite_score,
-        "blocking_count": s5.blocking_count,
-    })
+    emit_event(
+        "run",
+        "waiting_routing_review",
+        run_id,
+        {
+            "routing": s5.routing,
+            "composite": s5.composite_score,
+            "blocking_count": s5.blocking_count,
+        },
+    )
     signal = engine.store.get_signal(run["signal_id"])
     signal_title = signal["title"] if signal else run_id
     persona_lines = [
@@ -175,11 +187,12 @@ async def _pause_at_gate3(run_id: str, run: dict, context, engine: PMEngine) -> 
 
 
 async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> None:
+    import json
+
     from app.logging import emit_event
     from app.models.stages import RunContext, S4Input
-    from app.stages import s4_evaluation
     from app.services.run_finalizer import finalize_run
-    import json
+    from app.stages import s4_evaluation
 
     try:
         run = engine.store.get_run(run_id)
@@ -201,13 +214,13 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
             raise ValueError("S3 output not found")
 
         from app.models.stages import S3OutputData
+
         s3_output_data = S3OutputData(**json.loads(s3_raw["output_json"])["output"])
 
         # Determine next version number
         existing_s4 = engine.store.get_stage_output(run_id, "s4")
         next_version = (
-            (json.loads(existing_s4["output_json"]).get("version", 1) + 1)
-            if existing_s4 else 2
+            (json.loads(existing_s4["output_json"]).get("version", 1) + 1) if existing_s4 else 2
         )
 
         await s4_evaluation.run(

@@ -1,17 +1,16 @@
 import json
 import sys
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 
 def emit_event(
     stage: str,
     action: str,
     run_id: str,
-    detail: Optional[dict] = None,
+    detail: dict | None = None,
 ) -> None:
     event = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "stage": stage,
         "action": action,
         "run_id": run_id,

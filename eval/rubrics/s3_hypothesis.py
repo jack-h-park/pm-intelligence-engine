@@ -8,7 +8,6 @@ Checks that the Stage 3 hypothesis is:
 
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass

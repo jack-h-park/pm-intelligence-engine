@@ -4,6 +4,10 @@ Composite score is computed deterministically from S4 persona scores.
 LLM classifies assumptions (Blocking / Adjusting) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text and the
+# rendered decision-memo template. Wrapping them would change what gets sent
+# to the model or rendered to the PM, and a noqa on a specific line would
+# become part of that text.
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
@@ -21,18 +25,23 @@ from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
 _DEFAULT_WEIGHTS = {
-    "explorer": 0.35,    # Impact
+    "explorer": 0.35,  # Impact
     "strategist": 0.30,  # Strategic Fit
-    "builder": 0.20,     # Feasibility
-    "skeptic": 0.15,     # Confidence
+    "builder": 0.20,  # Feasibility
+    "skeptic": 0.15,  # Confidence
 }
 
-_WEIGHT_KEYS = {"impact": "explorer", "strategic_fit": "strategist", "feasibility": "builder", "confidence": "skeptic"}
+_WEIGHT_KEYS = {
+    "impact": "explorer",
+    "strategic_fit": "strategist",
+    "feasibility": "builder",
+    "confidence": "skeptic",
+}
 
 _DEFAULT_THRESHOLDS = {
-    "kill_threshold": 1.5,    # composite at or below -> kill
-    "prd_threshold": 3.5,     # composite at or above -> PRD-eligible
-    "confidence_gate": 4,     # confidence at or above -> prd, below -> poc
+    "kill_threshold": 1.5,  # composite at or below -> kill
+    "prd_threshold": 3.5,  # composite at or above -> PRD-eligible
+    "confidence_gate": 4,  # confidence at or above -> prd, below -> poc
 }
 
 # Value Horizon (US-41): a transient opportunity is only worth a fast bet if the
@@ -201,9 +210,7 @@ async def run(
         f"- {p.persona.capitalize()} ({p.dimension}, score {p.score}/5): {p.key_argument}"
         for p in personas
     )
-    open_questions = "\n".join(
-        f"- [{p.persona.capitalize()}] {p.open_question}" for p in personas
-    )
+    open_questions = "\n".join(f"- [{p.persona.capitalize()}] {p.open_question}" for p in personas)
 
     user_message = f"""## Stage 5 Framework
 {template}
@@ -352,7 +359,6 @@ Rules:
         source_stage="s5",
     )
 
-
     emit_event(
         "s5",
         "completed",
@@ -366,9 +372,10 @@ Rules:
     return output
 
 
-
 def build_decision_memo(data: S5OutputData) -> str:
-    routing_label = data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
+    routing_label = (
+        data.routing.upper() if hasattr(data.routing, "upper") else str(data.routing).upper()
+    )
 
     blocking = [a for a in data.assumptions if a.severity == "Blocking"]
     adjusting = [a for a in data.assumptions if a.severity != "Blocking"]
@@ -429,7 +436,7 @@ async def _verify_blocking_assumptions(
     time-horizon/magnitude axis (that is separate, future Part B work).
     """
     listing = "\n".join(
-        f"{i+1}. {a.statement} — claimed reason: {a.reason}" for i, a in enumerate(blocking)
+        f"{i + 1}. {a.statement} — claimed reason: {a.reason}" for i, a in enumerate(blocking)
     )
     user_message = f"""You are auditing **Blocking** assumption classifications from a prior step. Blocking must be RARE.
 

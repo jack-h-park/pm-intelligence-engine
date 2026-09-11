@@ -2,7 +2,8 @@ import enum
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import DeclarativeBase, relationship
 
 
@@ -15,7 +16,7 @@ class Base(DeclarativeBase):
 # current_stage columns are dropped by SQLiteStore._migrate.
 
 
-class RunMode(str, enum.Enum):
+class RunMode(enum.StrEnum):
     # Processing-depth ladder (US-43). See app/modes.py and
     # pm-decision-context/core/02-workflow.md.
     archive = "archive"        # depth 1: S1 only — set aside, not pursued (was "file")
@@ -33,13 +34,13 @@ class RunMode(str, enum.Enum):
         return cls(alias) if alias is not None else None
 
 
-class Routing(str, enum.Enum):
+class Routing(enum.StrEnum):
     prd = "prd"
     poc = "poc"
     kill = "kill"
 
 
-class SignalCategory(str, enum.Enum):
+class SignalCategory(enum.StrEnum):
     competitor = "competitor"
     platform = "platform"
     regulation = "regulation"
@@ -47,7 +48,7 @@ class SignalCategory(str, enum.Enum):
     other = "other"
 
 
-class SignalStatus(str, enum.Enum):
+class SignalStatus(enum.StrEnum):
     new = "new"
     in_run = "in_run"
     done = "done"
@@ -67,14 +68,14 @@ class SignalStatus(str, enum.Enum):
         return None
 
 
-class SourceType(str, enum.Enum):
+class SourceType(enum.StrEnum):
     manual = "manual"
     rss = "rss"
     file_watch = "file_watch"
     web = "web"
 
 
-class ApprovalAction(str, enum.Enum):
+class ApprovalAction(enum.StrEnum):
     approve = "approve"
     revise = "revise"
     reject = "reject"
@@ -103,7 +104,7 @@ class ApprovalAction(str, enum.Enum):
                                    # construction and would otherwise read as the PM.
 
 
-class ArtifactType(str, enum.Enum):
+class ArtifactType(enum.StrEnum):
     poc_plan = "poc_plan"
     prd = "prd"
     executive_summary = "executive_summary"

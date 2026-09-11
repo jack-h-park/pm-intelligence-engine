@@ -11,19 +11,19 @@ from app.agents.builder import BuilderAgent
 from app.agents.explorer import ExplorerAgent
 from app.agents.skeptic import SkepticAgent
 from app.agents.strategist import StrategistAgent
-from app.logging import emit_event
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import (
     PersonaOutput,
     RunContext,
     S4Input,
     S4Output,
     S4OutputData,
+    S4RubricResult,
     StageMetadata,
 )
-from app.storage.protocol import PMWorkflowStore
-from app.models.stages import S4RubricResult
 from app.services.template_service import TemplateService
+from app.storage.protocol import PMWorkflowStore
 from eval.rubrics.s4_rubric import check as check_s4_rubric
 
 
@@ -40,7 +40,9 @@ async def run(
 
     # Persona lens + question are owned by decision-context (US-37); load once.
     template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
-    prompts = {agent.persona: template_service.load_persona_prompt(agent.persona) for agent in agents}
+    prompts = {
+        agent.persona: template_service.load_persona_prompt(agent.persona) for agent in agents
+    }
 
     # Parallel execution — agents cannot see each other's outputs. All four share
     # one usage_sink; each appends its call's tokens (asyncio.gather on a single
@@ -119,13 +121,13 @@ def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult
     rows = []
     for p in personas:
         label, icon = _PERSONA_LABELS.get(p.persona, (p.dimension, ""))
-        rows.append(f"| {icon} {p.persona.capitalize()} | {label} | {p.score}/5 | {p.key_argument} |")
+        rows.append(
+            f"| {icon} {p.persona.capitalize()} | {label} | {p.score}/5 | {p.key_argument} |"
+        )
 
     table = "\n".join(rows)
 
-    open_qs = "\n".join(
-        f"- **{p.persona.capitalize()}:** {p.open_question}" for p in personas
-    )
+    open_qs = "\n".join(f"- **{p.persona.capitalize()}:** {p.open_question}" for p in personas)
 
     rubric_status = "✅ Passed" if rubric.passed else "❌ Failed"
 
@@ -162,4 +164,8 @@ def build_evaluation_brief(personas: list[PersonaOutput], rubric: S4RubricResult
 def _resolve_model() -> str:
     from config import settings
 
-    return settings.ANTHROPIC_MODEL if settings.LLM_PROVIDER.lower() == "claude" else settings.OPENAI_MODEL
+    return (
+        settings.ANTHROPIC_MODEL
+        if settings.LLM_PROVIDER.lower() == "claude"
+        else settings.OPENAI_MODEL
+    )

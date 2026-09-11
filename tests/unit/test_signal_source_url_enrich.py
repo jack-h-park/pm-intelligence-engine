@@ -7,8 +7,9 @@ a deterministic source_ref but no source_url, the engine recovers it. An explici
 source_url always wins; every failure mode (no ref, missing file, no frontmatter
 url, traversal-looking ref) degrades to None without failing the submit.
 """
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine, require_auth
@@ -19,7 +20,6 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-
 
 # ─── Fixtures ──────────────────────────────────────────────────────────────────
 

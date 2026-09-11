@@ -10,13 +10,12 @@ State transition:
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
+from app import pipeline
 from app.api.deps import get_engine
 from app.api.runs import validate_mode_for_product
 from app.factory import PMEngine
 
 router = APIRouter(prefix="/runs", tags=["direction"])
-
-from app import pipeline
 
 _VALID_MODES = set(pipeline.depths())  # single source of truth (app/pipeline.py)
 
@@ -35,7 +34,9 @@ AUTOMATED_ORIGINS = {"gate1-timeout": "timeout"}
 class DirectionRequest(BaseModel):
     # `depth` is canonical (US-43); `mode` accepted as a deprecated alias.
     model_config = ConfigDict(populate_by_name=True)
-    depth: str = Field(validation_alias=AliasChoices("depth", "mode"))  # archive|note|structure|evaluate|decide
+    depth: str = Field(
+        validation_alias=AliasChoices("depth", "mode")
+    )  # archive|note|structure|evaluate|decide
     # Who is answering. Absent = a human, which is every caller that predates this field.
     origin: str | None = None
 
@@ -48,17 +49,21 @@ async def set_direction(
     engine: PMEngine = Depends(get_engine),
 ) -> dict:
     from app.modes import normalize_mode
+
     if body.origin is not None and body.origin not in AUTOMATED_ORIGINS:
         raise HTTPException(
             status_code=422,
             detail=f"Unknown origin '{body.origin}'. Must be one of: "
-                   f"{', '.join(sorted(AUTOMATED_ORIGINS))} (omit it for a human decision)",
+            f"{', '.join(sorted(AUTOMATED_ORIGINS))} (omit it for a human decision)",
         )
     body.depth = normalize_mode(body.depth)  # accept legacy file/brief/opportunity (US-43)
     if body.depth not in _VALID_MODES:
         raise HTTPException(
             status_code=422,
-            detail=f"Invalid depth '{body.depth}'. Must be one of: {', '.join(sorted(_VALID_MODES))}",
+            detail=(
+                f"Invalid depth '{body.depth}'. "
+                f"Must be one of: {', '.join(sorted(_VALID_MODES))}"
+            ),
         )
 
     run = engine.store.get_run(run_id)
@@ -74,12 +79,13 @@ async def set_direction(
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
-                   "expected paused at Gate 1 (s2)",
+            "expected paused at Gate 1 (s2)",
         )
 
     # Record the Gate 1 decision as a labeled calibration datapoint (US-44):
     # what the system suggested vs what the PM chose.
     import json as _json
+
     suggested = None
     if run.get("recommendation_json"):
         try:
@@ -92,7 +98,7 @@ async def set_direction(
         stage="s2",
         action=action,
         feedback_text=f"chose={body.depth}; suggested={suggested}"
-                      + (f"; origin={body.origin}" if body.origin else ""),
+        + (f"; origin={body.origin}" if body.origin else ""),
     )
 
     engine.store.advance(run_id, "s2", mode=body.depth)
@@ -108,7 +114,6 @@ async def set_direction(
 
 async def _execute_from_direction(run_id: str, mode: str, engine: PMEngine) -> None:
     from app.logging import emit_event
-    from app.models.stages import RunContext
     from app.services.run_finalizer import finalize_run
 
     try:
@@ -117,11 +122,13 @@ async def _execute_from_direction(run_id: str, mode: str, engine: PMEngine) -> N
             return
 
         from app.services.run_context import load_run_context
+
         context = load_run_context(run_id, engine)
 
         emit_event("run", "direction_set", run_id, {"mode": mode})
 
         from app.api.runs import _continue_after_direction
+
         await _continue_after_direction(run_id, mode, context, engine)
 
     except Exception as exc:  # noqa: BLE001

@@ -4,8 +4,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
-from app.services import runtime_overrides
 from app.factory import PMEngine
+from app.services import runtime_overrides
 
 # Actions that mean "the system chose this depth, not the PM". Both are revivable by
 # `reopen`; a PM's own `direction` never is.
@@ -16,6 +16,7 @@ router = APIRouter(prefix="/runs", tags=["runs"])
 
 class _DummyPersona:
     """Sentinel used when a persona is unexpectedly absent from S4 output."""
+
     score = 0
 
 
@@ -43,11 +44,10 @@ class PromoteRequest(BaseModel):
 
     ``depth`` is optional; omitted, the promotion inherits the primary run's depth
     (or, if the primary has none yet, the promoted run takes its own Gate 1)."""
+
     model_config = ConfigDict(populate_by_name=True)
     product_id: str
-    depth: str | None = Field(
-        default=None, validation_alias=AliasChoices("depth", "mode")
-    )
+    depth: str | None = Field(default=None, validation_alias=AliasChoices("depth", "mode"))
 
 
 class RunResponse(BaseModel):
@@ -124,6 +124,7 @@ class RunResponse(BaseModel):
                 d["depth"] = d["mode"]
             if not d.get("review_url") and d.get("run_id"):
                 from config import review_url_for
+
                 link = review_url_for(d["run_id"])
                 if link:
                     d["review_url"] = link
@@ -216,8 +217,9 @@ def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
     s2_raw = engine.store.get_stage_output(run_id, "s2")
     if s2_raw is None:
         return None
-    from app.modes import normalize_mode
     from app.models.stages import flatten_claims
+    from app.modes import normalize_mode
+
     s2 = json.loads(s2_raw["output_json"])["output"]
     # Provenance claims (US-?) replaced the free-text relevance_explanation.
     # Keep the flattened string for back-compat consumers and pass `claims`
@@ -288,18 +290,29 @@ async def dispatch_start(
     """
     # `depth` (canonical) accepts the `mode` alias; legacy values are normalized (US-43)
     from app.modes import normalize_mode
+
     requested_mode = normalize_mode(depth)
     if requested_mode is not None:
         _validate_mode(requested_mode)
 
     if product_id is not None:
         return _start_manual_run(
-            signal_id, product_id, requested_mode,
-            force_gate1, background_tasks, engine, origin=origin,
+            signal_id,
+            product_id,
+            requested_mode,
+            force_gate1,
+            background_tasks,
+            engine,
+            origin=origin,
         )
     return await _start_fanout_runs(
-        signal_id, signal, requested_mode,
-        force_gate1, background_tasks, engine, origin=origin,
+        signal_id,
+        signal,
+        requested_mode,
+        force_gate1,
+        background_tasks,
+        engine,
+        origin=origin,
     )
 
 
@@ -316,13 +329,16 @@ def _start_manual_run(
     if requested_mode is not None:
         validate_mode_for_product(requested_mode, product_id)
 
-    run_id = engine.store.create_run(
-        product_id=product_id, signal_id=signal_id, origin=origin
-    )
+    run_id = engine.store.create_run(product_id=product_id, signal_id=signal_id, origin=origin)
     engine.store.advance(run_id, "s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
-        _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
+        _execute_s1_s2,
+        run_id,
+        signal_id,
+        product_id,
+        requested_mode,
+        engine,
         force_gate1,
     )
     return RunResponse(**engine.store.get_run(run_id))  # type: ignore[arg-type]
@@ -337,7 +353,6 @@ async def _start_fanout_runs(
     engine: PMEngine,
     origin: str = "start",
 ) -> BatchStartResponse:
-    from config import settings
     from app.logging import emit_event
     from app.stages import portfolio_triage
 
@@ -368,17 +383,18 @@ async def _start_fanout_runs(
     primary_id = _select_primary(triage)
     runs = _spawn_runs_in_batch(
         [primary_id] if primary_id else [],
-        signal_id, batch_id, requested_mode, force_gate1, background_tasks, engine,
+        signal_id,
+        batch_id,
+        requested_mode,
+        force_gate1,
+        background_tasks,
+        engine,
         origin=origin,
     )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
 
-    deferred = [
-        p.product_id
-        for p in triage.products
-        if p.relevant and p.product_id != primary_id
-    ]
+    deferred = [p.product_id for p in triage.products if p.relevant and p.product_id != primary_id]
     # Keep membership OPEN only when there is something to promote. If Triage found
     # no other relevant product, there is provably nothing to defer, so close the
     # batch now — otherwise it would linger open forever (nothing ever triggers the
@@ -388,7 +404,9 @@ async def _start_fanout_runs(
         engine.store.close_batch_membership(batch_id)
 
     emit_event(
-        "run", "fanout_started", signal_id,
+        "run",
+        "fanout_started",
+        signal_id,
         {"batch_id": batch_id, "primary": primary_id, "deferred": deferred},
     )
     return BatchStartResponse(
@@ -448,7 +466,12 @@ def _spawn_runs_in_batch(
         )
         engine.store.advance(run_id, "s1")
         background_tasks.add_task(
-            _execute_s1_s2, run_id, signal_id, product_id, requested_mode, engine,
+            _execute_s1_s2,
+            run_id,
+            signal_id,
+            product_id,
+            requested_mode,
+            engine,
             force_gate1,
         )
         runs.append(RunResponse(**engine.store.get_run(run_id)))  # type: ignore[arg-type]
@@ -498,16 +521,14 @@ async def promote_product(
     so it is effectively reused. Gate 1 is skipped: the promotion carries the
     depth (explicit ``depth``, else the primary's depth).
     """
-    from app.modes import normalize_mode
     from app.logging import emit_event
+    from app.modes import normalize_mode
 
     batch = engine.store.get_batch(batch_id)
     if batch is None:
         raise HTTPException(status_code=404, detail="Batch not found")
     if batch["membership_closed"]:
-        raise HTTPException(
-            status_code=409, detail="Batch membership is closed; cannot promote"
-        )
+        raise HTTPException(status_code=409, detail="Batch membership is closed; cannot promote")
     _validate_product_exists(body.product_id, engine)
 
     siblings = engine.store.list_runs(batch_id=batch_id, limit=1000)
@@ -528,11 +549,11 @@ async def promote_product(
     )
     engine.store.advance(run_id, "s1")
     engine.store.update_signal_status(signal_id, "in_run")
-    background_tasks.add_task(
-        _execute_s1_s2, run_id, signal_id, body.product_id, depth, engine
-    )
+    background_tasks.add_task(_execute_s1_s2, run_id, signal_id, body.product_id, depth, engine)
     emit_event(
-        "run", "promoted", run_id,
+        "run",
+        "promoted",
+        run_id,
         {"batch_id": batch_id, "product_id": body.product_id, "depth": depth},
     )
     return RunResponse(**engine.store.get_run(run_id))  # type: ignore[arg-type]
@@ -591,7 +612,6 @@ async def scan_portfolio(
     fires once they all settle. If nothing else is relevant, the origin run is
     left untouched.
     """
-    from config import settings
     from app.logging import emit_event
     from app.stages import portfolio_triage
 
@@ -621,7 +641,9 @@ async def scan_portfolio(
     if not triage.relevant_product_ids:
         emit_event("run", "scan_no_match", run_id, {"product_id": origin_product})
         return ScanResponse(
-            scanned_run_id=run_id, batch_id=None, runs=[],
+            scanned_run_id=run_id,
+            batch_id=None,
+            runs=[],
             triage=[p.model_dump() for p in triage.products],
         )
 
@@ -630,19 +652,28 @@ async def scan_portfolio(
     )
     engine.store.update_run(run_id, batch_id=batch_id)  # pull the origin run in
     runs = _spawn_runs_in_batch(
-        triage.relevant_product_ids, run["signal_id"], batch_id, None,
-        False, background_tasks, engine,
+        triage.relevant_product_ids,
+        run["signal_id"],
+        batch_id,
+        None,
+        False,
+        background_tasks,
+        engine,
     )
     # Membership closes now: the scan decision is resolved, so the synthesis
     # trigger may fire once the origin run and all siblings settle.
     engine.store.close_batch_membership(batch_id)
 
     emit_event(
-        "run", "scan_fanout", run_id,
+        "run",
+        "scan_fanout",
+        run_id,
         {"batch_id": batch_id, "relevant": triage.relevant_product_ids},
     )
     return ScanResponse(
-        scanned_run_id=run_id, batch_id=batch_id, runs=runs,
+        scanned_run_id=run_id,
+        batch_id=batch_id,
+        runs=runs,
         triage=[p.model_dump() for p in triage.products],
     )
 
@@ -686,6 +717,7 @@ async def list_runs(
     since_dt = None
     if since is not None:
         from datetime import datetime
+
         try:
             since_dt = datetime.fromisoformat(since)
         except ValueError:
@@ -695,13 +727,24 @@ async def list_runs(
             )
     if event is not None:
         valid_events = {
-            "approve", "revise", "reject", "auto_triaged", "reopen",
-            "direction", "confirm", "override", "deepen", "timeout",
+            "approve",
+            "revise",
+            "reject",
+            "auto_triaged",
+            "reopen",
+            "direction",
+            "confirm",
+            "override",
+            "deepen",
+            "timeout",
         }
         if event not in valid_events:
             raise HTTPException(
                 status_code=422,
-                detail=f"Invalid event '{event}'. Must be one of: {', '.join(sorted(valid_events))}",
+                detail=(
+                    f"Invalid event '{event}'. "
+                    f"Must be one of: {', '.join(sorted(valid_events))}"
+                ),
             )
     runs = engine.store.list_runs(
         signal_id=signal_id,
@@ -750,14 +793,14 @@ async def reopen_run(
         raise HTTPException(
             status_code=409,
             detail="Only runs the system decided for can be reopened "
-                   f"({', '.join(sorted(REVIVABLE_ACTIONS))}); this run carries a PM decision",
+            f"({', '.join(sorted(REVIVABLE_ACTIONS))}); this run carries a PM decision",
         )
     if not (run.get("lifecycle") == "done" and run.get("outcome") == "completed"):
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run.get('lifecycle')}/{run.get('outcome')}', "
-                   "expected a completed run "
-                   "(already reopened runs cannot be reopened again)",
+            "expected a completed run "
+            "(already reopened runs cannot be reopened again)",
         )
 
     engine.store.record_approval(run_id=run_id, stage="s2", action="reopen")
@@ -773,6 +816,7 @@ async def reopen_run(
 
 def _validate_mode(mode: str) -> None:
     from app import pipeline
+
     valid = set(pipeline.depths())  # single source of truth (app/pipeline.py)
     if mode not in valid:
         raise HTTPException(
@@ -790,9 +834,7 @@ def _validate_product_exists(product_id: str, engine: PMEngine) -> None:
     try:
         engine.context_loader.load_product_context(product_id)
     except FileNotFoundError:
-        raise HTTPException(
-            status_code=422, detail=f"Unknown product_id '{product_id}'"
-        )
+        raise HTTPException(status_code=422, detail=f"Unknown product_id '{product_id}'")
 
 
 def validate_mode_for_product(mode: str, product_id: str) -> None:
@@ -825,7 +867,7 @@ async def _execute_s1_s2(
     auto-triage path (used by any non-interactive caller) is unchanged.
     """
     from app.logging import emit_event
-    from app.models.stages import RunContext, S1Input, S2Input
+    from app.models.stages import S1Input, S2Input
     from app.stages import s1_signal, s2_insight
 
     try:
@@ -834,6 +876,7 @@ async def _execute_s1_s2(
             raise ValueError(f"Signal {signal_id} not found")
 
         from app.services.run_context import load_run_context
+
         context = load_run_context(run_id, engine)
 
         engine.store.advance(run_id, "s1")
@@ -898,7 +941,10 @@ async def _execute_s1_s2(
                 action="preset",
                 feedback_text=f"chose={requested_mode}; suggested={s2_out.output.suggested_mode}",
             )
-        elif not force_gate1 and s2_out.output.relevance_score < runtime_overrides.auto_triage_threshold():
+        elif (
+            not force_gate1
+            and s2_out.output.relevance_score < runtime_overrides.auto_triage_threshold()
+        ):
             # No depth specified, not force_gate1, and relevance is below threshold —
             # auto-triage. (force_gate1 from a PM-initiated interactive start
             # suppresses this so the run always pauses at Gate 1 below.)
@@ -912,7 +958,9 @@ async def _execute_s1_s2(
                 feedback_text=s2_out.output.suggestion_reasoning,
             )
             await finalize_run(
-                run_id, "completed", engine,
+                run_id,
+                "completed",
+                engine,
                 event_action="auto_triaged",
                 event_detail={
                     "relevance_score": s2_out.output.relevance_score,
@@ -952,6 +1000,7 @@ async def _execute_s1_s2(
 
     except Exception as exc:  # noqa: BLE001
         from app.services.run_finalizer import finalize_run
+
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 

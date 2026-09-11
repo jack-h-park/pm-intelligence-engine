@@ -6,6 +6,7 @@ lineage explicit so retries of one signal can be collapsed to one logical run;
 failed_stage / error persist the failure reason in the DB (not just the log).
 """
 import sqlalchemy as sa
+
 from app.storage.sqlite_store import SQLiteStore
 
 

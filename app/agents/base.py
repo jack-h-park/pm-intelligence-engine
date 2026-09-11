@@ -1,8 +1,9 @@
 """Base class for all S4 persona agents."""
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text. Wrapping
+# them would change what gets sent to the model, and a noqa on a specific line
+# would become part of that prompt text.
 
 from __future__ import annotations
-
-from typing import Optional
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
@@ -34,8 +35,8 @@ class PersonaAgent:
         context: RunContext,
         llm: LLMProvider,
         prompt: dict,
-        feedback: Optional[str] = None,
-        usage_sink: Optional[list] = None,
+        feedback: str | None = None,
+        usage_sink: list | None = None,
     ) -> PersonaOutput:
         system = (
             f"You are the {self.persona.capitalize()} persona in a PM evaluation framework.\n\n"
@@ -63,7 +64,7 @@ Value for business: {opportunity.assumed_value_business}
 {render_decision_case(context.decision_case)}
 
 ## Your Evaluation Question
-{prompt['question']}
+{prompt["question"]}
 {feedback_block}
 
 ## Instructions

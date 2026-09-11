@@ -13,7 +13,7 @@ T = TypeVar("T")
 RETRY_DELAYS = [5, 15, 30]  # seconds between attempts
 
 
-async def with_retries(
+async def with_retries[T](
     call: Callable[[], Awaitable[T]],
     is_retryable: Callable[[Exception], bool],
     provider: str,

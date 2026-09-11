@@ -16,9 +16,8 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 from app.models.stages import (
     S1OutputData,
@@ -50,7 +49,7 @@ def export_run(
     # Folder date = run terminal date (completed_at), else created_at, else now().
     # Keeps backfilled exports on the run real date, not the export date.
     _run_date = run.get("completed_at") or run.get("created_at")
-    date_str = _run_date[:10] if _run_date else datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_str = _run_date[:10] if _run_date else datetime.now(UTC).strftime("%Y-%m-%d")
 
     # Load all stage outputs
     s1 = _load_stage(store, run_id, "s1", S1OutputData)
@@ -153,7 +152,9 @@ def _render_s2(s2: S2OutputData, s1: S1OutputData, date_str: str) -> str:
 def _render_s3(s3: S3OutputData, date_str: str) -> str:
     from app.stages.s3_opportunity import build_opportunity_memo
 
-    return _archive_doc("Stage 3: Opportunity Creation", [f"**Date:** {date_str}"], build_opportunity_memo(s3))
+    return _archive_doc(
+        "Stage 3: Opportunity Creation", [f"**Date:** {date_str}"], build_opportunity_memo(s3)
+    )
 
 
 def _render_s4(s4: S4OutputData, date_str: str) -> str:
@@ -169,7 +170,9 @@ def _render_s4(s4: S4OutputData, date_str: str) -> str:
 def _render_s5(s5: S5OutputData, date_str: str) -> str:
     from app.stages.s5_prioritization import build_decision_memo
 
-    return _archive_doc("Stage 5: Prioritization", [f"**Date:** {date_str}"], build_decision_memo(s5))
+    return _archive_doc(
+        "Stage 5: Prioritization", [f"**Date:** {date_str}"], build_decision_memo(s5)
+    )
 
 
 def _render_s6a(s6a: S6AOutputData, date_str: str) -> str:
@@ -189,7 +192,7 @@ def _load_stage(
     run_id: str,
     stage: str,
     model_class,  # type: ignore[no-untyped-def]
-) -> Optional[object]:
+) -> object | None:
     raw = store.get_stage_output(run_id, stage)
     if raw is None:
         return None

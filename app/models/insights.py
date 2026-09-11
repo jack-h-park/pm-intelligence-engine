@@ -40,7 +40,7 @@ def _shadow_origin_reference(url: str, content_hash: str) -> str:
     if path != "/":
         path = path.rstrip("/")
     canonical_url = urlunsplit((scheme, authority, path, parsed.query, ""))
-    digest = hashlib.sha256(f"{canonical_url}\n{content_hash}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{canonical_url}\n{content_hash}".encode()).hexdigest()
     return f"shadow-source:{digest}"
 
 

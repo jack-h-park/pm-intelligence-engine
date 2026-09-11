@@ -37,7 +37,10 @@ def test_insight_provider_factory_selects_oauth_without_changing_legacy_provider
     monkeypatch.setattr(
         config,
         "settings",
-        SimpleNamespace(INSIGHT_OAUTH_COMMAND=f"{sys.executable} -m hermes_cli.main", INSIGHT_OAUTH_PROFILE="ops"),
+        SimpleNamespace(
+            INSIGHT_OAUTH_COMMAND=f"{sys.executable} -m hermes_cli.main",
+            INSIGHT_OAUTH_PROFILE="ops",
+        ),
     )
 
     provider = build_insight_llm_provider()
