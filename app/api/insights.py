@@ -4,11 +4,12 @@ import hashlib
 import json
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
+from app.models.decision_case import InsightRevisionReference
 from app.models.insights import (
     Candidate,
     EvidenceBundle,
@@ -24,6 +25,7 @@ from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
+from app.services.decision_case import build_decision_case
 from app.storage.insight_store import (
     IdempotencyConflict,
     InvalidInsightReference,
@@ -78,6 +80,22 @@ class JobCreate(_Request):
 class JobAccepted(BaseModel):
     job_id: str
     state: Literal["queued"]
+
+
+class DecisionRequestCreate(_Request):
+    prepared_context_id: str = Field(min_length=1)
+    prepared_context_revision: int = Field(ge=1)
+    insight_references: list[InsightRevisionReference] = Field(default_factory=list)
+    product_id: str = Field(min_length=1)
+    confirmed_product_id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None = None
+    options: list[str] = Field(default_factory=list)
+
+
+class DecisionRequestAccepted(BaseModel):
+    request_id: str
+    run_id: str
 
 
 class ResearchClaim(BaseModel):
@@ -216,6 +234,86 @@ def _key(idempotency_key: str | None) -> str:
             detail="Idempotency-Key is required",
         )
     return idempotency_key
+
+
+@router.post(
+    "/decision-requests",
+    response_model=DecisionRequestAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_decision_request(
+    body: DecisionRequestCreate,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> DecisionRequestAccepted:
+    """Bridge prepared evidence into exactly one legacy-compatible decision run."""
+    from app.api.runs import _execute_s1_s2, _validate_product_exists, validate_mode_for_product
+
+    insight_store = _store(engine)
+    prepared = insight_store.get_prepared_context(body.prepared_context_id)
+    if prepared is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prepared context not found"
+        )
+    if prepared.revision != body.prepared_context_revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Prepared context revision changed"
+        )
+    if prepared.validation_status != "valid":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Prepared context needs evidence before a decision request",
+        )
+    if body.confirmed_product_id != body.product_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Confirmed product must match product_id",
+        )
+    for reference in body.insight_references:
+        insight = insight_store.get_insight(reference.insight_id)
+        if insight is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+        if insight.revision != reference.revision:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail="Insight revision changed"
+            )
+    _validate_product_exists(body.product_id, engine)
+    if body.depth is not None:
+        validate_mode_for_product(body.depth, body.product_id)
+    case = build_decision_case(
+        prepared_context=prepared,
+        product_id=body.product_id,
+        decision_question=body.question,
+        authorized_depth=body.depth,
+        input_origin="insight" if body.insight_references else "direct",
+        insight_references=body.insight_references,
+        options=body.options,
+        confirmed_product_id=body.confirmed_product_id,
+        confirmed_by_actor=_actor_fingerprint(authorization),
+    )
+    try:
+        result, stored_status = engine.store.create_idempotent_decision_request(
+            _actor_fingerprint(authorization),
+            _key(idempotency_key),
+            _request_hash(body),
+            case,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if stored_status == status.HTTP_202_ACCEPTED:
+        background_tasks.add_task(
+            _execute_s1_s2,
+            result["run_id"],
+            result["signal_id"],
+            body.product_id,
+            body.depth,
+            engine,
+        )
+    response.status_code = stored_status
+    return DecisionRequestAccepted(request_id=result["request_id"], run_id=result["run_id"])
 
 
 @router.post("/insight-candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)

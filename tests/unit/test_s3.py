@@ -1,9 +1,11 @@
 """Unit tests for Stage 3 — Opportunity Creation."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from app.models.decision_case import DecisionCase
 from app.models.stages import RunContext, S2OutputData, S3Input, S3Output
 from app.stages import s3_opportunity
 
@@ -16,6 +18,39 @@ def _make_context() -> RunContext:
         company_context="Company context text",
         product_context="Product context with strategy pillars.",
     )
+
+
+@pytest.mark.asyncio
+async def test_s3_includes_pinned_decision_case_without_rewriting_its_facts():
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value=json.dumps(_VALID_S3_RESPONSE))
+    context = _make_context().model_copy(
+        update={
+            "decision_case": DecisionCase(
+                prepared_context_id="prepared-1",
+                prepared_context_revision=1,
+                product_id="test-product",
+                decision_question="Should we retain the current policy?",
+                input_origins=["direct"],
+                hypotheses=["The behavior may be acceptable."],
+                constraints=["Do not infer a customer need."],
+                options=["Retain status quo"],
+            )
+        }
+    )
+    with patch("app.stages.s3_opportunity.TemplateService") as MockTS:
+        MockTS.return_value.load_template.return_value = "template text"
+        await s3_opportunity.run(
+            input=S3Input(signal_id="sig-001", s2_output=_make_s2_output(), product_id="test"),
+            context=context,
+            llm=llm,
+            store=_make_store(),
+        )
+
+    prompt = llm.complete.call_args.kwargs["messages"][1]["content"]
+    assert "Should we retain the current policy?" in prompt
+    assert "Do not infer a customer need." in prompt
+    assert "Retain status quo" in prompt
 
 
 def _make_s2_output() -> S2OutputData:
@@ -39,8 +74,14 @@ def _make_store() -> MagicMock:
 _VALID_S3_RESPONSE = {
     "problem_statement": "The platform lacks admin enforcement for a security policy.",
     "target_user": "IT security admin at a regulated organization.",
-    "hypothesis": "If the platform exposes an admin-enforced policy, then IT admins will mandate it across their fleet, because admin-enforced posture is the only acceptable configuration in this segment.",
-    "assumed_value_user": "Eliminates a compliance gap — the policy becomes admin-enforced, not user-optional.",
+    "hypothesis": (
+        "If the platform exposes an admin-enforced policy, then IT admins will mandate it "
+        "across their fleet, because admin-enforced posture is the only acceptable "
+        "configuration in this segment."
+    ),
+    "assumed_value_user": (
+        "Eliminates a compliance gap — the policy becomes admin-enforced, not user-optional."
+    ),
     "assumed_value_business": "The platform ships enforcement ahead of the OS's native equivalent.",
 }
 

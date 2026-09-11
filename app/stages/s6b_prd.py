@@ -4,9 +4,9 @@ Produces a full PRD from S5 output. Only runs when S5 routing is 'prd'.
 Completeness check is computed deterministically from the LLM output.
 """
 
-from app.logging import emit_event
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import (
     PRDCompletenessCheck,
     RunContext,
@@ -15,6 +15,7 @@ from app.models.stages import (
     S6BOutputData,
     StageMetadata,
 )
+from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -75,6 +76,11 @@ Rationale: {s5.rationale}
 
 Assumptions to manage (Adjusting — not Blocking):
 {adjusting_text}
+
+---
+
+## Pinned Decision Case
+{render_decision_case(context.decision_case)}
 
 ---
 

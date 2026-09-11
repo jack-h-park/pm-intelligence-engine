@@ -37,6 +37,16 @@ class PMWorkflowStore(Protocol):
     ) -> list[dict]: ...
 
     # --- WorkflowRun ---
+    def create_decision_request_run(self, case) -> dict: ...
+
+    def create_idempotent_decision_request(
+        self, actor: str, idempotency_key: str, request_hash: str, case
+    ) -> tuple[dict, int]: ...
+
+    def save_decision_case(self, run_id: str, case) -> None: ...
+
+    def get_decision_case(self, run_id: str): ...
+
     def create_run(
         self,
         product_id: str,

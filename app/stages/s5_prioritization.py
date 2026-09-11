@@ -5,9 +5,9 @@ LLM classifies assumptions (Blocking / Adjusting) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
 
-from app.logging import emit_event
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import (
     Assumption,
     RunContext,
@@ -16,6 +16,7 @@ from app.models.stages import (
     S5OutputData,
     StageMetadata,
 )
+from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -66,7 +67,9 @@ def _load_scoring_config(product_id: str) -> dict:
     """
     import json
     import pathlib
+
     import yaml
+
     from config import settings
 
     merged: dict = {}
@@ -220,6 +223,11 @@ Persona scores and arguments:
 
 Open questions raised:
 {open_questions}
+
+---
+
+## Pinned Decision Case
+{render_decision_case(context.decision_case)}
 
 ---
 

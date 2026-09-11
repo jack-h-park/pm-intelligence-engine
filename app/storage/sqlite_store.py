@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.models.workflow import (
@@ -11,6 +12,9 @@ from app.models.workflow import (
     ApprovalEvent,
     ArtifactType,
     Base,
+    DecisionCaseRecord,
+    DecisionCaseRunLink,
+    DecisionRequestRecord,
     PortfolioSynthesis,
     Routing,
     RunBatch,
@@ -400,6 +404,164 @@ class SQLiteStore:
             )
 
     # --- WorkflowRun ---
+
+    @staticmethod
+    def _create_decision_request_run(session, case) -> dict:
+        input_title = (
+            "Insight-backed product decision input"
+            if "insight" in case.input_origins
+            else "Direct product decision input"
+        )
+        signal = Signal(
+            original_product_id=case.product_id,
+            title=input_title,
+            raw_content=case.decision_question,
+            category=SignalCategory.other,
+            source_type=SourceType.manual,
+            source_ref=f"decision-case:{case.case_id}:{case.revision}",
+        )
+        session.add(signal)
+        session.flush()
+        run = WorkflowRun(
+            product_id=case.product_id,
+            signal_id=signal.signal_id,
+            attempt_no=1,
+            origin="decision_request",
+            lifecycle="running",
+            position=None,
+            outcome=None,
+            reason=None,
+        )
+        session.add(run)
+        session.flush()
+        signal.status = SignalStatus.in_run
+        session.add(
+            DecisionCaseRecord(
+                case_id=case.case_id,
+                revision=case.revision,
+                product_id=case.product_id,
+                prepared_context_id=case.prepared_context_id,
+                payload_json=case.model_dump_json(),
+            )
+        )
+        session.add(
+            DecisionCaseRunLink(
+                run_id=run.run_id, case_id=case.case_id, case_revision=case.revision
+            )
+        )
+        return {"signal_id": signal.signal_id, "run_id": run.run_id}
+
+    def create_decision_request_run(self, case) -> dict:
+        """Create the legacy-compatible signal, run, and case link atomically.
+
+        The signal is deliberately typed as a direct decision input through its
+        ``source_ref``.  It is not synthetic external news, and this method
+        creates no portfolio siblings.
+        """
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        with self._Session.begin() as session:
+            return self._create_decision_request_run(session, case)
+
+    def create_idempotent_decision_request(
+        self, actor: str, idempotency_key: str, request_hash: str, case
+    ) -> tuple[dict, int]:
+        """Atomically create or replay the one workflow-side request result."""
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        try:
+            with self._Session.begin() as session:
+                existing = session.get(
+                    DecisionRequestRecord,
+                    {"actor": actor, "idempotency_key": idempotency_key},
+                )
+                if existing is not None:
+                    if existing.request_hash != request_hash:
+                        raise ValueError("Idempotency-Key was already used with different content")
+                    return {
+                        "request_id": existing.request_id,
+                        "signal_id": existing.signal_id,
+                        "run_id": existing.run_id,
+                    }, 200
+                result = self._create_decision_request_run(session, case)
+                request = DecisionRequestRecord(
+                    actor=actor,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                    signal_id=result["signal_id"],
+                    run_id=result["run_id"],
+                )
+                session.add(request)
+                session.flush()
+                return {"request_id": request.request_id, **result}, 202
+        except IntegrityError:
+            with self._Session() as session:
+                existing = session.get(
+                    DecisionRequestRecord,
+                    {"actor": actor, "idempotency_key": idempotency_key},
+                )
+                if existing is None:
+                    raise
+                if existing.request_hash != request_hash:
+                    raise ValueError("Idempotency-Key was already used with different content")
+                return {
+                    "request_id": existing.request_id,
+                    "signal_id": existing.signal_id,
+                    "run_id": existing.run_id,
+                }, 200
+
+    def save_decision_case(self, run_id: str, case) -> None:
+        """Persist a case revision and its run link in one transaction."""
+        from app.models.decision_case import DecisionCase
+
+        if not isinstance(case, DecisionCase):
+            raise TypeError("case must be a DecisionCase")
+        with self._Session.begin() as session:
+            if session.get(WorkflowRun, run_id) is None:
+                raise ValueError(f"Run {run_id} not found")
+            existing = session.get(
+                DecisionCaseRecord, {"case_id": case.case_id, "revision": case.revision}
+            )
+            payload_json = case.model_dump_json()
+            if existing is None:
+                session.add(
+                    DecisionCaseRecord(
+                        case_id=case.case_id,
+                        revision=case.revision,
+                        product_id=case.product_id,
+                        prepared_context_id=case.prepared_context_id,
+                        payload_json=payload_json,
+                    )
+                )
+            elif existing.payload_json != payload_json:
+                raise ValueError("DecisionCase revisions are immutable")
+            link = session.get(DecisionCaseRunLink, run_id)
+            if link is None:
+                session.add(
+                    DecisionCaseRunLink(
+                        run_id=run_id, case_id=case.case_id, case_revision=case.revision
+                    )
+                )
+            elif (link.case_id, link.case_revision) != (case.case_id, case.revision):
+                raise ValueError("Run already has a different DecisionCase revision")
+
+    def get_decision_case(self, run_id: str):
+        """Return the exact case revision pinned to a run, if it has one."""
+        from app.models.decision_case import DecisionCase
+
+        with self._Session() as session:
+            link = session.get(DecisionCaseRunLink, run_id)
+            if link is None:
+                return None
+            record = session.get(
+                DecisionCaseRecord,
+                {"case_id": link.case_id, "revision": link.case_revision},
+            )
+            return DecisionCase.model_validate_json(record.payload_json) if record else None
 
     def create_run(
         self,
