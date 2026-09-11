@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 
@@ -44,7 +45,7 @@ async def test_triage_never_admits_unchanged_or_irrelevant_evidence():
     assert result.disposition == "quiet_reference"
 
 
-def _reservation(operation_id: str) -> dict:
+def _reservation(operation_id: str) -> dict[str, Any]:
     return {
         "operation_id": operation_id, "operation_type": "triage", "policy_revision": "fixture-v1",
         "provider": "fixture", "rate_revision": "fixture-rates", "maximum_micros": 10,

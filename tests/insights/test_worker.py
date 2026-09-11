@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
@@ -6,7 +7,7 @@ from app.insight_worker import process_one
 from app.storage.insight_store import StaleLease
 
 
-def _job_payload(candidate_id: str) -> dict:
+def _job_payload(candidate_id: str) -> dict[str, Any]:
     return {
         "candidate_id": candidate_id,
         "context_revision": "fixture-context-v1",

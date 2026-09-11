@@ -19,6 +19,8 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 
+from pydantic import BaseModel
+
 from app.models.stages import (
     S1OutputData,
     S2OutputData,
@@ -45,7 +47,7 @@ def export_run(
     if run is None:
         raise ValueError(f"Run {run_id} not found")
 
-    product_id = run["product_id"]
+    product_id: str = run["product_id"]
     # Folder date = run terminal date (completed_at), else created_at, else now().
     # Keeps backfilled exports on the run real date, not the export date.
     _run_date = run.get("completed_at") or run.get("created_at")
@@ -187,12 +189,12 @@ def _render_s6b(s6b: S6BOutputData, date_str: str) -> str:
     return _archive_doc("Stage 6B: PRD", [f"**Date:** {date_str}"], build_prd(s6b))
 
 
-def _load_stage(
+def _load_stage[T: BaseModel](
     store: PMWorkflowStore,
     run_id: str,
     stage: str,
-    model_class,  # type: ignore[no-untyped-def]
-) -> object | None:
+    model_class: type[T],
+) -> T | None:
     raw = store.get_stage_output(run_id, stage)
     if raw is None:
         return None

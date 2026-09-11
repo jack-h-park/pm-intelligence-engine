@@ -21,6 +21,8 @@ consumers move to ``/decision``. The action vocabulary is schema-independent, so
 it survives the step-5 flip to (position, lifecycle) unchanged.
 """
 
+from typing import Any
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -47,7 +49,7 @@ async def decide(
     body: DecisionRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     if body.action not in _ACTIONS:
         raise HTTPException(
             status_code=422,
@@ -70,6 +72,8 @@ async def decide(
         if action == "advance_to":
             from app.api.direction import DirectionRequest, set_direction
 
+            if body.target is None:
+                raise HTTPException(status_code=422, detail="target is required for advance_to")
             return await set_direction(
                 run_id,
                 DirectionRequest(depth=body.target, origin=body.origin),
@@ -134,6 +138,8 @@ async def decide(
         if action == "advance_to":
             from app.api.deepen import DeepenRequest, deepen_run
 
+            if body.target is None:
+                raise HTTPException(status_code=422, detail="target is required for advance_to")
             return await deepen_run(
                 run_id, DeepenRequest(depth=body.target), background_tasks, engine
             )
@@ -142,7 +148,7 @@ async def decide(
             from app.api.runs import reopen_run
 
             resp = await reopen_run(run_id, engine)
-            return resp.model_dump() if hasattr(resp, "model_dump") else resp
+            return resp.model_dump()
         raise _invalid(action, state, "advance_to {target} (deepen) | advance (reopen)")
 
     # --- Any other non-terminal state: administrative void ---------------

@@ -1,9 +1,10 @@
 """Build stage context while preserving an optional pinned DecisionCase."""
 
+from app.factory import PMEngine
 from app.models.stages import RunContext
 
 
-def load_run_context(run_id: str, engine) -> RunContext:
+def load_run_context(run_id: str, engine: PMEngine) -> RunContext:
     run = engine.store.get_run(run_id)
     if run is None:
         raise ValueError(f"Run {run_id} not found")

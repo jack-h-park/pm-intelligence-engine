@@ -1,13 +1,14 @@
 import json
 import sys
 from datetime import UTC, datetime
+from typing import Any
 
 
 def emit_event(
     stage: str,
     action: str,
     run_id: str,
-    detail: dict | None = None,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     event = {
         "timestamp": datetime.now(UTC).isoformat(),

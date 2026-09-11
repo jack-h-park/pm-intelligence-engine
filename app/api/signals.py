@@ -1,6 +1,7 @@
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
@@ -165,7 +166,7 @@ class ReconcileResponse(BaseModel):
 
     checked: int  # signals examined
     corrected: int  # signals whose status was changed
-    changes: list[dict]  # [{signal_id, title, old, new}] per corrected signal
+    changes: list[dict[str, Any]]  # [{signal_id, title, old, new}] per corrected signal
 
 
 @router.post("/reconcile", response_model=ReconcileResponse)
@@ -246,7 +247,7 @@ async def refresh_signal(
     body: SignalRefreshRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     """Re-ingest a signal's content and re-run it on a fresh attempt lineage.
 
     Signals are immutable after Gate 0 intake; this is the single audited path

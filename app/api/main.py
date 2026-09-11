@@ -1,5 +1,7 @@
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 from fastapi import Depends, FastAPI
 
@@ -19,7 +21,7 @@ from app.api.void import router as void_router
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.agents.builder import BuilderAgent
     from app.agents.explorer import ExplorerAgent
     from app.agents.skeptic import SkepticAgent
@@ -31,7 +33,7 @@ async def lifespan(app: FastAPI):
     # Preflight: persona prompts live in decision-context (US-37). Fail fast at
     # boot if that checkout is stale rather than crashing mid-run at S4.
     personas = [a.persona for a in (ExplorerAgent, StrategistAgent, BuilderAgent, SkepticAgent)]
-    TemplateService(settings.DECISION_SYSTEM_ROOT).validate_persona_prompts(personas)
+    TemplateService(settings.decision_system_root).validate_persona_prompts(personas)
 
     engine = build_engine("local")
     # Insight schema initialization is an explicit startup operation.  Request
@@ -76,5 +78,5 @@ app.include_router(insight_budget_router, dependencies=_auth)
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health() -> dict[str, Any]:
     return {"status": "ok"}

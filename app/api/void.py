@@ -23,6 +23,8 @@ State transition:
   <any non-terminal> + POST /void { reason } → killed (event=voided)
 """
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -40,7 +42,7 @@ async def void_run(
     run_id: str,
     body: VoidRequest,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")

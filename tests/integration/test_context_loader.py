@@ -10,7 +10,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def loader() -> ContextLoader:
-    return ContextLoader(settings.DECISION_SYSTEM_ROOT)
+    return ContextLoader(settings.decision_system_root)
 
 
 def test_load_pm_identity(loader: ContextLoader):

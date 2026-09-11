@@ -14,7 +14,7 @@ The operations plane owns any wiki sync (EXPORT_AND_SYNC_CONTRACT.md).
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app.llm.json_call import complete_json
 from app.logging import emit_event
@@ -34,7 +34,7 @@ _JSON_SCHEMA = """{
 }"""
 
 
-def _run_summary(run: dict, engine: PMEngine) -> str:
+def _run_summary(run: dict[str, Any], engine: PMEngine) -> str:
     """A compact per-product block for the synthesis prompt."""
     routing = run.get("routing") or "—"
     composite = run.get("composite_score")
@@ -57,7 +57,7 @@ def _run_summary(run: dict, engine: PMEngine) -> str:
 
 
 def _build_memo(
-    signal_title: str, runs: list[dict], data: PortfolioSynthesisData
+    signal_title: str, runs: list[dict[str, Any]], data: PortfolioSynthesisData
 ) -> str:
     ranking_lines = "\n".join(
         f"{item.rank}. **{item.product_id}** — {item.rationale}"
@@ -126,7 +126,7 @@ async def synthesize_batch(batch_id: str, engine: PMEngine) -> bool:
     from app.services.template_service import TemplateService
     from config import settings
 
-    framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt(
+    framework = TemplateService(settings.decision_system_root).load_portfolio_prompt(
         "synthesis"
     )
     pm_identity = engine.context_loader.load_pm_identity()

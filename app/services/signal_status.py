@@ -21,7 +21,7 @@ maintenance endpoint repairs rows that drifted before this invariant existed.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from app.factory import PMEngine
@@ -33,11 +33,11 @@ if TYPE_CHECKING:
 _RESOLVED_OUTCOMES = {"completed", "stopped"}
 
 
-def _is_terminal(run: dict) -> bool:
+def _is_terminal(run: dict[str, Any]) -> bool:
     return run.get("lifecycle") == "done"
 
 
-def derive_signal_status(runs: list[dict], max_attempts: int) -> str:
+def derive_signal_status(runs: list[dict[str, Any]], max_attempts: int) -> str:
     """Return the correct ``signals.status`` for a signal with these runs.
 
     Deterministic and idempotent — depends only on the runs, not on call order:
@@ -88,7 +88,7 @@ def reconcile_signal_status(signal_id: str, engine: PMEngine) -> str | None:
     return None
 
 
-def reconcile_all_signals(engine: PMEngine) -> list[dict]:
+def reconcile_all_signals(engine: PMEngine) -> list[dict[str, Any]]:
     """Sweep every signal, repairing any whose status diverges from its runs.
 
     Returns one entry ``{signal_id, title, old, new}`` per *corrected* signal
@@ -99,7 +99,7 @@ def reconcile_all_signals(engine: PMEngine) -> list[dict]:
     """
     from config import settings
 
-    changes: list[dict] = []
+    changes: list[dict[str, Any]] = []
     # Large ceiling: repair must cover the whole table, not the default page.
     for signal in engine.store.list_signals(limit=100000):
         signal_id = signal["signal_id"]

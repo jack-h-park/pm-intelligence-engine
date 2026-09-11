@@ -18,7 +18,7 @@ and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from app import pipeline
 
@@ -65,7 +65,7 @@ async def finalize_run(
     status: str,
     engine: PMEngine,
     event_action: str | None = None,
-    event_detail: dict | None = None,
+    event_detail: dict[str, Any] | None = None,
 ) -> None:
     """Apply a terminal status to a run and trigger associated side effects.
 
@@ -92,7 +92,7 @@ async def finalize_run(
     # Read the live row once — for the failure stage (before we clear it) and for
     # the depth the ended_by derivation needs.
     run_before = engine.store.get_run(run_id)
-    failure_fields: dict = {}
+    failure_fields: dict[str, Any] = {}
     if status == "failed":
         failure_fields = {
             # The live position is the stage that was executing when it failed
@@ -145,7 +145,7 @@ async def finalize_run(
 # ---------------------------------------------------------------------------
 
 
-def _sum_run_tokens(run_id: str, engine: PMEngine) -> dict:
+def _sum_run_tokens(run_id: str, engine: PMEngine) -> dict[str, Any]:
     """Sum per-stage token usage from stage_outputs metadata (Phase 2).
 
     Reads every stage output's ``metadata.input_tokens`` / ``output_tokens`` and
@@ -191,7 +191,7 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
         path = export_run(
             run_id=run_id,
             store=engine.store,
-            decision_system_root=settings.DECISION_SYSTEM_ROOT,
+            decision_system_root=settings.decision_system_root,
         )
         emit_event("run_exporter", "exported", run_id, {
             "path": str(path),
@@ -201,7 +201,7 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
         # decision_system_root not mounted — non-fatal.
         emit_event("run_exporter", "export_skipped", run_id, {
             "reason": "decision_system_root not writable",
-            "decision_system_root": settings.DECISION_SYSTEM_ROOT,
+            "decision_system_root": settings.decision_system_root,
         })
 
 

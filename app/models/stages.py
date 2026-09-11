@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.llm.protocol import Usage
 from app.models.decision_case import DecisionCase
 
 # ---------------------------------------------------------------------------
@@ -48,13 +49,17 @@ class StageMetadata(BaseModel):
     )
 
     @classmethod
-    def with_usage(cls, model: str | None, usage_sink: list | None) -> StageMetadata:
+    def with_usage(
+        cls, model: str | None, usage_sink: list[Usage] | None
+    ) -> StageMetadata:
         """Build metadata from a model id and a usage_sink (list of {input_tokens, output_tokens}).
 
         Sums the sink so multiple calls in one stage (e.g. JSON-repair retries, or
         S4's parallel persona calls aggregated upstream) roll into the stage total.
         An empty/None sink leaves the token fields null.
         """
+        inp: int | None
+        out: int | None
         if usage_sink:
             inp = sum(u.get("input_tokens", 0) for u in usage_sink)
             out = sum(u.get("output_tokens", 0) for u in usage_sink)

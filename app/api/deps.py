@@ -6,7 +6,10 @@ from app.factory import PMEngine
 
 
 def get_engine(request: Request) -> PMEngine:
-    return request.app.state.engine
+    engine = request.app.state.engine
+    if not isinstance(engine, PMEngine):
+        raise TypeError(f"app.state.engine is not a PMEngine: {type(engine)!r}")
+    return engine
 
 
 def require_auth(authorization: str | None = Header(default=None)) -> None:

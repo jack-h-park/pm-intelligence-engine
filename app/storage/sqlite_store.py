@@ -1,10 +1,12 @@
 import json
 from datetime import UTC, datetime
+from typing import Any, cast
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import Table, create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.models.decision_case import DecisionCase
 from app.models.workflow import (
     ApprovalAction,
     ApprovalEvent,
@@ -35,14 +37,15 @@ from app.services.signal_tags import (
 )
 
 
-def _loads_or_none(raw):
+def _loads_or_none(raw: str | None) -> dict[str, Any] | list[Any] | None:
     """Parse stored JSON, or None. A malformed blob reads as absent rather than
     raising: the caller's fallback is "not recorded", which is safe, whereas a
     500 on a batch read would take a gate message down with it."""
     if not raw:
         return None
     try:
-        return json.loads(raw)
+        parsed: dict[str, Any] | list[Any] = json.loads(raw)
+        return parsed
     except Exception:
         return None
 
@@ -148,7 +151,7 @@ class SQLiteStore:
         if "original_product_id" not in signal_columns and "product_id" in signal_columns:
             with self._engine.begin() as conn:
                 conn.execute(text("ALTER TABLE signals RENAME TO signals__legacy_us49"))
-            Signal.__table__.create(self._engine)
+            cast(Table, Signal.__table__).create(self._engine)
             with self._engine.begin() as conn:
                 conn.execute(
                     text(
@@ -252,7 +255,7 @@ class SQLiteStore:
             session.commit()
             return signal.signal_id
 
-    def get_signal(self, signal_id: str) -> dict | None:
+    def get_signal(self, signal_id: str) -> dict[str, Any] | None:
         with self._Session() as session:
             s = session.get(Signal, signal_id)
             return self._signal_to_dict(s) if s else None
@@ -269,7 +272,7 @@ class SQLiteStore:
         signal_id: str,
         raw_content: str,
         category: str | None = None,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Re-ingest a signal's content (POST /signals/{id}/refresh).
 
         Signals are otherwise immutable after Gate 0 intake; this is the single
@@ -296,7 +299,7 @@ class SQLiteStore:
         tag: str | None = None,
         source_ref: str | None = None,
         limit: int = 50,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         with self._Session() as session:
             q = session.query(Signal)
             if original_product_id:
@@ -326,7 +329,7 @@ class SQLiteStore:
         author: str,
         context: str | None = None,
         run_id: str | None = None,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         """Append a review note. Returns None if the signal does not exist.
 
         There is deliberately no update/delete counterpart — see ``SignalNote``.
@@ -345,7 +348,9 @@ class SQLiteStore:
             session.commit()
             return self._signal_note_to_dict(note)
 
-    def list_signal_notes(self, signal_id: str, include_superseded: bool = False) -> list[dict]:
+    def list_signal_notes(
+        self, signal_id: str, include_superseded: bool = False
+    ) -> list[dict[str, Any]]:
         """Notes oldest-first — the order the judgments were actually made in."""
         with self._Session() as session:
             q = session.query(SignalNote).filter(SignalNote.signal_id == signal_id)
@@ -398,7 +403,7 @@ class SQLiteStore:
     # --- WorkflowRun ---
 
     @staticmethod
-    def _create_decision_request_run(session, case) -> dict:
+    def _create_decision_request_run(session: Session, case: DecisionCase) -> dict[str, Any]:
         input_title = (
             "Insight-backed product decision input"
             if "insight" in case.input_origins
@@ -443,7 +448,7 @@ class SQLiteStore:
         )
         return {"signal_id": signal.signal_id, "run_id": run.run_id}
 
-    def create_decision_request_run(self, case) -> dict:
+    def create_decision_request_run(self, case: DecisionCase) -> dict[str, Any]:
         """Create the legacy-compatible signal, run, and case link atomically.
 
         The signal is deliberately typed as a direct decision input through its
@@ -458,8 +463,8 @@ class SQLiteStore:
             return self._create_decision_request_run(session, case)
 
     def create_idempotent_decision_request(
-        self, actor: str, idempotency_key: str, request_hash: str, case
-    ) -> tuple[dict, int]:
+        self, actor: str, idempotency_key: str, request_hash: str, case: DecisionCase
+    ) -> tuple[dict[str, Any], int]:
         """Atomically create or replay the one workflow-side request result."""
         from app.models.decision_case import DecisionCase
 
@@ -506,7 +511,7 @@ class SQLiteStore:
                     "run_id": existing.run_id,
                 }, 200
 
-    def save_decision_case(self, run_id: str, case) -> None:
+    def save_decision_case(self, run_id: str, case: DecisionCase) -> None:
         """Persist a case revision and its run link in one transaction."""
         from app.models.decision_case import DecisionCase
 
@@ -541,7 +546,7 @@ class SQLiteStore:
             elif (link.case_id, link.case_revision) != (case.case_id, case.revision):
                 raise ValueError("Run already has a different DecisionCase revision")
 
-    def get_decision_case(self, run_id: str):
+    def get_decision_case(self, run_id: str) -> DecisionCase | None:
         """Return the exact case revision pinned to a run, if it has one."""
         from app.models.decision_case import DecisionCase
 
@@ -614,12 +619,12 @@ class SQLiteStore:
             session.commit()
             return run.run_id
 
-    def get_run(self, run_id: str) -> dict | None:
+    def get_run(self, run_id: str) -> dict[str, Any] | None:
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             return self._run_to_dict(r) if r else None
 
-    def update_run(self, run_id: str, **kwargs) -> None:
+    def update_run(self, run_id: str, **kwargs: Any) -> None:
         """Set non-state fields on a run (mode/routing/tokens/recommendation/…).
 
         Run STATE (lifecycle/position/outcome/reason + completed_at) is written
@@ -638,7 +643,7 @@ class SQLiteStore:
                 setattr(r, key, value)
             session.commit()
 
-    def advance(self, run_id: str, position: str, **extra) -> None:
+    def advance(self, run_id: str, position: str, **extra: Any) -> None:
         """Move a run to *running* at ``position`` (US-55).
 
         ``(lifecycle, position)`` is the authoritative run-state write. ``extra``
@@ -646,11 +651,13 @@ class SQLiteStore:
         """
         self._set_live_state(run_id, "running", position, extra)
 
-    def pause(self, run_id: str, position: str, **extra) -> None:
+    def pause(self, run_id: str, position: str, **extra: Any) -> None:
         """Pause a run at the gate at ``position`` (s2/s4/s5) — see :meth:`advance`."""
         self._set_live_state(run_id, "paused", position, extra)
 
-    def _set_live_state(self, run_id: str, lifecycle: str, position: str, extra: dict) -> None:
+    def _set_live_state(
+        self, run_id: str, lifecycle: str, position: str, extra: dict[str, Any]
+    ) -> None:
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             if not r:
@@ -674,7 +681,7 @@ class SQLiteStore:
         outcome: str,
         position: str | None = None,
         reason: str | None = None,
-        **extra,
+        **extra: Any,
     ) -> None:
         """Apply a terminal state (US-55 step 7b-2).
 
@@ -710,7 +717,7 @@ class SQLiteStore:
         position: str | None = None,
         outcome: str | None = None,
         limit: int = 50,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         with self._Session() as session:
             q = session.query(WorkflowRun)
             if product_id:
@@ -757,7 +764,7 @@ class SQLiteStore:
         run_id: str,
         stage: str,
         version: int | None = None,
-    ) -> dict | None:
+    ) -> dict[str, Any] | None:
         with self._Session() as session:
             q = session.query(StageOutput).filter(
                 StageOutput.run_id == run_id,
@@ -770,7 +777,7 @@ class SQLiteStore:
             so = q.first()
             return self._stage_output_to_dict(so) if so else None
 
-    def get_all_stage_outputs(self, run_id: str) -> list[dict]:
+    def get_all_stage_outputs(self, run_id: str) -> list[dict[str, Any]]:
         with self._Session() as session:
             outputs = (
                 session.query(StageOutput)
@@ -800,7 +807,7 @@ class SQLiteStore:
             session.commit()
             return event.event_id
 
-    def get_approval_events(self, run_id: str) -> list[dict]:
+    def get_approval_events(self, run_id: str) -> list[dict[str, Any]]:
         with self._Session() as session:
             events = (
                 session.query(ApprovalEvent)
@@ -845,7 +852,7 @@ class SQLiteStore:
         run_id: str,
         artifact_type: str | None = None,
         limit: int = 20,
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         with self._Session() as session:
             q = session.query(Artifact).filter(Artifact.run_id == run_id)
             if artifact_type:
@@ -855,7 +862,7 @@ class SQLiteStore:
 
     # --- RunBatch (US-49) ---
 
-    def create_batch(self, signal_id: str, triage: list | None = None) -> str:
+    def create_batch(self, signal_id: str, triage: list[Any] | None = None) -> str:
         """Create a fan-out batch, recording Triage's verdict when one is given.
 
         ``triage`` is the full per-product score list. It is stored at creation
@@ -872,7 +879,7 @@ class SQLiteStore:
             session.commit()
             return batch.batch_id
 
-    def get_batch(self, batch_id: str) -> dict | None:
+    def get_batch(self, batch_id: str) -> dict[str, Any] | None:
         with self._Session() as session:
             b = session.get(RunBatch, batch_id)
             if b is None:
@@ -925,7 +932,7 @@ class SQLiteStore:
             session.commit()
             return True
 
-    def get_portfolio_synthesis(self, batch_id: str) -> dict | None:
+    def get_portfolio_synthesis(self, batch_id: str) -> dict[str, Any] | None:
         with self._Session() as session:
             p = session.get(PortfolioSynthesis, batch_id)
             if p is None:
@@ -942,7 +949,7 @@ class SQLiteStore:
     # --- Serializers ---
 
     @staticmethod
-    def _signal_to_dict(s: Signal) -> dict:
+    def _signal_to_dict(s: Signal) -> dict[str, Any]:
         return {
             "signal_id": s.signal_id,
             "original_product_id": s.original_product_id,
@@ -965,7 +972,7 @@ class SQLiteStore:
         }
 
     @staticmethod
-    def _signal_note_to_dict(n: SignalNote) -> dict:
+    def _signal_note_to_dict(n: SignalNote) -> dict[str, Any]:
         return {
             "note_id": n.note_id,
             "signal_id": n.signal_id,
@@ -978,7 +985,7 @@ class SQLiteStore:
         }
 
     @staticmethod
-    def _run_to_dict(r: WorkflowRun) -> dict:
+    def _run_to_dict(r: WorkflowRun) -> dict[str, Any]:
         return {
             "run_id": r.run_id,
             "product_id": r.product_id,
@@ -1004,7 +1011,7 @@ class SQLiteStore:
         }
 
     @staticmethod
-    def _stage_output_to_dict(so: StageOutput) -> dict:
+    def _stage_output_to_dict(so: StageOutput) -> dict[str, Any]:
         return {
             "output_id": so.output_id,
             "run_id": so.run_id,
@@ -1015,7 +1022,7 @@ class SQLiteStore:
         }
 
     @staticmethod
-    def _artifact_to_dict(a: Artifact) -> dict:
+    def _artifact_to_dict(a: Artifact) -> dict[str, Any]:
         return {
             "artifact_id": a.artifact_id,
             "run_id": a.run_id,

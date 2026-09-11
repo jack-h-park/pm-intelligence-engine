@@ -1,8 +1,9 @@
 import re
 from pathlib import Path
+from typing import Any
 
 
-def _parse_sections(text: str) -> dict:
+def _parse_sections(text: str) -> dict[str, Any]:
     """Split a markdown document into {lowercased ## heading: body} sections.
 
     Only level-2 (``## ``) headings start a section; deeper headings and any
@@ -65,7 +66,7 @@ class TemplateService:
             )
         return path.read_text(encoding="utf-8")
 
-    def load_persona_prompt(self, persona: str) -> dict:
+    def load_persona_prompt(self, persona: str) -> dict[str, Any]:
         """Load a single S4 persona's lens and evaluation question.
 
         Reads prompts/s4-personas/{persona}.md and parses its ``## Lens`` and
@@ -114,7 +115,7 @@ class TemplateService:
                 "(see DESIGN_DECISIONS § 8 / US-37):\n  - " + "\n  - ".join(problems)
             )
 
-    def render_template(self, template: str, variables: dict) -> str:
+    def render_template(self, template: str, variables: dict[str, Any]) -> str:
         """Substitute {variable_name} placeholders in the template.
 
         Raises ValueError if the template contains a placeholder that is not

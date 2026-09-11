@@ -28,16 +28,20 @@ def _make_s2_output(
     what_changed: str = "NFC policy changed.",
     reframing: str = "Affects the platform's admin model.",
     reasoning: str = "Score below threshold.",
-    pillars: list | None = None,
+    pillars: list[str] | None = None,
 ) -> S2OutputData:
-    return S2OutputData(
+    # Deliberately uses the legacy `relevance_explanation` field and the pre-US-43
+    # "file" mode name -- this exercises S2OutputData's backward-compat coercion
+    # (_coerce_legacy_relevance_explanation / _normalize_legacy_mode), not a stale
+    # fixture. The current field names don't type-check against that legacy shape.
+    return S2OutputData(  # type: ignore[call-arg]
         relevance_score=relevance_score,
         what_changed=what_changed,
         reframing=reframing,
         relevance_explanation="This signal affects the platform's admin API surface.",
         suggestion_reasoning=reasoning,
         pillar_references=pillars or ["Attack Surface Reduction"],
-        suggested_mode="file",
+        suggested_mode="file",  # type: ignore[arg-type]
     )
 
 

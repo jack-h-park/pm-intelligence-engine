@@ -2,7 +2,7 @@
 
 import hashlib
 import json
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import (
     APIRouter,
@@ -37,6 +37,7 @@ from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.storage.insight_store import (
     IdempotencyConflict,
+    InsightStore,
     InvalidInsightReference,
     MissingInsightRecord,
     StaleLease,
@@ -128,8 +129,8 @@ class ResearchResults(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     lease_token: str = Field(min_length=1)
-    results: list[dict]
-    failures: list[dict] = Field(default_factory=list)
+    results: list[dict[str, Any]]
+    failures: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class InsightSearchResults(BaseModel):
@@ -219,7 +220,7 @@ def _actor_fingerprint(authorization: str | None) -> str:
     return hashlib.sha256((authorization or "").encode("utf-8")).hexdigest()
 
 
-def _store(engine: PMEngine):
+def _store(engine: PMEngine) -> InsightStore:
     from config import settings
 
     if not settings.INSIGHT_WRITES_ENABLED:
@@ -235,7 +236,7 @@ def _store(engine: PMEngine):
     return engine.insight_store
 
 
-def _processing_store(engine: PMEngine):
+def _processing_store(engine: PMEngine) -> InsightStore:
     from config import settings
 
     store = _store(engine)
@@ -581,7 +582,7 @@ async def semantic_triage(
 
 
 @router.get("/insight-operations")
-async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict:
+async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict[str, Any]:
     """Read-only shadow operations counters; never enables intake or delivery."""
     if engine.insight_store is None:
         raise HTTPException(

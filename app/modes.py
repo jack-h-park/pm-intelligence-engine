@@ -61,7 +61,7 @@ _LEGACY_MODE_ALIASES = {
 }
 
 
-def normalize_mode(mode):
+def normalize_mode(mode: str | None) -> str | None:
     """Map a legacy mode value to its canonical name; pass through canonical/None."""
     if mode is None:
         return None

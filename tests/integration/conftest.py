@@ -6,6 +6,8 @@ fixture bypasses it by default. Tests that exercise auth itself
 (``test_auth.py``) remove this override and assert real enforcement.
 """
 
+from typing import Any
+
 import pytest
 
 from app.api.deps import require_auth
@@ -56,14 +58,16 @@ def seed_run_state(store, run_id: str, status: str, mode: str | None = None) -> 
         raise ValueError(f"unknown legacy status {status!r}")
 
 
-def run_status(run: dict) -> str:
+def run_status(run: dict[str, Any]) -> str:
     """Reconstruct the legacy ``status`` string from a run's canonical columns,
     for assertions that still speak the old vocabulary."""
     lifecycle, position, outcome = (
         run.get("lifecycle"), run.get("position"), run.get("outcome"),
     )
     if lifecycle == "done":
+        assert isinstance(outcome, str)
         return {"completed": "completed", "stopped": "killed", "failed": "failed"}[outcome]
     if lifecycle == "paused":
+        assert isinstance(position, str)
         return {v: k for k, v in _GATE_POSITION.items()}[position]
     return "running"

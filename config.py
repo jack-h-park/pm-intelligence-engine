@@ -160,6 +160,19 @@ class Settings(BaseSettings):
         self.DECISION_SYSTEM_ROOT = self.DECISION_CONTEXT_ROOT
         return self
 
+    @property
+    def decision_system_root(self) -> str:
+        """`DECISION_SYSTEM_ROOT`, narrowed to `str`.
+
+        The field itself is typed `str | None` because it also accepts the
+        legacy env var name as raw input, but `_resolve_decision_root_aliases`
+        always resolves it to `DECISION_CONTEXT_ROOT` (a plain `str`) by the
+        time validation completes — this is that guarantee, typed, so callers
+        don't each need their own `str | None` check.
+        """
+        assert self.DECISION_SYSTEM_ROOT is not None
+        return self.DECISION_SYSTEM_ROOT
+
 
 settings = Settings()
 

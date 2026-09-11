@@ -5,8 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.models.stages import PersonaOutput, RunContext, S3OutputData
 from app.services.decision_case import render_decision_case
 
@@ -34,9 +36,9 @@ class PersonaAgent:
         opportunity: S3OutputData,
         context: RunContext,
         llm: LLMProvider,
-        prompt: dict,
+        prompt: dict[str, Any],
         feedback: str | None = None,
-        usage_sink: list | None = None,
+        usage_sink: list[Usage] | None = None,
     ) -> PersonaOutput:
         system = (
             f"You are the {self.persona.capitalize()} persona in a PM evaluation framework.\n\n"

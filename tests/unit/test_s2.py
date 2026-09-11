@@ -1,6 +1,7 @@
 """Unit tests for Stage 2 — Insight Extraction."""
 
 import json
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -36,7 +37,7 @@ def _make_store() -> MagicMock:
     return store
 
 
-def _make_llm_returning(data: dict) -> AsyncMock:
+def _make_llm_returning(data: dict[str, Any]) -> AsyncMock:
     llm = AsyncMock()
     llm.complete = AsyncMock(return_value=json.dumps(data))
     return llm

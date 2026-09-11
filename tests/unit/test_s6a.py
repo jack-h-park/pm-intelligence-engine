@@ -10,6 +10,7 @@ Covers:
 """
 
 import json
+from typing import Literal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -43,7 +44,7 @@ def _make_store() -> MagicMock:
     return store
 
 
-def _make_s5_output(routing: str = "poc") -> S5OutputData:
+def _make_s5_output(routing: Literal["prd", "poc", "kill"] = "poc") -> S5OutputData:
     return S5OutputData(
         impact_score=3,
         strategic_fit_score=3,

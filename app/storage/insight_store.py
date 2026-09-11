@@ -5,10 +5,10 @@ import uuid
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import create_engine, select
+from sqlalchemy import Engine, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.insights import (
@@ -71,24 +71,24 @@ class InsightStore:
         self._Session = sessionmaker(bind=self._engine)
 
     @property
-    def engine(self):
+    def engine(self) -> Engine:
         """Read-only test/migration access; application consumers use record methods."""
         return self._engine
 
     def initialize_schema(self) -> None:
         initialize_insight_schema(self._engine)
 
-    def save_candidate(self, payload: dict) -> Candidate:
+    def save_candidate(self, payload: dict[str, Any]) -> Candidate:
         candidate = Candidate.model_validate(payload)
         with self._Session.begin() as session:
             return self._save_candidate(session, candidate)
 
-    def save_source(self, payload: dict) -> SourceRecord:
+    def save_source(self, payload: dict[str, Any]) -> SourceRecord:
         source = SourceRecord.model_validate(payload)
         with self._Session.begin() as session:
             return self._save_source(session, source)[0]
 
-    def save_bundle(self, payload: dict) -> EvidenceBundle:
+    def save_bundle(self, payload: dict[str, Any]) -> EvidenceBundle:
         bundle = EvidenceBundle.model_validate(payload)
         with self._Session.begin() as session:
             return self._save_bundle(session, bundle)
@@ -115,20 +115,18 @@ class InsightStore:
             ).all()
             return sorted({row[0] for row in rows})
 
-    def claim_triage(self, operation_id: str) -> tuple[str, dict | None]:
+    def claim_triage(self, operation_id: str) -> tuple[str, dict[str, Any] | None]:
         """Claim one triage operation before a model call; completed calls replay safely."""
         with self._Session.begin() as session:
             row = session.get(IntelligenceTriageRow, operation_id)
             if row is not None:
                 return row.state, json.loads(row.payload_json) if row.payload_json else None
             session.add(
-                IntelligenceTriageRow(
-                    operation_id=operation_id, state="running", payload_json="{}"
-                )
+                IntelligenceTriageRow(operation_id=operation_id, state="running", payload_json="{}")
             )
             return "claimed", None
 
-    def complete_triage(self, operation_id: str, payload: dict) -> None:
+    def complete_triage(self, operation_id: str, payload: dict[str, Any]) -> None:
         with self._Session.begin() as session:
             row = session.get(IntelligenceTriageRow, operation_id)
             if row is None:
@@ -145,7 +143,7 @@ class InsightStore:
 
     # --- Prepared analysis records (E03) ---
 
-    def save_prepared_context(self, payload: dict) -> PreparedContext:
+    def save_prepared_context(self, payload: dict[str, Any]) -> PreparedContext:
         prepared = PreparedContext.model_validate(payload)
         with self._Session.begin() as session:
             if session.get(IntelligenceCandidateRow, prepared.candidate_id) is None:
@@ -169,16 +167,17 @@ class InsightStore:
             row = session.get(IntelligencePreparedContextRow, prepared_context_id)
             return PreparedContext.model_validate_json(row.payload_json) if row else None
 
-    def save_insight(self, payload: dict) -> InsightRevision:
+    def save_insight(self, payload: dict[str, Any]) -> InsightRevision:
         insight = InsightRevision.model_validate(payload)
         with self._Session.begin() as session:
             if session.get(IntelligencePreparedContextRow, insight.prepared_context_id) is None:
                 raise InvalidInsightReference(
                     f"prepared context {insight.prepared_context_id} was not found"
                 )
-            if insight.supersedes_insight_id and session.get(
-                IntelligenceInsightRow, insight.supersedes_insight_id
-            ) is None:
+            if (
+                insight.supersedes_insight_id
+                and session.get(IntelligenceInsightRow, insight.supersedes_insight_id) is None
+            ):
                 raise InvalidInsightReference(
                     f"superseded insight {insight.supersedes_insight_id} was not found"
                 )
@@ -198,18 +197,25 @@ class InsightStore:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
-    def save_feedback(self, insight_id: str, revision: int, label: str) -> dict:
+    def save_feedback(self, insight_id: str, revision: int, label: str) -> dict[str, Any]:
         with self._Session.begin() as session:
             if session.get(IntelligenceInsightRow, insight_id) is None:
                 raise MissingInsightRecord(f"insight {insight_id} was not found")
             payload = {
-                "feedback_id": str(uuid.uuid4()), "insight_id": insight_id,
-                "revision": revision, "label": label,
+                "feedback_id": str(uuid.uuid4()),
+                "insight_id": insight_id,
+                "revision": revision,
+                "label": label,
             }
-            session.add(IntelligenceInsightFeedbackRow(
-                feedback_id=payload["feedback_id"], insight_id=insight_id, revision=revision,
-                label=label, payload_json=json.dumps(payload, sort_keys=True),
-            ))
+            session.add(
+                IntelligenceInsightFeedbackRow(
+                    feedback_id=payload["feedback_id"],
+                    insight_id=insight_id,
+                    revision=revision,
+                    label=label,
+                    payload_json=json.dumps(payload, sort_keys=True),
+                )
+            )
             return payload
 
     def list_insights(self) -> list[InsightRevision]:
@@ -224,7 +230,7 @@ class InsightStore:
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
 
-    def operational_summary(self) -> dict:
+    def operational_summary(self) -> dict[str, Any]:
         """Return read-only counts for shadow operations without admitting work."""
         with self._Session() as session:
             jobs = Counter(
@@ -236,9 +242,7 @@ class InsightStore:
             )
             reservations = [
                 BudgetReservation.model_validate_json(row.payload_json)
-                for row in session.execute(
-                    select(IntelligenceBudgetReservationRow)
-                ).scalars()
+                for row in session.execute(select(IntelligenceBudgetReservationRow)).scalars()
             ]
             return {
                 "candidates": session.query(IntelligenceCandidateRow).count(),
@@ -263,39 +267,55 @@ class InsightStore:
 
     def save_delivery_receipt(
         self, insight_id: str, revision: int, channel: str, state: str
-    ) -> dict:
+    ) -> dict[str, Any]:
         """Persist a channel receipt once; callers reconcile uncertainty instead of resending."""
         with self._Session.begin() as session:
             if session.get(IntelligenceInsightRow, insight_id) is None:
                 raise MissingInsightRecord(f"insight {insight_id} was not found")
-            existing = session.scalar(select(IntelligenceDeliveryReceiptRow).where(
-                IntelligenceDeliveryReceiptRow.insight_id == insight_id,
-                IntelligenceDeliveryReceiptRow.revision == revision,
-                IntelligenceDeliveryReceiptRow.channel == channel,
-            ))
+            existing = session.scalar(
+                select(IntelligenceDeliveryReceiptRow).where(
+                    IntelligenceDeliveryReceiptRow.insight_id == insight_id,
+                    IntelligenceDeliveryReceiptRow.revision == revision,
+                    IntelligenceDeliveryReceiptRow.channel == channel,
+                )
+            )
+            new_payload: dict[str, Any]
             if existing:
-                payload = json.loads(existing.payload_json)
+                new_payload = json.loads(existing.payload_json)
                 # A transport may be confirmed only after the queue record was
                 # committed.  Preserve that one-way acknowledgement, while an
                 # ambiguous result remains a deliberate operator hold rather
                 # than a signal to resend the same revision.
                 if existing.state == "queued" and state in {"sent", "unknown"}:
-                    payload["state"] = state
+                    new_payload["state"] = state
                     existing.state = state
-                    existing.payload_json = json.dumps(payload, sort_keys=True)
-                return payload
-            payload = {
-                "receipt_id": str(uuid.uuid4()), "insight_id": insight_id,
-                "revision": revision, "channel": channel, "state": state,
+                    existing.payload_json = json.dumps(new_payload, sort_keys=True)
+                return new_payload
+            new_payload = {
+                "receipt_id": str(uuid.uuid4()),
+                "insight_id": insight_id,
+                "revision": revision,
+                "channel": channel,
+                "state": state,
             }
-            session.add(IntelligenceDeliveryReceiptRow(
-                receipt_id=payload["receipt_id"], insight_id=insight_id, revision=revision,
-                channel=channel, state=state, payload_json=json.dumps(payload, sort_keys=True),
-            ))
-            return payload
+            session.add(
+                IntelligenceDeliveryReceiptRow(
+                    receipt_id=new_payload["receipt_id"],
+                    insight_id=insight_id,
+                    revision=revision,
+                    channel=channel,
+                    state=state,
+                    payload_json=json.dumps(new_payload, sort_keys=True),
+                )
+            )
+            return new_payload
 
     def complete_job_analysis(
-        self, job_id: str, lease_token: str, prepared: PreparedContext, insight: InsightRevision,
+        self,
+        job_id: str,
+        lease_token: str,
+        prepared: PreparedContext,
+        insight: InsightRevision,
         now: datetime | None = None,
     ) -> InsightRevision:
         """Persist analysis and job completion in one transaction under the active lease."""
@@ -383,7 +403,7 @@ class InsightStore:
 
     # --- Jobs and acquisition research (E02) ---
 
-    def create_job(self, payload: dict) -> InsightJob:
+    def create_job(self, payload: dict[str, Any]) -> InsightJob:
         job = InsightJob.model_validate(payload)
         with self._Session.begin() as session:
             if session.get(IntelligenceCandidateRow, job.candidate_id) is None:
@@ -404,7 +424,7 @@ class InsightStore:
             return job
 
     def create_idempotent_job(
-        self, actor: str, key: str, request_hash: str, payload: dict
+        self, actor: str, key: str, request_hash: str, payload: dict[str, Any]
     ) -> tuple[InsightJob, int]:
         job = InsightJob.model_validate(payload)
 
@@ -436,12 +456,16 @@ class InsightStore:
     def claim_job(self, now: datetime | None = None) -> InsightJob | None:
         current = _now(now)
         with self._Session.begin() as session:
-            expired = session.execute(
-                select(IntelligenceJobRow).where(
-                    IntelligenceJobRow.state == "running",
-                    IntelligenceJobRow.lease_expires_at <= current,
+            expired = (
+                session.execute(
+                    select(IntelligenceJobRow).where(
+                        IntelligenceJobRow.state == "running",
+                        IntelligenceJobRow.lease_expires_at <= current,
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for row in expired:
                 job = InsightJob.model_validate_json(row.payload_json)
                 job.state = "queued"
@@ -451,30 +475,39 @@ class InsightStore:
                 job.next_attempt_at = current
                 job.updated_at = current
                 self._write_job(row, job)
-            row = session.execute(
-                select(IntelligenceJobRow)
-                .where(
-                    IntelligenceJobRow.state.in_(["queued", "retryable_failed"]),
-                    (IntelligenceJobRow.next_attempt_at.is_(None))
-                    | (IntelligenceJobRow.next_attempt_at <= current),
+            claimable = (
+                session.execute(
+                    select(IntelligenceJobRow)
+                    .where(
+                        IntelligenceJobRow.state.in_(["queued", "retryable_failed"]),
+                        (IntelligenceJobRow.next_attempt_at.is_(None))
+                        | (IntelligenceJobRow.next_attempt_at <= current),
+                    )
+                    .order_by(IntelligenceJobRow.job_id)
                 )
-                .order_by(IntelligenceJobRow.job_id)
-            ).scalars().first()
-            if row is None:
+                .scalars()
+                .first()
+            )
+            if claimable is None:
                 return None
-            job = InsightJob.model_validate_json(row.payload_json)
+            job = InsightJob.model_validate_json(claimable.payload_json)
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
             job.lease_expires_at = current + timedelta(seconds=120)
             job.next_attempt_at = None
             job.updated_at = current
-            self._write_job(row, job)
+            self._write_job(claimable, job)
             return job
 
     def create_research_request(
-        self, job_id: str, lease_token: str, targets: list[str], questions: list[str],
-        maximum_fetch_count: int, now: datetime | None = None,
+        self,
+        job_id: str,
+        lease_token: str,
+        targets: list[str],
+        questions: list[str],
+        maximum_fetch_count: int,
+        now: datetime | None = None,
     ) -> ResearchRequest:
         current = _now(now)
         with self._Session.begin() as session:
@@ -482,8 +515,10 @@ class InsightStore:
             if row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
             job = InsightJob.model_validate_json(row.payload_json)
-            if job.state != "running" or job.lease_token != lease_token or (
-                job.lease_expires_at and job.lease_expires_at <= current
+            if (
+                job.state != "running"
+                or job.lease_token != lease_token
+                or (job.lease_expires_at and job.lease_expires_at <= current)
             ):
                 raise StaleLease("job lease is stale")
             request = ResearchRequest(
@@ -521,14 +556,18 @@ class InsightStore:
     ) -> ResearchRequest | None:
         current = _now(now)
         with self._Session.begin() as session:
-            row = session.execute(
-                select(IntelligenceResearchRequestRow)
-                .where(
-                    IntelligenceResearchRequestRow.state == "queued",
-                    IntelligenceResearchRequestRow.expires_at > current,
+            row = (
+                session.execute(
+                    select(IntelligenceResearchRequestRow)
+                    .where(
+                        IntelligenceResearchRequestRow.state == "queued",
+                        IntelligenceResearchRequestRow.expires_at > current,
+                    )
+                    .order_by(IntelligenceResearchRequestRow.research_request_id)
                 )
-                .order_by(IntelligenceResearchRequestRow.research_request_id)
-            ).scalars().first()
+                .scalars()
+                .first()
+            )
             if row is None:
                 return None
             request = ResearchRequest.model_validate_json(row.payload_json)
@@ -540,7 +579,11 @@ class InsightStore:
             return request
 
     def submit_research_results(
-        self, request_id: str, lease_token: str, results: list[dict], failures: list[dict],
+        self,
+        request_id: str,
+        lease_token: str,
+        results: list[dict[str, Any]],
+        failures: list[dict[str, Any]],
         now: datetime | None = None,
     ) -> ResearchRequest:
         current = _now(now)
@@ -590,12 +633,16 @@ class InsightStore:
     def expire_research_requests(self, now: datetime | None = None) -> None:
         current = _now(now)
         with self._Session.begin() as session:
-            rows = session.execute(
-                select(IntelligenceResearchRequestRow).where(
-                    IntelligenceResearchRequestRow.state.in_(["queued", "running"]),
-                    IntelligenceResearchRequestRow.expires_at <= current,
+            rows = (
+                session.execute(
+                    select(IntelligenceResearchRequestRow).where(
+                        IntelligenceResearchRequestRow.state.in_(["queued", "running"]),
+                        IntelligenceResearchRequestRow.expires_at <= current,
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
             for row in rows:
                 request = ResearchRequest.model_validate_json(row.payload_json)
                 request.state = "expired"
@@ -614,7 +661,9 @@ class InsightStore:
 
     # --- Budget reservations (E02) ---
 
-    def reserve_budget(self, payload: dict, allowance_micros: int) -> BudgetReservation | None:
+    def reserve_budget(
+        self, payload: dict[str, Any], allowance_micros: int
+    ) -> BudgetReservation | None:
         reservation = BudgetReservation.model_validate(payload)
         # SQLite's deferred transactions allow two workers to read the same
         # remaining allowance before either writes. Acquire the write lock
@@ -738,29 +787,41 @@ class InsightStore:
             return record, status_code
 
     def save_idempotent_candidate(
-        self, actor: str, key: str, request_hash: str, payload: dict
+        self, actor: str, key: str, request_hash: str, payload: dict[str, Any]
     ) -> tuple[Candidate, int]:
         candidate = Candidate.model_validate(payload)
         return self.create_idempotent(
-            "candidate", actor, key, request_hash, Candidate,
+            "candidate",
+            actor,
+            key,
+            request_hash,
+            Candidate,
             lambda session: (self._save_candidate(session, candidate), True),
         )
 
     def save_idempotent_source(
-        self, actor: str, key: str, request_hash: str, payload: dict
+        self, actor: str, key: str, request_hash: str, payload: dict[str, Any]
     ) -> tuple[SourceRecord, int]:
         source = SourceRecord.model_validate(payload)
         return self.create_idempotent(
-            "source", actor, key, request_hash, SourceRecord,
+            "source",
+            actor,
+            key,
+            request_hash,
+            SourceRecord,
             lambda session: self._save_source(session, source),
         )
 
     def save_idempotent_bundle(
-        self, actor: str, key: str, request_hash: str, payload: dict
+        self, actor: str, key: str, request_hash: str, payload: dict[str, Any]
     ) -> tuple[EvidenceBundle, int]:
         bundle = EvidenceBundle.model_validate(payload)
         return self.create_idempotent(
-            "bundle", actor, key, request_hash, EvidenceBundle,
+            "bundle",
+            actor,
+            key,
+            request_hash,
+            EvidenceBundle,
             lambda session: (self._save_bundle(session, bundle), True),
         )
 

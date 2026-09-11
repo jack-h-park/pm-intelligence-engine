@@ -21,6 +21,8 @@ State transition:
   → then the normal rules for depth d (decide still pauses at Gate 2).
 """
 
+from typing import Any
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -44,7 +46,7 @@ async def deepen_run(
     body: DeepenRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     target = normalize_mode(body.depth)
     if target not in MODES:
         raise HTTPException(

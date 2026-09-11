@@ -9,6 +9,8 @@ State transitions:
   waiting_routing_review + override           → running (Stage 6 with overridden routing)
 """
 
+from typing import Any
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -24,7 +26,7 @@ class RoutingReviewRequest(BaseModel):
     reason: str | None = None  # optional PM note
 
 
-def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict:
+def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict[str, Any]:
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -44,7 +46,7 @@ async def routing_review(
     body: RoutingReviewRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     if body.action not in ("confirm", "override"):
         raise HTTPException(
             status_code=422,
@@ -67,7 +69,9 @@ async def routing_review(
             run_id, routing, engine, background_tasks, body.reason, confirmed=True
         )
 
-    # override: PM changes the routing from S5's recommendation
+    # override: PM changes the routing from S5's recommendation. Already
+    # validated non-None above (action == "override" requires a valid routing).
+    assert body.routing is not None
     effective_routing = body.routing
     _record_routing_decision(
         engine, run_id, "override", effective_routing, s5_recommended, body.reason
@@ -78,7 +82,14 @@ async def routing_review(
     )
 
 
-def _record_routing_decision(engine, run_id, action, chosen, recommended, reason):
+def _record_routing_decision(
+    engine: PMEngine,
+    run_id: str,
+    action: str,
+    chosen: str | None,
+    recommended: Any,
+    reason: str | None,
+) -> None:
     """Persist the Gate 3 decision as a labeled calibration datapoint (US-44):
     what S5 recommended vs what the PM chose."""
     note = f"chose={chosen}; recommended={recommended}"
@@ -94,7 +105,7 @@ async def _apply_routing(
     background_tasks: BackgroundTasks,
     reason: str | None,
     confirmed: bool,
-) -> dict:
+) -> dict[str, Any]:
     """Apply an effective routing: kill finalizes immediately; poc/prd starts Stage 6."""
     from app.services.run_finalizer import finalize_run
 

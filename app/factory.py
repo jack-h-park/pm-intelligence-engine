@@ -26,8 +26,8 @@ def build_engine(runtime: str = "local") -> PMEngine:
 
     store: PMWorkflowStore = SQLiteStore(settings.DATABASE_URL)
     insight_store = InsightStore(settings.DATABASE_URL)
-    context_loader = ContextLoader(settings.DECISION_SYSTEM_ROOT)
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    context_loader = ContextLoader(settings.decision_system_root)
+    template_service = TemplateService(settings.decision_system_root)
     llm = _build_llm_provider()
     notifier = build_notifier()
 

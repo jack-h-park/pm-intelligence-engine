@@ -64,6 +64,7 @@ async def reserve(
     decision = _budget_service(engine).reserve(body.model_dump())
     if not decision.granted:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied")
+    assert decision.reservation is not None, "a granted decision always carries a reservation"
     return decision.reservation
 
 

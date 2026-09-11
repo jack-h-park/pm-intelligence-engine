@@ -56,7 +56,7 @@ def _triage_returning(*relevant, all_products=("prod-a", "prod-b", "prod-c"), sc
     return PortfolioTriageOutput(signal_id="sig", threshold=4, products=products)
 
 
-def _seed_signal(engine) -> str:
+def _seed_signal(engine: PMEngine) -> str:
     return engine.store.save_signal(
         title="Android 16 background API deprecation",
         raw_content="Some MDM background-monitoring APIs are deprecated.",
@@ -169,7 +169,9 @@ def test_get_batch_unknown_404(client):
 # --- C-3: manual Portfolio Scan ------------------------------------------------
 
 
-def _manual_run(engine, product_id="example-mobile-product", status="waiting_direction") -> str:
+def _manual_run(
+    engine: PMEngine, product_id="example-mobile-product", status="waiting_direction"
+) -> str:
     """A manually-started single run (no batch), as if it reached Gate 1."""
     signal_id = engine.store.save_signal(
         original_product_id=product_id,
@@ -258,7 +260,7 @@ def test_scan_works_on_auto_triaged_completed_run(client, engine, monkeypatch):
 # --- §0: human-pull promotion --------------------------------------------------
 
 
-def _open_batch_with_primary(engine, primary="prod-a", mode="decide") -> str:
+def _open_batch_with_primary(engine: PMEngine, primary="prod-a", mode="decide") -> str:
     """An open fan-out batch whose primary run has a chosen depth."""
     signal_id = _seed_signal(engine)
     batch_id = engine.store.create_batch(signal_id)

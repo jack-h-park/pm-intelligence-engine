@@ -1,11 +1,14 @@
 import json
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
+from app.models.stages import PortfolioTriageOutput, ProductRelevance, RunContext, S2OutputData
 from app.services import runtime_overrides
+from config import Settings
 
 # Actions that mean "the system chose this depth, not the PM". Both are revivable by
 # `reopen`; a PM's own `direction` never is.
@@ -78,16 +81,16 @@ class RunResponse(BaseModel):
     origin: str | None = None
     # (failed_stage / error / ended_by were dropped in US-55 step 7d-3 — a failed
     # run's stage → position, its error → reason; a killed run's stop-kind → reason.)
-    stage_outputs: list[dict] | None = None
-    gate1_review: dict | None = None
-    gate3_review: dict | None = None
+    stage_outputs: list[dict[str, Any]] | None = None
+    gate1_review: dict[str, Any] | None = None
+    gate3_review: dict[str, Any] | None = None
     # Portfolio Triage's verdict for this run's batch: every product's
     # relevance_score and reason, and which one it picked. The score vector was
     # computed once and discarded, so a reader at Gate 1 could see that the
     # product differed from the Gate 0 hint but not whether that was a close call
     # or a settled one. None when the batch predates the column or the run has no
     # batch — which must read as "not recorded", never as "nothing else scored".
-    triage: list[dict] | None = None
+    triage: list[dict[str, Any]] | None = None
     # Absolute link to the engine-served browser review page, built from BASE_URL
     # (the iMac's Tailscale address in production). Exposed so the delivery owner
     # (the ops plane) can include it in Gate 2 messages without knowing the engine's
@@ -109,7 +112,7 @@ class RunResponse(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _depth_from_store_mode(cls, data):
+    def _depth_from_store_mode(cls, data: Any) -> Any:
         # The store dict still uses the legacy "mode" key; surface it as the
         # canonical `depth`. `mode` is no longer returned in the response (US-43
         # deprecation complete) — clients read `depth`. Input still accepts `mode`
@@ -141,7 +144,8 @@ class BatchStartResponse(BaseModel):
 
     batch_id: str
     runs: list[RunResponse]
-    triage: list[dict]  # per-product verdicts (product_id, relevance_score, reason, relevant)
+    # per-product verdicts (product_id, relevance_score, reason, relevant)
+    triage: list[dict[str, Any]]
 
 
 class ScanResponse(BaseModel):
@@ -155,10 +159,10 @@ class ScanResponse(BaseModel):
     scanned_run_id: str
     batch_id: str | None
     runs: list[RunResponse]
-    triage: list[dict]
+    triage: list[dict[str, Any]]
 
 
-def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
+def _build_gate3_review(run_id: str, engine: PMEngine) -> dict[str, Any] | None:
     """Assemble the Gate 3 review payload from stored S4/S5 outputs.
 
     Returns None until S5 has run. Present on every response thereafter so the
@@ -168,7 +172,7 @@ def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
     if s5_raw is None:
         return None
     s5 = json.loads(s5_raw["output_json"])["output"]
-    review: dict = {
+    review: dict[str, Any] = {
         "routing": s5.get("routing"),
         "composite_score": s5.get("composite_score"),
         "blocking_count": s5.get("blocking_count"),
@@ -194,7 +198,7 @@ def _build_gate3_review(run_id: str, engine: PMEngine) -> dict | None:
     return review
 
 
-def _batch_triage(batch_id: str | None, engine: PMEngine) -> list[dict] | None:
+def _batch_triage(batch_id: str | None, engine: PMEngine) -> list[dict[str, Any]] | None:
     """Triage's per-product verdict for a run's batch, or None.
 
     Surfaced on the run because that is where the routing question is asked. A
@@ -208,7 +212,7 @@ def _batch_triage(batch_id: str | None, engine: PMEngine) -> list[dict] | None:
     return (batch or {}).get("triage")
 
 
-def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
+def _build_gate1_review(run_id: str, engine: PMEngine) -> dict[str, Any] | None:
     """Assemble the Gate 1 review payload from stored S1/S2 outputs (US-46).
 
     Returns None until S2 has run. Gives the PM the full insight needed to
@@ -225,7 +229,7 @@ def _build_gate1_review(run_id: str, engine: PMEngine) -> dict | None:
     # Keep the flattened string for back-compat consumers and pass `claims`
     # through so the review surface can show signal/context/inference tags.
     claims = s2.get("claims")
-    review: dict = {
+    review: dict[str, Any] = {
         "relevance_score": s2.get("relevance_score"),
         "suggested_depth": normalize_mode(s2.get("suggested_mode")),
         "reasoning": s2.get("suggestion_reasoning"),
@@ -275,7 +279,7 @@ async def start_run(
 
 async def dispatch_start(
     signal_id: str,
-    signal: dict,
+    signal: dict[str, Any],
     product_id: str | None,
     depth: str | None,
     force_gate1: bool,
@@ -346,7 +350,7 @@ def _start_manual_run(
 
 async def _start_fanout_runs(
     signal_id: str,
-    signal: dict,
+    signal: dict[str, Any],
     requested_mode: str | None,
     force_gate1: bool,
     background_tasks: BackgroundTasks,
@@ -416,7 +420,7 @@ async def _start_fanout_runs(
     )
 
 
-def _select_primary(triage) -> str | None:
+def _select_primary(triage: PortfolioTriageOutput) -> str | None:
     """The fan-out primary: highest-relevance product among the relevant set.
 
     Returns None when Triage found nothing relevant (no run is spawned). ``max``
@@ -428,7 +432,7 @@ def _select_primary(triage) -> str | None:
     return max(relevant, key=lambda p: p.relevance_score).product_id
 
 
-def _triage_dict_with_family(product_relevance) -> dict:
+def _triage_dict_with_family(product_relevance: ProductRelevance) -> dict[str, Any]:
     """Triage verdict enriched with its product family, so ops can group the
     deferred candidates it offers for promotion ("also relevant, same family")."""
     from config import family_of
@@ -438,13 +442,14 @@ def _triage_dict_with_family(product_relevance) -> dict:
     return d
 
 
-def _inherited_depth(siblings: list[dict]) -> str | None:
+def _inherited_depth(siblings: list[dict[str, Any]]) -> str | None:
     """The depth a promotion inherits when none is stated: the primary run's
     chosen depth (the first sibling with a depth set), else None (the promoted
     run then takes its own Gate 1 — there is no depth to carry yet)."""
     for r in siblings:
-        if r.get("mode"):
-            return r["mode"]
+        mode = r.get("mode")
+        if mode:
+            return str(mode)
     return None
 
 
@@ -482,7 +487,7 @@ def _spawn_runs_in_batch(
 async def get_batch(
     batch_id: str,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     """A fan-out batch: its sibling runs plus the portfolio synthesis (US-49).
 
     ``synthesis`` is null until every run in the batch has settled.
@@ -563,7 +568,7 @@ async def promote_product(
 async def close_batch(
     batch_id: str,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     """Close a batch for further promotion (US-49 §0).
 
     Idempotent. Closing re-enables the Variant 2 synthesis trigger; if every run
@@ -811,6 +816,8 @@ async def reopen_run(
     emit_event("run", "reopened", run_id, {"from": revivable[-1]})
 
     updated = engine.store.get_run(run_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Run not found")
     return RunResponse(**updated, gate3_review=None)
 
 
@@ -1007,7 +1014,7 @@ async def _execute_s1_s2(
 async def _continue_after_direction(
     run_id: str,
     mode: str,
-    context,
+    context: RunContext,
     engine: PMEngine,
 ) -> None:
     """Advance a run from S2 to its chosen depth's target, pausing at any gate.
@@ -1041,7 +1048,9 @@ async def _continue_after_direction(
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
-async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) -> None:
+async def _pause_at_gate2(
+    run_id: str, context: RunContext, engine: PMEngine, s2_raw: dict[str, Any]
+) -> None:
     """Pause a decide run at Gate 2 (post-S4 human approval) and notify the PM."""
     import json as _json
 
@@ -1050,6 +1059,8 @@ async def _pause_at_gate2(run_id: str, context, engine: PMEngine, s2_raw: dict) 
     from config import review_url_for as _notify_review_url
 
     s4_raw = engine.store.get_stage_output(run_id, "s4")
+    if s4_raw is None:
+        raise ValueError(f"Run {run_id} has no s4 output at Gate 2")
     s4_output_data = S4OutputData(**_json.loads(s4_raw["output_json"])["output"])
 
     engine.store.pause(run_id, "s4")
@@ -1079,8 +1090,8 @@ def _archive_auto_triaged_if_enabled(
     run_id: str,
     product_id: str,
     signal_title: str,
-    s2_output,  # S2OutputData — avoid circular import at module level
-    settings_obj,
+    s2_output: S2OutputData,
+    settings_obj: Settings,
 ) -> None:
     """Archive auto-triaged signals locally only while the legacy cutover flag is on."""
     if not settings_obj.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED:
@@ -1099,7 +1110,7 @@ def _archive_auto_triaged(
     run_id: str,
     product_id: str,
     signal_title: str,
-    s2_output,  # S2OutputData — avoid circular import at module level
+    s2_output: S2OutputData,
     wiki_root: str,
 ) -> None:
     """Delegate to wiki_sync.archive_auto_triaged; swallow OSError so run never fails."""

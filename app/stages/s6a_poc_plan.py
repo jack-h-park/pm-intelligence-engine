@@ -9,7 +9,7 @@ Only runs when S5 routing is 'poc'.
 
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     RunContext,
@@ -44,7 +44,7 @@ async def run(
     """Generate a minimum experiment design targeting the Blocking assumptions from S5."""
     from config import settings
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s6a")
 
     s5 = stage_input.s5_output
@@ -101,7 +101,7 @@ Rules:
 - timeline_weeks should be realistic given the resources described — typically 2–6 weeks.
 - success_criteria must be binary (pass/fail) — not "learn more about"."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[

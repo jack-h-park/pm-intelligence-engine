@@ -4,13 +4,14 @@ Composite score is computed deterministically from S4 persona scores.
 LLM classifies assumptions (Blocking / Adjusting) and writes a rationale.
 Routing rule is deterministic code — never delegated to the LLM.
 """
+from typing import Any, Literal
+
 # ruff: noqa: E501 — the long lines below are LLM prompt/schema text and the
 # rendered decision-memo template. Wrapping them would change what gets sent
 # to the model or rendered to the PM, and a noqa on a specific line would
 # become part of that text.
-
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     Assumption,
@@ -58,12 +59,13 @@ def _value_horizon_from_store(store: PMWorkflowStore, run_id: str) -> str:
     if raw is None:
         return "durable"
     try:
-        return json.loads(raw["output_json"])["output"].get("value_horizon", "durable")
+        value_horizon = json.loads(raw["output_json"])["output"].get("value_horizon", "durable")
+        return str(value_horizon)
     except Exception:  # noqa: BLE001
         return "durable"
 
 
-def _load_scoring_config(product_id: str) -> dict:
+def _load_scoring_config(product_id: str) -> dict[str, Any]:
     """Merged scoring config for a product: git baseline, then runtime override.
 
     The baseline is {DECISION_CONTEXT_ROOT}/products/{id}/scoring.yaml, which is
@@ -81,7 +83,7 @@ def _load_scoring_config(product_id: str) -> dict:
 
     from config import settings
 
-    merged: dict = {}
+    merged: dict[str, Any] = {}
 
     path = pathlib.Path(settings.DECISION_CONTEXT_ROOT) / "products" / product_id / "scoring.yaml"
     if path.exists():
@@ -107,7 +109,7 @@ def _load_scoring_config(product_id: str) -> dict:
     return merged
 
 
-def _load_weights(product_id: str) -> dict:
+def _load_weights(product_id: str) -> dict[str, Any]:
     """Per-product S4-persona weights, normalised to sum to 1.0.
 
     Falls back to _DEFAULT_WEIGHTS unless all four keys are present and positive
@@ -139,7 +141,7 @@ def _load_weights(product_id: str) -> dict:
         return _DEFAULT_WEIGHTS.copy()
 
 
-def _load_thresholds(product_id: str) -> dict:
+def _load_thresholds(product_id: str) -> dict[str, Any]:
     """Per-product routing thresholds, from the same merged config as the weights.
 
     Unlike the weights, these fall back key by key: each threshold is independent,
@@ -189,7 +191,7 @@ async def run(
     from config import settings
 
     personas = stage_input.s4_output.personas
-    scores = {p.persona: p.score for p in personas}
+    scores: dict[str, int] = {p.persona: p.score for p in personas}
 
     weights = _load_weights(context.product_id)
     # Deterministic composite score
@@ -198,7 +200,7 @@ async def run(
     )
     skeptic_score = scores.get("skeptic", 3)
 
-    template_service = TemplateService(settings.DECISION_SYSTEM_ROOT)
+    template_service = TemplateService(settings.decision_system_root)
     template = template_service.load_template("s5")
 
     system_message = (
@@ -269,7 +271,7 @@ Rules:
   decision (e.g. ["#7", "#14"]); use [] if none clearly apply.
 - Limit to 5 assumptions maximum."""
 
-    usage_sink: list = []
+    usage_sink: list[Usage] = []
     data = await complete_json(
         llm,
         messages=[
@@ -426,8 +428,8 @@ async def _verify_blocking_assumptions(
     system_message: str,
     llm: LLMProvider,
     run_id: str,
-    usage_sink: list | None = None,
-) -> dict:
+    usage_sink: list[Usage] | None = None,
+) -> dict[str, Any]:
     """Adversarially audit Blocking classifications (US-42).
 
     Returns {statement: reason} for assumptions that should be DOWNGRADED to
@@ -471,7 +473,7 @@ Respond with a single JSON object — no markdown, no commentary:
         temperature=0,
     )
     blocking_statements = {a.statement for a in blocking}
-    downgrades: dict = {}
+    downgrades: dict[str, Any] = {}
     for v in data.get("verdicts", []):
         stmt = v.get("statement", "")
         if stmt in blocking_statements and not v.get("keep_blocking", True):
@@ -483,8 +485,8 @@ def _compute_routing(
     composite: float,
     confidence: int,
     blocking: list[Assumption],
-    thresholds: dict | None = None,
-) -> str:
+    thresholds: dict[str, Any] | None = None,
+) -> Literal["prd", "poc", "kill"]:
     """Deterministic two-axis hybrid routing — not delegated to the LLM.
 
     Two axes:

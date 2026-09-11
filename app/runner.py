@@ -26,6 +26,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from app import pipeline
+from app.factory import PMEngine
+from app.models.stages import RunContext, S5OutputData
+from app.storage.protocol import PMWorkflowStore
 
 # The linear spine, excluding the S6 branch (resolved by routing below).
 _SPINE = ("s1", "s2", "s3", "s4", "s5", "s6", "s7")
@@ -111,16 +114,16 @@ def plan_advance(current: str, target: str, routing: str | None = None) -> Advan
 # ---------------------------------------------------------------------------
 
 
-def _load_s5(store, run_id):
+def _load_s5(store: PMWorkflowStore, run_id: str) -> S5OutputData:
     import json
 
-    from app.models.stages import S5OutputData
-
     raw = store.get_stage_output(run_id, "s5")
+    if raw is None:
+        raise ValueError(f"Run {run_id} has no s5 output to load")
     return S5OutputData(**json.loads(raw["output_json"])["output"])
 
 
-async def run_stage(position: str, run_id: str, engine, context) -> None:
+async def run_stage(position: str, run_id: str, engine: PMEngine, context: RunContext) -> None:
     """Execute one pipeline stage by position, loading its inputs from the store.
 
     The single home for per-stage I/O, shared by every advance segment. S3/S4 are
@@ -152,6 +155,8 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
 
     if position == "s3":
         s2_raw = store.get_stage_output(run_id, "s2")
+        if s2_raw is None:
+            raise ValueError(f"Run {run_id} has no s2 output to advance from")
         s2_output_data = S2OutputData(**json.loads(s2_raw["output_json"])["output"])
         signal_id = json.loads(s2_raw["output_json"]).get("signal_id", run_id)
         from app.stages import s3_opportunity
@@ -168,6 +173,8 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         )
     elif position == "s4":
         s3_raw = store.get_stage_output(run_id, "s3")
+        if s3_raw is None:
+            raise ValueError(f"Run {run_id} has no s3 output to advance from")
         s3_output_data = S3OutputData(**json.loads(s3_raw["output_json"])["output"])
         from app.stages import s4_evaluation
 
@@ -179,6 +186,8 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         )
     elif position == "s5":
         s4_raw = store.get_stage_output(run_id, "s4")
+        if s4_raw is None:
+            raise ValueError(f"Run {run_id} has no s4 output to advance from")
         s4_output_data = S4OutputData(**json.loads(s4_raw["output_json"])["output"])
         from app.stages import s5_prioritization
 
