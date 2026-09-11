@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -48,7 +48,9 @@ class StageMetadata(BaseModel):
     )
 
     @classmethod
-    def with_usage(cls, model: str | None, usage_sink: list | None) -> StageMetadata:
+    def with_usage(
+        cls, model: str | None, usage_sink: list[dict[str, Any]] | None
+    ) -> StageMetadata:
         """Build metadata from a model id and a usage_sink (list of {input_tokens, output_tokens}).
 
         Sums the sink so multiple calls in one stage (e.g. JSON-repair retries, or

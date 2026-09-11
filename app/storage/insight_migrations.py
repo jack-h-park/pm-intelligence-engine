@@ -1,8 +1,9 @@
 """Explicit, additive schema initialization for the insight store."""
 
 from datetime import UTC, datetime
+from typing import cast
 
-from sqlalchemy import Engine, select
+from sqlalchemy import Engine, Table, select
 
 from app.models.insights import IntelligenceSchemaVersionRow
 from app.models.workflow import Base
@@ -25,7 +26,7 @@ def initialize_insight_schema(engine: Engine) -> None:
         ).scalar_one_or_none()
         if version is None:
             connection.execute(
-                IntelligenceSchemaVersionRow.__table__.insert().values(
+                cast(Table, IntelligenceSchemaVersionRow.__table__).insert().values(
                     version=INSIGHT_SCHEMA_VERSION,
                     applied_at=datetime.now(UTC),
                 )

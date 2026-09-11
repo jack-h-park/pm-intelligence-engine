@@ -12,7 +12,8 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.workflow import Base
 
@@ -87,9 +88,11 @@ class SourceRecord(_Record):
 
     @model_validator(mode="after")
     def _successful_source_has_material(self) -> "SourceRecord":
-        if self.acquisition_status in {"ok", "fallback_summary"} and not (
-            self.content and self.content.strip()
-        ) and not self.excerpts:
+        if (
+            self.acquisition_status in {"ok", "fallback_summary"}
+            and not (self.content and self.content.strip())
+            and not self.excerpts
+        ):
             raise ValueError("successful source requires content or at least one permitted excerpt")
         if self.content is not None and not self.content.strip():
             raise ValueError("content must not be empty")
@@ -263,11 +266,13 @@ class BudgetReservation(_Record):
 class IntelligenceCandidateRow(Base):
     __tablename__ = "intelligence_candidates"
 
-    candidate_id = Column(String, primary_key=True)
-    origin = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
-    policy_revision = Column(String, nullable=False)
-    payload_json = Column(Text, nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String, primary_key=True)
+    origin: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    policy_revision: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceSourceRow(Base):
@@ -276,50 +281,56 @@ class IntelligenceSourceRow(Base):
         UniqueConstraint("candidate_id", "content_hash", name="uq_intelligence_source_hash"),
     )
 
-    source_id = Column(String, primary_key=True)
-    candidate_id = Column(String, nullable=False, index=True)
-    content_hash = Column(String, nullable=False)
-    url = Column(String, nullable=True)
-    retrieved_at = Column(DateTime(timezone=True), nullable=False)
-    payload_json = Column(Text, nullable=False)
+    source_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    url: Mapped[str | None] = mapped_column(String, nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceBundleRow(Base):
     __tablename__ = "intelligence_bundles"
 
-    bundle_id = Column(String, primary_key=True)
-    candidate_id = Column(String, nullable=False, index=True)
-    context_revision = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
-    payload_json = Column(Text, nullable=False)
+    bundle_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    context_revision: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligencePreparedContextRow(Base):
     __tablename__ = "intelligence_prepared_contexts"
 
-    prepared_context_id = Column(String, primary_key=True)
-    candidate_id = Column(String, nullable=False, index=True)
-    bundle_id = Column(String, nullable=False, index=True)
-    validation_status = Column(String, nullable=False, index=True)
-    context_revision = Column(String, nullable=False)
-    payload_json = Column(Text, nullable=False)
+    prepared_context_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    bundle_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    validation_status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    context_revision: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceInsightRow(Base):
     __tablename__ = "intelligence_insights"
 
-    insight_id = Column(String, primary_key=True)
-    prepared_context_id = Column(String, nullable=False, index=True)
-    context_revision = Column(String, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
-    payload_json = Column(Text, nullable=False)
+    insight_id: Mapped[str] = mapped_column(String, primary_key=True)
+    prepared_context_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    context_revision: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceSchemaVersionRow(Base):
     __tablename__ = "intelligence_schema_versions"
 
-    version = Column(Integer, primary_key=True)
-    applied_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
 
 
 class IntelligenceIdempotencyRow(Base):
@@ -330,36 +341,42 @@ class IntelligenceIdempotencyRow(Base):
         ),
     )
 
-    operation = Column(String, primary_key=True)
-    actor = Column(String, primary_key=True)
-    idempotency_key = Column(String, primary_key=True)
-    request_hash = Column(String, nullable=False)
-    status_code = Column(Integer, nullable=False)
-    response_json = Column(Text, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=_utc_now)
+    operation: Mapped[str] = mapped_column(String, primary_key=True)
+    actor: Mapped[str] = mapped_column(String, primary_key=True)
+    idempotency_key: Mapped[str] = mapped_column(String, primary_key=True)
+    request_hash: Mapped[str] = mapped_column(String, nullable=False)
+    status_code: Mapped[int] = mapped_column(Integer, nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
 
 
 class IntelligenceJobRow(Base):
     __tablename__ = "intelligence_jobs"
 
-    job_id = Column(String, primary_key=True)
-    candidate_id = Column(String, nullable=False, index=True)
-    state = Column(String, nullable=False, index=True)
-    next_attempt_at = Column(DateTime(timezone=True), nullable=True)
-    lease_token = Column(String, nullable=True)
-    lease_expires_at = Column(DateTime(timezone=True), nullable=True)
-    payload_json = Column(Text, nullable=False)
+    job_id: Mapped[str] = mapped_column(String, primary_key=True)
+    candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceResearchRequestRow(Base):
     __tablename__ = "intelligence_research_requests"
 
-    research_request_id = Column(String, primary_key=True)
-    job_id = Column(String, nullable=False, index=True)
-    state = Column(String, nullable=False, index=True)
-    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
-    lease_token = Column(String, nullable=True)
-    payload_json = Column(Text, nullable=False)
+    research_request_id: Mapped[str] = mapped_column(String, primary_key=True)
+    job_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    lease_token: Mapped[str | None] = mapped_column(String, nullable=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceResearchResultRow(Base):
@@ -370,21 +387,21 @@ class IntelligenceResearchResultRow(Base):
         ),
     )
 
-    result_id = Column(String, primary_key=True, default=_new_uuid)
-    research_request_id = Column(String, nullable=False, index=True)
-    content_hash = Column(String, nullable=False)
-    payload_json = Column(Text, nullable=False)
+    result_id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_uuid)
+    research_request_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceBudgetReservationRow(Base):
     __tablename__ = "intelligence_budget_reservations"
 
-    reservation_id = Column(String, primary_key=True)
-    operation_id = Column(String, nullable=False, unique=True)
-    allowance_class = Column(String, nullable=False, index=True)
-    state = Column(String, nullable=False, index=True)
-    maximum_micros = Column(Integer, nullable=False)
-    payload_json = Column(Text, nullable=False)
+    reservation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    operation_id: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    allowance_class: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    maximum_micros: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceDeliveryReceiptRow(Base):
@@ -393,27 +410,27 @@ class IntelligenceDeliveryReceiptRow(Base):
         UniqueConstraint("insight_id", "revision", "channel", name="uq_intelligence_delivery"),
     )
 
-    receipt_id = Column(String, primary_key=True)
-    insight_id = Column(String, nullable=False, index=True)
-    revision = Column(Integer, nullable=False)
-    channel = Column(String, nullable=False)
-    state = Column(String, nullable=False, index=True)
-    payload_json = Column(Text, nullable=False)
+    receipt_id: Mapped[str] = mapped_column(String, primary_key=True)
+    insight_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel: Mapped[str] = mapped_column(String, nullable=False)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceTriageRow(Base):
     __tablename__ = "intelligence_triage"
 
-    operation_id = Column(String, primary_key=True)
-    state = Column(String, nullable=False, index=True)
-    payload_json = Column(Text, nullable=False)
+    operation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceInsightFeedbackRow(Base):
     __tablename__ = "intelligence_insight_feedback"
 
-    feedback_id = Column(String, primary_key=True)
-    insight_id = Column(String, nullable=False, index=True)
-    revision = Column(Integer, nullable=False)
-    label = Column(String, nullable=False, index=True)
-    payload_json = Column(Text, nullable=False)
+    feedback_id: Mapped[str] = mapped_column(String, primary_key=True)
+    insight_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
