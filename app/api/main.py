@@ -1,3 +1,5 @@
+from typing import Any
+
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -76,5 +78,5 @@ app.include_router(insight_budget_router, dependencies=_auth)
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health() -> dict[str, Any]:
     return {"status": "ok"}

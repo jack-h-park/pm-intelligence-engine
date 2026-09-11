@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.models.stages import PersonaOutput, RunContext, S3OutputData
@@ -34,7 +36,7 @@ class PersonaAgent:
         opportunity: S3OutputData,
         context: RunContext,
         llm: LLMProvider,
-        prompt: dict,
+        prompt: dict[str, Any],
         feedback: str | None = None,
         usage_sink: list | None = None,
     ) -> PersonaOutput:

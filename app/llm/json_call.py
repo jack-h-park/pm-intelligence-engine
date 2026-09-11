@@ -9,6 +9,7 @@ fails with the original semantics (json.JSONDecodeError propagates).
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from app.llm.protocol import LLMProvider, Message, Usage
 from app.logging import emit_event
@@ -22,7 +23,7 @@ _REPAIR_INSTRUCTION = (
 )
 
 
-def parse_json(raw: str) -> dict:
+def parse_json(raw: str) -> dict[str, Any]:
     """Parse an LLM response as JSON, stripping markdown code fences if present."""
     text = raw.strip()
     if text.startswith("```"):
@@ -40,7 +41,7 @@ async def complete_json(
     max_repair_attempts: int = MAX_REPAIR_ATTEMPTS,
     usage_sink: list[Usage] | None = None,
     **llm_kwargs,
-) -> dict:
+) -> dict[str, Any]:
     """Call the LLM and parse its response as JSON, repairing on parse failure.
 
     On json.JSONDecodeError, re-prompts with the prior raw output and the parse

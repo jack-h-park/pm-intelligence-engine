@@ -7,6 +7,8 @@ State transition:
   waiting_direction + POST /direction { mode } → running (stages for chosen mode)
 """
 
+from typing import Any
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
@@ -47,7 +49,7 @@ async def set_direction(
     body: DirectionRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     from app.modes import normalize_mode
 
     if body.origin is not None and body.origin not in AUTOMATED_ORIGINS:

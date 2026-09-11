@@ -1,3 +1,5 @@
+from typing import Any
+
 # ruff: noqa: E501 — the action/gate table in the module docstring below is
 # aligned by hand; wrapping it would break the alignment and make it harder
 # to read, not easier.
@@ -47,7 +49,7 @@ async def decide(
     body: DecisionRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     if body.action not in _ACTIONS:
         raise HTTPException(
             status_code=422,

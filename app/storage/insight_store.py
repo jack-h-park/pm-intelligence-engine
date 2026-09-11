@@ -246,8 +246,8 @@ class InsightStore:
             ]
             return {
                 "candidates": session.query(IntelligenceCandidateRow).count(),
-                "jobs": dict[str, Any](sorted(jobs.items())),
-                "delivery_receipts": dict[str, Any](sorted(receipts.items())),
+                "jobs": dict(sorted(jobs.items())),
+                "delivery_receipts": dict(sorted(receipts.items())),
                 "feedback": {
                     "recorded": session.query(IntelligenceInsightFeedbackRow).count(),
                     "unknown": 0,

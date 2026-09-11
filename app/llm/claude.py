@@ -1,3 +1,5 @@
+from typing import Any
+
 from app.llm.protocol import Message, Usage
 from app.llm.retry import with_retries
 
@@ -30,7 +32,7 @@ class ClaudeProvider:
         system_parts = [m["content"] for m in messages if m["role"] == "system"]
         non_system = [m for m in messages if m["role"] != "system"]
 
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": model or self._default_model,
             "max_tokens": max_tokens,
             "messages": non_system,

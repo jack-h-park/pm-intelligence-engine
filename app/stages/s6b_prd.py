@@ -3,6 +3,8 @@
 Produces a full PRD from S5 output. Only runs when S5 routing is 'prd'.
 Completeness check is computed deterministically from the LLM output.
 """
+from typing import Any
+
 # ruff: noqa: E501 — the long lines below are LLM prompt/schema text.
 # Wrapping them would change what gets sent to the model, and a noqa on a
 # specific line would become part of that prompt text.
@@ -184,7 +186,7 @@ def build_prd(data: S6BOutputData) -> str:
 """
 
 
-def _compute_completeness(data: dict) -> PRDCompletenessCheck:
+def _compute_completeness(data: dict[str, Any]) -> PRDCompletenessCheck:
     return PRDCompletenessCheck(
         problem_statement=bool(data.get("problem_statement", "").strip()),
         target_user=bool(data.get("target_user", "").strip()),

@@ -9,6 +9,8 @@ State transitions:
   waiting_approval + reject  → killed
 """
 
+from typing import Any
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -26,7 +28,7 @@ class RejectRequest(BaseModel):
     reason: str
 
 
-def _require_waiting_approval(run_id: str, engine: PMEngine) -> dict:
+def _require_waiting_approval(run_id: str, engine: PMEngine) -> dict[str, Any]:
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -50,7 +52,7 @@ async def approve_run(
     run_id: str,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     _require_waiting_approval(run_id, engine)
 
     engine.store.record_approval(run_id=run_id, stage="s4", action="approve")
@@ -67,7 +69,7 @@ async def revise_run(
     body: ReviseRequest,
     background_tasks: BackgroundTasks,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     _require_waiting_approval(run_id, engine)
 
     engine.store.record_approval(
@@ -85,7 +87,7 @@ async def reject_run(
     run_id: str,
     body: RejectRequest,
     engine: PMEngine = Depends(get_engine),
-) -> dict:
+) -> dict[str, Any]:
     _require_waiting_approval(run_id, engine)
 
     engine.store.record_approval(
@@ -137,7 +139,7 @@ async def _execute_s5_to_s7(run_id: str, engine: PMEngine) -> None:
         await finalize_run(run_id, "failed", engine, event_detail={"error": str(exc)})
 
 
-async def _pause_at_gate3(run_id: str, run: dict, context, engine: PMEngine) -> None:
+async def _pause_at_gate3(run_id: str, run: dict[str, Any], context, engine: PMEngine) -> None:
     """Pause a decide run at Gate 3 (post-S5 routing review) and notify the PM.
 
     Reads the stored S5/S4 outputs rather than threading them in, so the caller is

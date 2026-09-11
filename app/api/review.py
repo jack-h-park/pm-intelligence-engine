@@ -7,6 +7,8 @@ The page uses plain fetch() calls to POST to the existing JSON API endpoints
 (/approve, /revise, /reject), so no new backend logic is needed here.
 The Telegram Gate 2 notification includes a link to this page.
 """
+from typing import Any
+
 # ruff: noqa: E501 — this module's long lines are inline HTML/CSS inside the
 # f-string templates below, not Python logic. A per-line noqa comment isn't an
 # option (it would become part of the rendered markup), and wrapping CSS rules
@@ -48,7 +50,7 @@ _GATE_STATUS = {
 _OUTCOME_STATUS = {"completed": "completed", "stopped": "killed", "failed": "failed"}
 
 
-def _display_status(run: dict) -> str:
+def _display_status(run: dict[str, Any]) -> str:
     """Reconstruct the legacy display-status key from the canonical columns."""
     lifecycle = run.get("lifecycle")
     if lifecycle == "done":
@@ -79,7 +81,7 @@ async def review_page(
 
     # S4 personas
     s4_raw = engine.store.get_stage_output(run_id, "s4")
-    personas: list[dict] = []
+    personas: list[dict[str, Any]] = []
     if s4_raw:
         s4_data = json.loads(s4_raw["output_json"])
         personas = s4_data.get("output", {}).get("personas", [])
@@ -112,7 +114,7 @@ async def review_page(
 # ---------------------------------------------------------------------------
 
 
-def _render_persona_cards(personas: list[dict]) -> str:
+def _render_persona_cards(personas: list[dict[str, Any]]) -> str:
     if not personas:
         return '<p style="color:#6e6e73;font-size:14px;">S4 evaluation output not available.</p>'
 
@@ -151,7 +153,7 @@ _CLAIM_TAG = {
 }
 
 
-def _render_insight(s2: dict) -> str:
+def _render_insight(s2: dict[str, Any]) -> str:
     """Render the S2 insight with provenance-tagged 'why it matters' claims.
 
     Each claim shows its source (signal / context / inferred) so the reviewer

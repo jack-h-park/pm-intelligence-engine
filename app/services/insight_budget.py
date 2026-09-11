@@ -1,5 +1,7 @@
 """Reservation-first budget policy for fixture and future paid operations."""
 
+from typing import Any
+
 from dataclasses import dataclass
 
 from app.models.insights import BudgetReservation
@@ -24,7 +26,7 @@ class BudgetService:
         self._store = store
         self._policy = policy
 
-    def reserve(self, payload: dict) -> BudgetDecision:
+    def reserve(self, payload: dict[str, Any]) -> BudgetDecision:
         allowance = self._policy.allowances_micros.get(payload.get("allowance_class", ""))
         if allowance is None or not self._policy.rate_revision:
             return BudgetDecision(False, "budget_denied")

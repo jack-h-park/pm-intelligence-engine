@@ -1,3 +1,5 @@
+from typing import Any
+
 from app.llm.protocol import Message, Usage
 from app.llm.retry import with_retries
 
@@ -27,7 +29,7 @@ class OpenAIProvider:
         temperature: float | None = None,
         usage_sink: list[Usage] | None = None,
     ) -> str:
-        kwargs: dict = {
+        kwargs: dict[str, Any] = {
             "model": model or self._default_model,
             "max_completion_tokens": max_tokens,
             "messages": messages,

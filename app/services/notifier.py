@@ -35,6 +35,8 @@ Gate 2 (waiting_approval): fired after Stage 4; shows the 4-persona scores,
 
 from __future__ import annotations
 
+from typing import Any
+
 import httpx
 
 from app.logging import emit_event
@@ -126,7 +128,7 @@ class TelegramNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        assumptions: list[dict] | None = None,
+        assumptions: list[dict[str, Any]] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
         closing_window: bool = False,
@@ -307,7 +309,7 @@ class SlackNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        assumptions: list[dict] | None = None,
+        assumptions: list[dict[str, Any]] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
         closing_window: bool = False,
@@ -392,7 +394,7 @@ class SlackNotifier:
         )
         await self._send({"blocks": blocks}, run_id)
 
-    async def _send(self, payload: dict, run_id: str) -> None:
+    async def _send(self, payload: dict[str, Any], run_id: str) -> None:
         async with httpx.AsyncClient() as client:
             resp = await client.post(self._webhook, json=payload, timeout=10.0)
             resp.raise_for_status()
@@ -494,7 +496,7 @@ class FanoutNotifier:
         routing: str,
         composite_score: float,
         blocking_count: int,
-        assumptions: list[dict] | None = None,
+        assumptions: list[dict[str, Any]] | None = None,
         persona_lines: list[str] | None = None,
         rubric_total: str | None = None,
         closing_window: bool = False,

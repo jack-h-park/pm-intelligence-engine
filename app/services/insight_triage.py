@@ -2,7 +2,7 @@
 
 import json
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -62,7 +62,7 @@ async def triage_with_reservation(
     content: str,
     llm: LLMProvider,
     budget: BudgetService,
-    reservation_payload: dict,
+    reservation_payload: dict[str, Any],
     actual_micros: int | str = "unknown",
 ) -> TriageDecision:
     """Reserve before any model call; ambiguity remains encumbered for reconciliation."""
