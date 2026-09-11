@@ -672,6 +672,7 @@ async def get_run(
 
 @router.get("", response_model=list[RunResponse])
 async def list_runs(
+    signal_id: str | None = None,
     product_id: str | None = None,
     lifecycle: str | None = None,
     position: str | None = None,
@@ -703,6 +704,7 @@ async def list_runs(
                 detail=f"Invalid event '{event}'. Must be one of: {', '.join(sorted(valid_events))}",
             )
     runs = engine.store.list_runs(
+        signal_id=signal_id,
         product_id=product_id,
         lifecycle=lifecycle,
         position=position,
