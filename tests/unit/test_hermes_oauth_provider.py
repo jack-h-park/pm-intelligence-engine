@@ -1,4 +1,5 @@
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -26,3 +27,19 @@ async def test_hermes_oauth_provider_returns_cli_json_without_api_key_usage(tmp_
 
     assert result == '{"headline": "Verified insight"}'
     assert usage == [{"input_tokens": 0, "output_tokens": 0}]
+
+
+def test_insight_provider_factory_selects_oauth_without_changing_legacy_provider(monkeypatch):
+    import config
+    from app.factory import build_insight_llm_provider
+    from app.llm.hermes_oauth import HermesOAuthProvider
+
+    monkeypatch.setattr(
+        config,
+        "settings",
+        SimpleNamespace(INSIGHT_OAUTH_COMMAND=f"{sys.executable} -m hermes_cli.main", INSIGHT_OAUTH_PROFILE="ops"),
+    )
+
+    provider = build_insight_llm_provider()
+
+    assert isinstance(provider, HermesOAuthProvider)

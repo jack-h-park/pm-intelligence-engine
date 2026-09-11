@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
     OPENAI_MODEL: str = "gpt-5.6-terra"
+    # Insight jobs use the local Hermes OAuth subscription rather than inheriting
+    # the API-key provider used by the legacy decision workflow.
+    INSIGHT_OAUTH_COMMAND: str = ""
+    INSIGHT_OAUTH_PROFILE: str = "ops"
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
