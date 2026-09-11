@@ -294,3 +294,46 @@ def test_authenticated_insight_search_returns_stored_revision(
     assert client.get("/insight-operations", headers=auth_headers).json()["feedback"] == {
         "recorded": 1, "unknown": 0,
     }
+
+
+def test_authenticated_insight_listing_returns_product_agnostic_revision(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    from app.models.insights import InsightRevision, PreparedContext
+
+    engine = app.dependency_overrides[get_engine]()
+    candidate = engine.insight_store.save_candidate(candidate_payload)
+    source = engine.insight_store.save_source(
+        {**source_payload, "candidate_id": candidate.candidate_id}
+    )
+    bundle = engine.insight_store.save_bundle(
+        bundle_payload(candidate.candidate_id, source.source_id)
+    )
+    prepared = engine.insight_store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What changed?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = engine.insight_store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Android work-profile learning",
+            explanation="A bounded learning observation.",
+            actual_change="A work profile changed the observed boundary.",
+            why_now="New evidence is available.",
+            personal_relevance="It informs enterprise mobile security.",
+            takeaway="Review profile-boundary controls.",
+            claims=[{"text": "The boundary changed.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+
+    response = client.get("/insights?limit=10", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["items"][0]["insight_id"] == insight.insight_id
+    assert "product_id" not in response.json()["items"][0]
