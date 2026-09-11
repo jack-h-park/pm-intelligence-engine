@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from typing import Optional
 
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.models.workflow import (
@@ -472,12 +473,39 @@ class SQLiteStore:
 
         if not isinstance(case, DecisionCase):
             raise TypeError("case must be a DecisionCase")
-        with self._Session.begin() as session:
-            existing = session.get(
-                DecisionRequestRecord,
-                {"actor": actor, "idempotency_key": idempotency_key},
-            )
-            if existing is not None:
+        try:
+            with self._Session.begin() as session:
+                existing = session.get(
+                    DecisionRequestRecord,
+                    {"actor": actor, "idempotency_key": idempotency_key},
+                )
+                if existing is not None:
+                    if existing.request_hash != request_hash:
+                        raise ValueError("Idempotency-Key was already used with different content")
+                    return {
+                        "request_id": existing.request_id,
+                        "signal_id": existing.signal_id,
+                        "run_id": existing.run_id,
+                    }, 200
+                result = self._create_decision_request_run(session, case)
+                request = DecisionRequestRecord(
+                    actor=actor,
+                    idempotency_key=idempotency_key,
+                    request_hash=request_hash,
+                    signal_id=result["signal_id"],
+                    run_id=result["run_id"],
+                )
+                session.add(request)
+                session.flush()
+                return {"request_id": request.request_id, **result}, 202
+        except IntegrityError:
+            with self._Session() as session:
+                existing = session.get(
+                    DecisionRequestRecord,
+                    {"actor": actor, "idempotency_key": idempotency_key},
+                )
+                if existing is None:
+                    raise
                 if existing.request_hash != request_hash:
                     raise ValueError("Idempotency-Key was already used with different content")
                 return {
@@ -485,17 +513,6 @@ class SQLiteStore:
                     "signal_id": existing.signal_id,
                     "run_id": existing.run_id,
                 }, 200
-            result = self._create_decision_request_run(session, case)
-            request = DecisionRequestRecord(
-                actor=actor,
-                idempotency_key=idempotency_key,
-                request_hash=request_hash,
-                signal_id=result["signal_id"],
-                run_id=result["run_id"],
-            )
-            session.add(request)
-            session.flush()
-            return {"request_id": request.request_id, **result}, 202
 
     def save_decision_case(self, run_id: str, case) -> None:
         """Persist a case revision and its run link in one transaction."""

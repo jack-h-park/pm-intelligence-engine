@@ -87,6 +87,7 @@ class DecisionRequestCreate(_Request):
     prepared_context_revision: int = Field(ge=1)
     insight_references: list[InsightRevisionReference] = Field(default_factory=list)
     product_id: str = Field(min_length=1)
+    confirmed_product_id: str = Field(min_length=1)
     question: str = Field(min_length=1)
     depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None = None
     options: list[str] = Field(default_factory=list)
@@ -261,6 +262,16 @@ async def create_decision_request(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Prepared context revision changed"
         )
+    if prepared.validation_status != "valid":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Prepared context needs evidence before a decision request",
+        )
+    if body.confirmed_product_id != body.product_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Confirmed product must match product_id",
+        )
     for reference in body.insight_references:
         insight = insight_store.get_insight(reference.insight_id)
         if insight is None:
@@ -280,6 +291,8 @@ async def create_decision_request(
         input_origin="insight" if body.insight_references else "direct",
         insight_references=body.insight_references,
         options=body.options,
+        confirmed_product_id=body.confirmed_product_id,
+        confirmed_by_actor=_actor_fingerprint(authorization),
     )
     try:
         result, stored_status = engine.store.create_idempotent_decision_request(

@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from types import SimpleNamespace
 
 import pytest
@@ -141,6 +143,41 @@ def test_decision_request_idempotency_rejects_changed_content(tmp_path):
 
     with pytest.raises(ValueError, match="different content"):
         store.create_idempotent_decision_request("actor", "request-key", "hash-b", case)
+
+
+def test_concurrent_idempotency_retries_replay_the_single_created_run(tmp_path, monkeypatch):
+    database_url = f"sqlite:///{tmp_path}/workflow.db"
+    case = DecisionCase(
+        case_id="case-concurrent-request",
+        revision=1,
+        prepared_context_id="prepared-direct",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="Should we inspect this policy behavior?",
+        input_origins=["direct"],
+    )
+    barrier = Barrier(2)
+    original = SQLiteStore._create_decision_request_run
+    stores = [SQLiteStore(database_url), SQLiteStore(database_url)]
+
+    def synchronized_create(session, decision_case):
+        barrier.wait(timeout=5)
+        return original(session, decision_case)
+
+    monkeypatch.setattr(SQLiteStore, "_create_decision_request_run", staticmethod(synchronized_create))
+
+    def submit(store):
+        return store.create_idempotent_decision_request(
+            "actor", "concurrent-key", "request-hash", case
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [executor.submit(submit, store) for store in stores]
+        first, second = [future.result() for future in futures]
+
+    assert sorted(status for _, status in (first, second)) == [200, 202]
+    assert first[0]["run_id"] == second[0]["run_id"]
+    assert len(SQLiteStore(database_url).list_runs(limit=10)) == 1
 
 
 def test_insight_backed_request_is_not_labeled_as_direct_input(tmp_path):

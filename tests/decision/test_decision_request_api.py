@@ -84,6 +84,17 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
             context_revision="fixture-v1",
         ).model_dump(mode="json")
     )
+    insufficient = insight_store.save_prepared_context(
+        PreparedContext(
+            prepared_context_id="prepared-insufficient-api",
+            revision=1,
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What still needs evidence?",
+            validation_status="needs_evidence",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
     engine = PMEngine(
         store=SQLiteStore(f"sqlite:///{tmp_path}/workflow.db"),
         llm=None,
@@ -102,6 +113,7 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
         "prepared_context_id": prepared.prepared_context_id,
         "prepared_context_revision": prepared.revision,
         "product_id": "android-enterprise",
+        "confirmed_product_id": "android-enterprise",
         "question": "Should we investigate the behavior?",
         "depth": "evaluate",
     }
@@ -115,12 +127,28 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
                 },
                 headers={**headers, "Idempotency-Key": "missing-prepared-context"},
             )
+            unconfirmed_product = client.post(
+                "/decision-requests",
+                json={key: value for key, value in payload.items() if key != "confirmed_product_id"},
+                headers={**headers, "Idempotency-Key": "unconfirmed-product"},
+            )
+            insufficient_evidence = client.post(
+                "/decision-requests",
+                json={
+                    **payload,
+                    "prepared_context_id": insufficient.prepared_context_id,
+                    "prepared_context_revision": insufficient.revision,
+                },
+                headers={**headers, "Idempotency-Key": "insufficient-evidence"},
+            )
             first = client.post("/decision-requests", json=payload, headers=headers)
             repeated = client.post("/decision-requests", json=payload, headers=headers)
     finally:
         app.dependency_overrides.clear()
 
     assert missing_prepared_context.status_code == 422
+    assert unconfirmed_product.status_code == 422
+    assert insufficient_evidence.status_code == 422
     assert first.status_code == 202
     assert repeated.status_code == 200
     assert repeated.json() == first.json()

@@ -17,6 +17,8 @@ def build_decision_case(
     insight_references: list[InsightRevisionReference] | None = None,
     deadline: datetime | None = None,
     options: list[str] | None = None,
+    confirmed_product_id: str | None = None,
+    confirmed_by_actor: str | None = None,
 ) -> DecisionCase:
     """Copy only prepared, attributed evidence into a versioned case.
 
@@ -28,6 +30,8 @@ def build_decision_case(
         prepared_context_id=prepared_context.prepared_context_id,
         prepared_context_revision=prepared_context.revision,
         product_id=product_id,
+        confirmed_product_id=confirmed_product_id,
+        confirmed_by_actor=confirmed_by_actor,
         decision_question=decision_question,
         input_origins=[input_origin],
         source_references=[prepared_context.candidate_id, prepared_context.bundle_id],

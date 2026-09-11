@@ -36,6 +36,8 @@ class DecisionCase(BaseModel):
     prepared_context_id: str = Field(min_length=1)
     prepared_context_revision: int = Field(ge=1)
     product_id: str = Field(min_length=1)
+    confirmed_product_id: str | None = None
+    confirmed_by_actor: str | None = None
     decision_question: str = Field(min_length=1)
     input_origins: list[Literal["direct", "insight"]] = Field(min_length=1)
     source_references: list[str] = Field(default_factory=list)
@@ -61,4 +63,8 @@ class DecisionCase(BaseModel):
             raise ValueError("insight references require an insight input origin")
         if "insight" in self.input_origins and not self.insight_references:
             raise ValueError("insight input origin requires an immutable insight revision")
+        if self.confirmed_product_id is not None and self.confirmed_product_id != self.product_id:
+            raise ValueError("confirmed product must match product_id")
+        if self.confirmed_by_actor is not None and self.confirmed_product_id is None:
+            raise ValueError("confirmed_by_actor requires a confirmed product")
         return self
