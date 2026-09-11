@@ -9,6 +9,7 @@ import hashlib
 import uuid
 from datetime import UTC, datetime
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy import Column, DateTime, Integer, String, Text, UniqueConstraint
@@ -22,6 +23,25 @@ def _new_uuid() -> str:
 
 def _utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+def _shadow_origin_reference(url: str, content_hash: str) -> str:
+    """Return the engine-owned identity used to reconcile discovered sources."""
+    parsed = urlsplit(url)
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("discovered source url must be an absolute HTTP(S) URL")
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname.lower()
+    port = parsed.port
+    authority = hostname
+    if port is not None and (scheme, port) not in {("http", 80), ("https", 443)}:
+        authority = f"{hostname}:{port}"
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    canonical_url = urlunsplit((scheme, authority, path, parsed.query, ""))
+    digest = hashlib.sha256(f"{canonical_url}\n{content_hash}".encode("utf-8")).hexdigest()
+    return f"shadow-source:{digest}"
 
 
 class _Record(BaseModel):
@@ -56,6 +76,7 @@ class SourceRecord(_Record):
     excerpts: list[SourceExcerpt] = Field(default_factory=list)
     url: str | None = None
     legacy_reference: str | None = None
+    origin_reference: str | None = None
 
     @field_validator("retrieved_at")
     @classmethod
@@ -79,6 +100,14 @@ class SourceRecord(_Record):
         )
         if content_hash is not None and content_hash != self.content_hash:
             raise ValueError("content_hash does not match content")
+        if self.origin == "discovered" and self.url:
+            derived_reference = _shadow_origin_reference(self.url, self.content_hash)
+            if self.origin_reference is None:
+                self.origin_reference = derived_reference
+            elif self.origin_reference != derived_reference:
+                raise ValueError("origin_reference must match the canonical discovered source")
+        elif self.origin_reference is not None:
+            raise ValueError("origin_reference is reserved for discovered sources with a URL")
         return self
 
 
