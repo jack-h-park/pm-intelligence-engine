@@ -444,6 +444,19 @@ async def search(
     return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
 
 
+@router.get("/insights", response_model=InsightSearchResults)
+async def list_insights(
+    limit: int = Query(default=20, ge=1, le=100),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightSearchResults:
+    """List Engine-owned learning insights without joining product workflow state."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
+        )
+    return InsightSearchResults(items=engine.insight_store.list_insights()[:limit])
+
+
 @router.post("/insight-triage/novelty", response_model=NoveltyLookupResult)
 async def novelty_lookup(
     body: NoveltyLookup, engine: PMEngine = Depends(get_engine)
