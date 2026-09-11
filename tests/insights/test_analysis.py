@@ -70,6 +70,26 @@ async def test_learning_does_not_require_product_or_note(learning_bundle, contex
 
 
 @pytest.mark.asyncio
+async def test_analysis_prompt_requires_the_complete_insight_json_contract(learning_bundle, context):
+    class CapturingLLM(FixtureLLM):
+        captured_messages = None
+
+        async def complete(self, messages, **kwargs):
+            self.captured_messages = messages
+            return await super().complete(messages, **kwargs)
+
+    llm = CapturingLLM()
+    await analyze_bundle(learning_bundle, context, llm)
+
+    instruction = llm.captured_messages[0]["content"]
+    for field in (
+        "headline", "explanation", "actual_change", "why_now",
+        "personal_relevance", "takeaway", "claims", "uncertainties",
+    ):
+        assert field in instruction
+
+
+@pytest.mark.asyncio
 async def test_analysis_rejects_claims_without_bundle_passages(learning_bundle, context):
     class BadCitationLLM(FixtureLLM):
         async def complete(self, messages, **kwargs):
