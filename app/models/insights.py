@@ -100,7 +100,9 @@ class SourceRecord(_Record):
         )
         if content_hash is not None and content_hash != self.content_hash:
             raise ValueError("content_hash does not match content")
-        if self.origin == "discovered" and self.url:
+        if self.origin == "discovered":
+            if not self.url:
+                raise ValueError("discovered source requires an absolute HTTP(S) URL")
             derived_reference = _shadow_origin_reference(self.url, self.content_hash)
             if self.origin_reference is None:
                 self.origin_reference = derived_reference

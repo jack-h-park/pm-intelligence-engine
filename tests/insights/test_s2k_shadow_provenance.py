@@ -51,3 +51,31 @@ def test_source_intake_rejects_browser_supplied_shadow_provenance(client, auth_h
     )
 
     assert response.status_code == 422
+
+
+def test_discovered_source_requires_a_canonical_http_url(client, auth_headers):
+    candidate = client.post(
+        "/insight-candidates",
+        json={
+            "origin": "discovered",
+            "subject": "Missing source URL",
+            "question_ids": ["android-enterprise-isolation"],
+            "policy_revision": "shadow-v1",
+        },
+        headers={**auth_headers, "Idempotency-Key": "missing-url-candidate"},
+    )
+    assert candidate.status_code == 201
+
+    response = client.post(
+        "/insight-sources",
+        json={
+            "candidate_id": candidate.json()["candidate_id"],
+            "origin": "discovered",
+            "content_hash": "a" * 64,
+            "acquisition_status": "fetch_failed",
+            "retrieved_at": "2026-09-10T12:00:00+00:00",
+        },
+        headers={**auth_headers, "Idempotency-Key": "missing-discovered-url"},
+    )
+
+    assert response.status_code == 422
