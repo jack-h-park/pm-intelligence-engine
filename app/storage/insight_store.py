@@ -360,6 +360,27 @@ class InsightStore:
             self._write_job(row, job)
             return job
 
+    def fail_job_retryable(
+        self, job_id: str, lease_token: str, error: str, now: datetime | None = None
+    ) -> InsightJob:
+        """Release a failed worker lease so a bounded later tick can retry it."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if job.state != "running" or job.lease_token != lease_token:
+                raise StaleLease("job lease is stale")
+            job.state = "retryable_failed"
+            job.lease_token = None
+            job.lease_expires_at = None
+            job.next_attempt_at = current
+            job.error = error[:1000]
+            job.updated_at = current
+            self._write_job(row, job)
+            return job
+
     # --- Jobs and acquisition research (E02) ---
 
     def create_job(self, payload: dict) -> InsightJob:
