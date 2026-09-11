@@ -19,7 +19,18 @@ on:
 
 jobs:
   check:
-    runs-on: ubuntu-latest
+    # Self-hosted. The job is a ~3-second grep over the PR's own text with no
+    # checkout, but GitHub-hosted runners bill per job rounded up to a minute,
+    # and `edited` fires on every description edit — which is the case this
+    # check exists for, so that trigger stays. Measured over its first three
+    # days it was the fastest-growing consumer of this account's included
+    # Actions minutes (12 runs in one day) at 3s of real work each. On a
+    # self-hosted runner that costs nothing.
+    #
+    # What changes on a runner that is not rebuilt per job: see the RUNNER_TEMP
+    # note below. A disconnected runner queues this check as pending rather
+    # than failing it; the host's runner watchdog covers that.
+    runs-on: [self-hosted, ops-host]
     steps:
       - name: Check PR title and description
         env:
@@ -32,12 +43,18 @@ jobs:
             exit 0
           fi
 
-          printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" > /tmp/pr_text.txt
+          # $RUNNER_TEMP, not /tmp. On a hosted runner /tmp vanished with the VM;
+          # on a self-hosted one it persists across jobs and is shared by every
+          # runner on the host — and this file holds exactly the PR text that
+          # may contain a term this check exists to keep out of circulation.
+          # The runner empties $RUNNER_TEMP after each job.
+          pr_text="$RUNNER_TEMP/pr_text.txt"
+          printf '%s\n%s\n' "$PR_TITLE" "$PR_BODY" > "$pr_text"
 
           found=0
           while IFS= read -r term; do
             [ -z "$term" ] && continue
-            if grep -qF -- "$term" /tmp/pr_text.txt; then
+            if grep -qF -- "$term" "$pr_text"; then
               echo "::error::PR title/description contains '$term' — use its public-safe alias instead (see workspace-governance/docs/public-safe-aliases.md)."
               found=1
             fi
