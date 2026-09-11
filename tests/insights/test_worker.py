@@ -138,3 +138,26 @@ async def test_worker_marks_an_empty_bundle_as_needing_evidence(store_factory, c
     saved = store.get_job(job.job_id)
     assert saved.state == "complete"
     assert saved.completion_disposition == "needs_evidence"
+
+
+@pytest.mark.asyncio
+async def test_oauth_worker_tick_completes_one_learning_job(
+    monkeypatch, store_factory, candidate_payload, source_payload, bundle_payload
+):
+    from app.insight_worker import process_one_oauth
+
+    class OAuthFixture:
+        async def complete(self, messages, **kwargs):
+            return '''{"headline":"OAuth insight","explanation":"Evidence-backed.","actual_change":"A source changed.","why_now":"New evidence.","personal_relevance":"Relevant.","takeaway":"Review it.","claims":[{"text":"A source changed.","passage_ids":["passage-fixture-1"]}]}'''
+
+    monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", lambda: OAuthFixture())
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    completed = await process_one_oauth(store)
+
+    assert completed is not None
+    assert store.get_job(job.job_id).state == "complete"

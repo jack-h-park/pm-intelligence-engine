@@ -1,6 +1,7 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
 from app.llm.protocol import LLMProvider
+from app.factory import build_insight_llm_provider
 from app.models.insights import InsightRevision, PreparedContext
 from app.services.insight_analysis import analyze_bundle
 from app.storage.insight_store import InsightStore
@@ -37,3 +38,8 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     )
     insight = await analyze_bundle(bundle, prepared, llm)
     return store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
+
+
+async def process_one_oauth(store: InsightStore) -> InsightRevision | None:
+    """Claim at most one learning job with the isolated OAuth provider."""
+    return await process_one(store, build_insight_llm_provider())
