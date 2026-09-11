@@ -161,3 +161,12 @@ async def test_oauth_worker_tick_completes_one_learning_job(
 
     assert completed is not None
     assert store.get_job(job.job_id).state == "complete"
+
+
+@pytest.mark.asyncio
+async def test_oauth_worker_tick_returns_none_when_queue_is_empty(monkeypatch, store_factory):
+    from app.insight_worker import run_oauth_worker_tick
+
+    monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", object)
+
+    assert await run_oauth_worker_tick(store_factory()) is None

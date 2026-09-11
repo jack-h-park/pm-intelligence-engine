@@ -43,3 +43,8 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
 async def process_one_oauth(store: InsightStore) -> InsightRevision | None:
     """Claim at most one learning job with the isolated OAuth provider."""
     return await process_one(store, build_insight_llm_provider())
+
+
+async def run_oauth_worker_tick(store: InsightStore) -> InsightRevision | None:
+    """Execute one bounded OAuth worker tick for an already-initialized store."""
+    return await process_one_oauth(store)
