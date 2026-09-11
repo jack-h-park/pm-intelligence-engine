@@ -196,12 +196,17 @@ async def list_signals(
     # Filter to signals carrying this review label. Normalised server-side, so
     # "Gate-1 Blocked" and "gate-1-blocked" find the same rows.
     tag: Optional[str] = None,
+    # Deterministic provenance lookup for external intake recovery. Unlike a
+    # title or URL search, this lets a caller prove whether its prior create
+    # request reached the engine before retrying it.
+    source_ref: Optional[str] = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[SignalResponse]:
     try:
         signals = engine.store.list_signals(
-            original_product_id=product_id, status=status, tag=tag, limit=limit
+            original_product_id=product_id, status=status, tag=tag,
+            source_ref=source_ref, limit=limit
         )
     except TagError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
