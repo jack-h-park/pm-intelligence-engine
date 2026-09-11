@@ -1,8 +1,9 @@
 """Tests for Portfolio Synthesis (US-49, Variant 2) — service + finalize trigger."""
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.factory import PMEngine
 from app.services.context_loader import ContextLoader

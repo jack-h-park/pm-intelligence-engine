@@ -3,6 +3,10 @@
 Produces a full PRD from S5 output. Only runs when S5 routing is 'prd'.
 Completeness check is computed deterministically from the LLM output.
 """
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text.
+# Wrapping them would change what gets sent to the model, and a noqa on a
+# specific line would become part of that prompt text.
+
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
@@ -52,7 +56,9 @@ async def run(
 
     s5 = stage_input.s5_output
     adjusting = [a for a in s5.assumptions if a.severity == "Adjusting"]
-    adjusting_text = "\n".join(f"- {a.statement}" for a in adjusting) if adjusting else "None identified."
+    adjusting_text = (
+        "\n".join(f"- {a.statement}" for a in adjusting) if adjusting else "None identified."
+    )
 
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"

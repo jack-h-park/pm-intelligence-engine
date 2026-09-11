@@ -23,7 +23,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-from tests.integration.conftest import run_status, seed_run_state
+from tests.integration.conftest import seed_run_state
 
 
 @pytest.fixture()
@@ -35,8 +35,11 @@ def engine(tmp_path):
     template_service = MagicMock(spec=TemplateService)
     notifier = MagicMock(spec=FanoutNotifier)
     return PMEngine(
-        store=store, llm=llm, context_loader=context_loader,
-        template_service=template_service, notifier=notifier,
+        store=store,
+        llm=llm,
+        context_loader=context_loader,
+        template_service=template_service,
+        notifier=notifier,
     )
 
 
@@ -54,7 +57,8 @@ def _actions(engine, run_id):
 
 def _feedback(engine, run_id, action):
     return next(
-        e["feedback_text"] for e in engine.store.get_approval_events(run_id)
+        e["feedback_text"]
+        for e in engine.store.get_approval_events(run_id)
         if e["action"] == action
     )
 
@@ -104,7 +108,11 @@ def test_gate3_override_decision_recorded(client, engine):
     with patch("app.api.routing_review._execute_s6_s7_with_routing", new=AsyncMock()):
         resp = client.post(
             f"/runs/{run_id}/routing-review",
-            json={"action": "override", "routing": "prd", "reason": "transient window worth a fast bet"},
+            json={
+                "action": "override",
+                "routing": "prd",
+                "reason": "transient window worth a fast bet",
+            },
         )
     assert resp.status_code == 202, resp.text
 
@@ -136,7 +144,9 @@ def test_decisions_queryable_by_event_filter(client, engine):
 
 
 def _seed_awaiting(engine):
-    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(
+        original_product_id="example-security-product", title="S", raw_content="T"
+    )
     rid = engine.store.create_run("example-security-product", sid)
     seed_run_state(engine.store, rid, "waiting_direction")
     engine.store.update_run(rid, recommendation_json=json.dumps({"suggested_mode": "evaluate"}))
@@ -149,13 +159,17 @@ def test_direction_accepts_depth_field(client, engine):
         resp = client.post(f"/runs/{rid}/direction", json={"depth": "decide"})
     assert resp.status_code == 202, resp.text
     body = resp.json()
-    assert body["depth"] == "decide" and "mode" not in body  # depth only; mode dropped from response (US-43)
+    assert (
+        body["depth"] == "decide" and "mode" not in body
+    )  # depth only; mode dropped from response (US-43)
 
 
 def test_direction_accepts_legacy_mode_alias(client, engine):
     rid = _seed_awaiting(engine)
     with patch("app.api.direction._execute_from_direction", new=AsyncMock()):
-        resp = client.post(f"/runs/{rid}/direction", json={"mode": "opportunity"})  # legacy alias + legacy value
+        resp = client.post(
+            f"/runs/{rid}/direction", json={"mode": "opportunity"}
+        )  # legacy alias + legacy value
     assert resp.status_code == 202, resp.text
     assert resp.json()["depth"] == "structure"  # alias + value both normalized
 
@@ -163,7 +177,9 @@ def test_direction_accepts_legacy_mode_alias(client, engine):
 def test_run_response_surfaces_depth_not_mode(client, engine):
     # Store still uses the legacy "mode" column; the response surfaces it as the
     # canonical `depth` and no longer returns `mode` (US-43 deprecation complete).
-    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(
+        original_product_id="example-security-product", title="S", raw_content="T"
+    )
     rid = engine.store.create_run("example-security-product", sid)
     seed_run_state(engine.store, rid, "completed", mode="decide")
     r = client.get(f"/runs/{rid}").json()
@@ -174,21 +190,35 @@ def test_run_response_surfaces_depth_not_mode(client, engine):
 # Gate 1 information enrichment (US-46)
 # ---------------------------------------------------------------------------
 
+
 def test_gate1_review_payload_surfaces_s2_insight(client, engine):
-    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(
+        original_product_id="example-security-product", title="S", raw_content="T"
+    )
     rid = engine.store.create_run("example-security-product", sid)
     seed_run_state(engine.store, rid, "waiting_direction")
-    engine.store.save_stage_output(run_id=rid, stage="s1", output_json=json.dumps(
-        {"output": {"summary": "Android 16 enables MTE via APM."}}))
-    engine.store.save_stage_output(run_id=rid, stage="s2", output_json=json.dumps({"output": {
-        "what_changed": "APM now turns on MTE",
-        "reframing": "consumer feature vs enterprise memory-safety mandate",
-        "pillar_references": ["Hardware-rooted security"],
-        "relevance_explanation": "Government deployments require provable memory-safety posture",
-        "relevance_score": 5,
-        "suggested_mode": "brief",  # legacy value → normalized to note
-        "suggestion_reasoning": "directionally relevant",
-    }}))
+    engine.store.save_stage_output(
+        run_id=rid,
+        stage="s1",
+        output_json=json.dumps({"output": {"summary": "Android 16 enables MTE via APM."}}),
+    )
+    engine.store.save_stage_output(
+        run_id=rid,
+        stage="s2",
+        output_json=json.dumps(
+            {
+                "output": {
+                    "what_changed": "APM now turns on MTE",
+                    "reframing": "consumer feature vs enterprise memory-safety mandate",
+                    "pillar_references": ["Hardware-rooted security"],
+                    "relevance_explanation": "Government deployments require provable memory-safety posture",  # noqa: E501
+                    "relevance_score": 5,
+                    "suggested_mode": "brief",  # legacy value → normalized to note
+                    "suggestion_reasoning": "directionally relevant",
+                }
+            }
+        ),
+    )
     review = client.get(f"/runs/{rid}").json()["gate1_review"]
     assert review["what_changed"] == "APM now turns on MTE"
     assert review["relevance_explanation"].startswith("Government")
@@ -198,6 +228,8 @@ def test_gate1_review_payload_surfaces_s2_insight(client, engine):
 
 
 def test_gate1_review_absent_before_s2(client, engine):
-    sid = engine.store.save_signal(original_product_id="example-security-product", title="S", raw_content="T")
+    sid = engine.store.save_signal(
+        original_product_id="example-security-product", title="S", raw_content="T"
+    )
     rid = engine.store.create_run("example-security-product", sid)
     assert client.get(f"/runs/{rid}").json()["gate1_review"] is None

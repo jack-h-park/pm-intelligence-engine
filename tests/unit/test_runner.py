@@ -14,7 +14,6 @@ import pytest
 from app import runner
 from app.runner import AdvancePlan, plan_advance, target_for_depth
 
-
 # ---------------------------------------------------------------------------
 # depth → target position
 # ---------------------------------------------------------------------------

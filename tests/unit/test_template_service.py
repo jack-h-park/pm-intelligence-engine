@@ -21,7 +21,7 @@ _EXPECTED = {
         "lens": (
             "You ask: 'How far can we go with this?' "
             "You evaluate expansion potential, adjacent markets, and enabling capabilities. "
-            "You look for the ceiling of the opportunity and whether it opens strategic optionality."
+            "You look for the ceiling of the opportunity and whether it opens strategic optionality."  # noqa: E501
         ),
         "question": (
             "What is the current reach and the realistic ceiling of this opportunity?\n"
@@ -53,20 +53,20 @@ _EXPECTED = {
         "question": (
             "What would it take to build this, and what is the highest-risk execution assumption?\n"
             "- What is the minimum team size and time to ship a v1?\n"
-            "- What external dependencies (API access, partner agreements, platform support) are required?\n"
-            "- What is the single assumption about execution that, if wrong, would block delivery entirely?"
+            "- What external dependencies (API access, partner agreements, platform support) are required?\n"  # noqa: E501
+            "- What is the single assumption about execution that, if wrong, would block delivery entirely?"  # noqa: E501
         ),
     },
     "skeptic": {
         "lens": (
             "You ask: 'What if we're wrong about this?' "
             "You challenge assumptions by constructing the strongest possible counter-argument. "
-            "You do NOT default to 'insufficient data' — you reason from available evidence to find disconfirming signals."
+            "You do NOT default to 'insufficient data' — you reason from available evidence to find disconfirming signals."  # noqa: E501
         ),
         "question": (
             "What is the strongest argument AGAINST pursuing this opportunity?\n"
-            "- Steelman the counter-argument: what assumption, if false, makes this opportunity worthless?\n"
-            "- Is there existing evidence (from the product context or signal) that contradicts the hypothesis?\n"
+            "- Steelman the counter-argument: what assumption, if false, makes this opportunity worthless?\n"  # noqa: E501
+            "- Is there existing evidence (from the product context or signal) that contradicts the hypothesis?\n"  # noqa: E501
             "- What would change your confidence score from its current level to 1?"
         ),
     },

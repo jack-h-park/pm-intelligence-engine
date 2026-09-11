@@ -10,8 +10,9 @@ Covers:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.models.stages import (
     Assumption,
@@ -20,7 +21,6 @@ from app.models.stages import (
     S6AInput,
     S6AOutput,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers

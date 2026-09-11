@@ -164,7 +164,9 @@ def test_concurrent_idempotency_retries_replay_the_single_created_run(tmp_path, 
         barrier.wait(timeout=5)
         return original(session, decision_case)
 
-    monkeypatch.setattr(SQLiteStore, "_create_decision_request_run", staticmethod(synchronized_create))
+    monkeypatch.setattr(
+        SQLiteStore, "_create_decision_request_run", staticmethod(synchronized_create)
+    )
 
     def submit(store):
         return store.create_idempotent_decision_request(

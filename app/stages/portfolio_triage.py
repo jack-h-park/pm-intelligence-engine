@@ -9,6 +9,9 @@ Not a standard stage function: it runs before any run exists, so it takes no
 RunContext/store and writes no stage output. The threshold is applied in code (not
 by the LLM) so the cutoff stays authoritative here, mirroring auto-triage.
 """
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text. Wrapping
+# them would change what gets sent to the model, and a noqa on a specific line
+# would become part of that prompt text.
 
 from __future__ import annotations
 
@@ -26,8 +29,7 @@ _JSON_SCHEMA = """{
 
 def _profiles_block(profiles: list[ProductProfile]) -> str:
     return "\n\n".join(
-        f"### {p.product_id}\nTitle: {p.title}\nOverview: {p.overview}"
-        for p in profiles
+        f"### {p.product_id}\nTitle: {p.title}\nOverview: {p.overview}" for p in profiles
     )
 
 
@@ -53,12 +55,10 @@ async def run(
         return PortfolioTriageOutput(signal_id=signal_id, threshold=threshold, products=[])
 
     if framework is None:
-        from config import settings
         from app.services.template_service import TemplateService
+        from config import settings
 
-        framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt(
-            "triage"
-        )
+        framework = TemplateService(settings.DECISION_SYSTEM_ROOT).load_portfolio_prompt("triage")
 
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy "
@@ -133,6 +133,4 @@ Respond with a single JSON object matching this schema exactly — no markdown, 
             )
         )
 
-    return PortfolioTriageOutput(
-        signal_id=signal_id, threshold=threshold, products=products
-    )
+    return PortfolioTriageOutput(signal_id=signal_id, threshold=threshold, products=products)

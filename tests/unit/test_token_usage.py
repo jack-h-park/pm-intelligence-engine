@@ -23,7 +23,9 @@ class _SinkProvider:
         self._i = 0
         self._inp, self._out = inp, out
 
-    async def complete(self, messages, model=None, max_tokens=2048, temperature=None, usage_sink=None):
+    async def complete(
+        self, messages, model=None, max_tokens=2048, temperature=None, usage_sink=None
+    ):
         r = self._responses[self._i]
         self._i += 1
         if usage_sink is not None:
@@ -63,8 +65,16 @@ def test_sum_run_tokens_aggregates_stage_metadata():
     class _Store:
         def get_all_stage_outputs(self, run_id):
             return [
-                {"output_json": json.dumps({"metadata": {"input_tokens": 100, "output_tokens": 20}})},
-                {"output_json": json.dumps({"metadata": {"input_tokens": 50, "output_tokens": 10}})},
+                {
+                    "output_json": json.dumps(
+                        {"metadata": {"input_tokens": 100, "output_tokens": 20}}
+                    )
+                },
+                {
+                    "output_json": json.dumps(
+                        {"metadata": {"input_tokens": 50, "output_tokens": 10}}
+                    )
+                },
                 {"output_json": json.dumps({"metadata": {"model_used": "x"}})},  # no tokens
                 {"output_json": "not json"},  # malformed — ignored
             ]
@@ -72,7 +82,10 @@ def test_sum_run_tokens_aggregates_stage_metadata():
     class _Engine:
         store = _Store()
 
-    assert _sum_run_tokens("r", _Engine()) == {"prompt_tokens_total": 150, "completion_tokens_total": 30}
+    assert _sum_run_tokens("r", _Engine()) == {
+        "prompt_tokens_total": 150,
+        "completion_tokens_total": 30,
+    }
 
 
 def test_sum_run_tokens_empty_when_no_stage_recorded_tokens():

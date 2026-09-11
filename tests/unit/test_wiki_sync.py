@@ -89,11 +89,14 @@ def test_archive_auto_triaged_if_enabled_calls_legacy_helper_when_flag_enabled()
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("routing,expected_subdir", [
-    ("prd", "prds"),
-    ("poc", "poc-upgrades"),
-    ("kill", "kills"),
-])
+@pytest.mark.parametrize(
+    "routing,expected_subdir",
+    [
+        ("prd", "prds"),
+        ("poc", "poc-upgrades"),
+        ("kill", "kills"),
+    ],
+)
 def test_sync_executive_summary_path_mapping(routing, expected_subdir, tmp_path):
     """sync_executive_summary writes to the correct subdir under raw/from-pm-decision-context/."""
     from app.services.wiki_sync import sync_executive_summary
@@ -361,7 +364,9 @@ def test_decision_system_export_path_uses_canonical_archive_only(tmp_path):
 
     with patch("app.services.run_exporter.datetime") as mock_dt:
         mock_dt.now.return_value.strftime.return_value = FIXED_DATE
-        with patch("app.services.run_exporter._canonical_archive_root", return_value=canonical_root):
+        with patch(
+            "app.services.run_exporter._canonical_archive_root", return_value=canonical_root
+        ):
             path = export_run(
                 run_id="run-export-test",
                 store=store,
@@ -369,7 +374,10 @@ def test_decision_system_export_path_uses_canonical_archive_only(tmp_path):
             )
 
     legacy_path = (
-        legacy_root / "products" / "example-security-product" / "runs"
+        legacy_root
+        / "products"
+        / "example-security-product"
+        / "runs"
         / "2026-05-24-run-export-test"
     )
 

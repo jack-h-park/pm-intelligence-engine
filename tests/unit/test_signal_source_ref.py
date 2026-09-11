@@ -6,6 +6,7 @@ is nullable: signals not submitted through Gate 0 (manual POST, replays) have no
 provenance and read back as None.
 """
 import sqlalchemy as sa
+
 from app.storage.sqlite_store import SQLiteStore
 
 

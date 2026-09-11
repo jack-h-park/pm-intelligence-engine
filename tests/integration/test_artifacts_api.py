@@ -1,6 +1,6 @@
-import pytest
-from tests.integration.conftest import seed_run_state
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine
@@ -10,6 +10,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
+from tests.integration.conftest import seed_run_state
 
 
 @pytest.fixture()

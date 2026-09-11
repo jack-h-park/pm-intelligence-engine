@@ -12,8 +12,9 @@ Covers:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.models.stages import (
     Assumption,
@@ -24,7 +25,6 @@ from app.models.stages import (
     S7Input,
     S7Output,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -52,103 +52,120 @@ def _make_store(has_prior_stages: bool = False) -> MagicMock:
         def _get_stage_output(run_id, stage, _version=None):  # noqa: ANN001
             data = {
                 "s1": {
-                    "output_json": json.dumps({
-                        "stage": "s1", "run_id": run_id, "version": 1,
-                        "output": {
-                            "signal_id": "sig-test-001",
-                            "title": "Android 16 NFC allowlist",
-                            "category": "platform",
-                            "summary": "Android 16 introduces native NFC admin allowlist.",
-                            "source": "Android Developers Blog",
-                            "event_date": None,
-                            "quality_passed": True,
-                        },
-                        "metadata": _meta,
-                    })
+                    "output_json": json.dumps(
+                        {
+                            "stage": "s1",
+                            "run_id": run_id,
+                            "version": 1,
+                            "output": {
+                                "signal_id": "sig-test-001",
+                                "title": "Android 16 NFC allowlist",
+                                "category": "platform",
+                                "summary": "Android 16 introduces native NFC admin allowlist.",
+                                "source": "Android Developers Blog",
+                                "event_date": None,
+                                "quality_passed": True,
+                            },
+                            "metadata": _meta,
+                        }
+                    )
                 },
                 "s2": {
-                    "output_json": json.dumps({
-                        "stage": "s2", "run_id": run_id, "version": 1,
-                        "output": {
-                            "what_changed": "NFC admin allowlist is now natively supported.",
-                            "reframing": "The platform can offer first-class NFC control first.",
-                            "relevance_explanation": (
-                                "Directly addresses Attack Surface Reduction pillar."
-                            ),
-                            "relevance_score": 5,
-                            "pillar_references": ["Attack Surface Reduction"],
-                            "suggested_mode": "decide",
-                            "suggestion_reasoning": "High relevance, proceed to full workflow.",
-                        },
-                        "metadata": _meta,
-                    })
+                    "output_json": json.dumps(
+                        {
+                            "stage": "s2",
+                            "run_id": run_id,
+                            "version": 1,
+                            "output": {
+                                "what_changed": "NFC admin allowlist is now natively supported.",
+                                "reframing": "The platform can offer first-class NFC control first.",  # noqa: E501
+                                "relevance_explanation": (
+                                    "Directly addresses Attack Surface Reduction pillar."
+                                ),
+                                "relevance_score": 5,
+                                "pillar_references": ["Attack Surface Reduction"],
+                                "suggested_mode": "decide",
+                                "suggestion_reasoning": "High relevance, proceed to full workflow.",
+                            },
+                            "metadata": _meta,
+                        }
+                    )
                 },
                 "s3": {
-                    "output_json": json.dumps({
-                        "stage": "s3", "run_id": run_id, "version": 1,
-                        "output": {
-                            "problem_statement": "The platform lacks native NFC admin control.",
-                            "target_user": "IT admin at an enterprise running managed devices.",
-                            "hypothesis": (
-                                "If the platform exposes an NFC allowlist, admins will mandate it."
-                            ),
-                            "assumed_value_user": (
-                                "Full NFC policy control without MDM workarounds."
-                            ),
-                            "assumed_value_business": "The platform ships ahead of the OS.",
-                        },
-                        "metadata": _meta,
-                    })
+                    "output_json": json.dumps(
+                        {
+                            "stage": "s3",
+                            "run_id": run_id,
+                            "version": 1,
+                            "output": {
+                                "problem_statement": "The platform lacks native NFC admin control.",
+                                "target_user": "IT admin at an enterprise running managed devices.",
+                                "hypothesis": (
+                                    "If the platform exposes an NFC allowlist, admins will mandate it."  # noqa: E501
+                                ),
+                                "assumed_value_user": (
+                                    "Full NFC policy control without MDM workarounds."
+                                ),
+                                "assumed_value_business": "The platform ships ahead of the OS.",
+                            },
+                            "metadata": _meta,
+                        }
+                    )
                 },
                 "s4": {
-                    "output_json": json.dumps({
-                        "stage": "s4", "run_id": run_id, "version": 1,
-                        "output": {
-                            "personas": [
-                                {
-                                    "persona": "explorer",
-                                    "dimension": "Impact",
-                                    "score": 5,
-                                    "key_argument": "Strong market signal.",
-                                    "open_question": "Timeline?",
+                    "output_json": json.dumps(
+                        {
+                            "stage": "s4",
+                            "run_id": run_id,
+                            "version": 1,
+                            "output": {
+                                "personas": [
+                                    {
+                                        "persona": "explorer",
+                                        "dimension": "Impact",
+                                        "score": 5,
+                                        "key_argument": "Strong market signal.",
+                                        "open_question": "Timeline?",
+                                    },
+                                    {
+                                        "persona": "strategist",
+                                        "dimension": "Strategic Fit",
+                                        "score": 5,
+                                        "key_argument": "Perfect fit.",
+                                        "open_question": "Risk?",
+                                    },
+                                    {
+                                        "persona": "builder",
+                                        "dimension": "Feasibility",
+                                        "score": 4,
+                                        "key_argument": "Feasible.",
+                                        "open_question": "Dependencies?",
+                                    },
+                                    {
+                                        "persona": "skeptic",
+                                        "dimension": "Confidence",
+                                        "score": 4,
+                                        "key_argument": "No major blockers.",
+                                        "open_question": "Adoption?",
+                                    },
+                                ],
+                                "rubric": {
+                                    "total_score": 11,
+                                    "score_grounding": 3,
+                                    "skeptic_quality": 3,
+                                    "open_question_quality": 3,
+                                    "persona_independence": 2,
+                                    "passed": True,
+                                    "issues": [],
                                 },
-                                {
-                                    "persona": "strategist",
-                                    "dimension": "Strategic Fit",
-                                    "score": 5,
-                                    "key_argument": "Perfect fit.",
-                                    "open_question": "Risk?",
-                                },
-                                {
-                                    "persona": "builder",
-                                    "dimension": "Feasibility",
-                                    "score": 4,
-                                    "key_argument": "Feasible.",
-                                    "open_question": "Dependencies?",
-                                },
-                                {
-                                    "persona": "skeptic",
-                                    "dimension": "Confidence",
-                                    "score": 4,
-                                    "key_argument": "No major blockers.",
-                                    "open_question": "Adoption?",
-                                },
-                            ],
-                            "rubric": {
-                                "total_score": 11,
-                                "score_grounding": 3,
-                                "skeptic_quality": 3,
-                                "open_question_quality": 3,
-                                "persona_independence": 2,
-                                "passed": True,
-                                "issues": [],
                             },
-                        },
-                        "metadata": _meta,
-                    })
+                            "metadata": _meta,
+                        }
+                    )
                 },
             }
             return data.get(stage)
+
         store.get_stage_output = MagicMock(side_effect=_get_stage_output)
     else:
         store.get_stage_output = MagicMock(return_value=None)
@@ -178,6 +195,7 @@ def _make_s5_output() -> S5OutputData:
 
 def _make_s6b_output() -> S6BOutputData:
     from app.models.stages import PRDCompletenessCheck
+
     return S6BOutputData(
         problem_statement="The platform lacks native NFC admin control.",
         target_user="IT admin at an enterprise running managed devices.",
@@ -193,10 +211,18 @@ def _make_s6b_output() -> S6BOutputData:
         open_questions=["What is the underlying platform API's deprecation date?"],
         risks=["The underlying platform API may not deprecate NFC APIs on schedule."],
         completeness=PRDCompletenessCheck(
-            problem_statement=True, target_user=True, hypothesis=True,
-            success_metrics=True, user_stories=True, in_scope=True,
-            out_of_scope=True, technical_dependencies=True, open_questions=True,
-            non_goals=True, rollout_phases=False, risks=True,
+            problem_statement=True,
+            target_user=True,
+            hypothesis=True,
+            success_metrics=True,
+            user_stories=True,
+            in_scope=True,
+            out_of_scope=True,
+            technical_dependencies=True,
+            open_questions=True,
+            non_goals=True,
+            rollout_phases=False,
+            risks=True,
         ),
     )
 
@@ -209,9 +235,7 @@ _VALID_S7_FULL_RESPONSE = {
     "what_it_means": (
         "This creates an enterprise compliance gap in the Attack Surface Reduction pillar."
     ),
-    "what_we_decided": (
-        "Composite score 4.65/5.00. Routed to PRD track. No blocking assumptions."
-    ),
+    "what_we_decided": ("Composite score 4.65/5.00. Routed to PRD track. No blocking assumptions."),
     "what_we_will_do_next": (
         "PRD track: 3 user stories, 2 success metrics. Engineering kickoff Q3."
     ),
@@ -225,7 +249,7 @@ _VALID_S7_FULL_RESPONSE = {
 _VALID_S7_PARTIAL_RESPONSE = {
     "what_we_saw": "Android 16 introduced a native NFC admin allowlist.",
     "what_it_means": "This may affect the platform's admin model.",
-    "what_we_decided": "Filed as brief insight — no actionable opportunity identified at this time.",
+    "what_we_decided": "Filed as brief insight — no actionable opportunity identified at this time.",  # noqa: E501
     "what_we_will_do_next": "No further action required.",
     "markdown": "# Brief Summary\n\nFiled for reference.",
 }

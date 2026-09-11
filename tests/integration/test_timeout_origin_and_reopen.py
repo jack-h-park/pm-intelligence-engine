@@ -18,6 +18,9 @@ Reopen also matters because it is the ONLY route back to a shallower depth: it c
 the depth and returns the run to Gate 1. `deepen` refuses anything not strictly deeper,
 so `structure -> note` is reachable this way or not at all.
 """
+# ruff: noqa: F811 — `client`/`engine` are pytest fixtures imported for reuse; every
+# test function below legitimately takes them as parameters of the same name, which
+# ruff reads as shadowing the import rather than fixture injection.
 
 import pytest
 

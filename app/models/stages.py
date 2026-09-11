@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Literal, Optional
+from datetime import UTC, datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.models.decision_case import DecisionCase
-
 
 # ---------------------------------------------------------------------------
 # Shared
@@ -29,23 +28,27 @@ class RunContext(BaseModel):
 class StageMetadata(BaseModel):
     """Execution metadata attached to every stage output."""
 
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(timezone.utc).isoformat()
-    )
-    model_used: Optional[str] = Field(
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
+    model_used: str | None = Field(
         default=None, description="LLM model identifier, or null if no LLM was called"
     )
-    input_tokens: Optional[int] = Field(
+    input_tokens: int | None = Field(
         default=None,
-        description="Prompt tokens for this stage (sum across all LLM calls incl. JSON-repair retries), or null if no LLM was called",
+        description=(
+            "Prompt tokens for this stage (sum across all LLM calls incl. "
+            "JSON-repair retries), or null if no LLM was called"
+        ),
     )
-    output_tokens: Optional[int] = Field(
+    output_tokens: int | None = Field(
         default=None,
-        description="Completion tokens for this stage (sum across all LLM calls), or null if no LLM was called",
+        description=(
+            "Completion tokens for this stage (sum across all LLM calls), "
+            "or null if no LLM was called"
+        ),
     )
 
     @classmethod
-    def with_usage(cls, model: Optional[str], usage_sink: Optional[list]) -> "StageMetadata":
+    def with_usage(cls, model: str | None, usage_sink: list | None) -> StageMetadata:
         """Build metadata from a model id and a usage_sink (list of {input_tokens, output_tokens}).
 
         Sums the sink so multiple calls in one stage (e.g. JSON-repair retries, or
@@ -71,7 +74,7 @@ class S1Input(BaseModel):
     signal_id: str = Field(description="UUID from the signals table")
     title: str = Field(description="Short descriptive title for the signal")
     raw_content: str = Field(description="Full raw text of the signal")
-    source_url: Optional[str] = Field(default=None, description="Source URL if available")
+    source_url: str | None = Field(default=None, description="Source URL if available")
     source_type: str = Field(default="manual", description="manual | rss | file_watch")
 
 
@@ -81,16 +84,12 @@ class S1OutputData(BaseModel):
     signal_id: str = Field(description="UUID from the signals table")
     title: str = Field(description="Normalized title")
     summary: str = Field(description="Concise factual summary of the signal (facts only)")
-    category: str = Field(
-        description="competitor | platform | regulation | technology | other"
-    )
+    category: str = Field(description="competitor | platform | regulation | technology | other")
     source: str = Field(description="Publication, channel, or URL")
-    event_date: Optional[str] = Field(
+    event_date: str | None = Field(
         default=None, description="Date of the event (not the ingestion date)"
     )
-    quality_passed: bool = Field(
-        description="True if the signal passes Stage 1 quality gates"
-    )
+    quality_passed: bool = Field(description="True if the signal passes Stage 1 quality gates")
 
 
 class S1Output(BaseModel):
@@ -209,9 +208,7 @@ def flatten_claims(claims: object) -> str:
     """
     if not isinstance(claims, list):
         return ""
-    return "\n".join(
-        c.get("text", "") for c in claims if isinstance(c, dict) and c.get("text")
-    )
+    return "\n".join(c.get("text", "") for c in claims if isinstance(c, dict) and c.get("text"))
 
 
 class S2OutputData(BaseModel):
@@ -237,8 +234,7 @@ class S2OutputData(BaseModel):
         ge=1,
         le=5,
         description=(
-            "Strategic relevance score 1–5. "
-            "1–2: noise; 3: borderline; 4–5: clearly relevant"
+            "Strategic relevance score 1–5. 1–2: noise; 3: borderline; 4–5: clearly relevant"
         ),
     )
     depth_basis: Literal[
@@ -264,6 +260,7 @@ class S2OutputData(BaseModel):
         # file/brief/opportunity were renamed to archive/note/structure (US-43);
         # coerce legacy values from stored S2 outputs / stray LLM output.
         from app.modes import normalize_mode
+
         return normalize_mode(v) if isinstance(v, str) else v
 
     @model_validator(mode="before")
@@ -322,9 +319,7 @@ class S3OutputData(BaseModel):
     target_user: str = Field(
         description="More specific than the broad user segment — role and context"
     )
-    hypothesis: str = Field(
-        description="Falsifiable: 'If we do X, then Y will happen, because Z'"
-    )
+    hypothesis: str = Field(description="Falsifiable: 'If we do X, then Y will happen, because Z'")
     assumed_value_user: str = Field(description="Specific benefit for the user")
     assumed_value_business: str = Field(description="Specific benefit for the business")
     value_horizon: Literal["durable", "transient"] = Field(
@@ -372,7 +367,7 @@ def render_value_horizon(value_horizon: str) -> str:
 
 class S4Input(BaseModel):
     s3_output: S3OutputData
-    feedback: Optional[str] = Field(default=None, description="PM feedback injected on revise")
+    feedback: str | None = Field(default=None, description="PM feedback injected on revise")
     version: int = Field(default=1, description="Increments on each revise cycle")
 
 
@@ -399,7 +394,9 @@ class S4RubricResult(BaseModel):
 
 
 class S4OutputData(BaseModel):
-    personas: list[PersonaOutput] = Field(description="All 4 persona outputs, order: explorer/strategist/builder/skeptic")
+    personas: list[PersonaOutput] = Field(
+        description="All 4 persona outputs, order: explorer/strategist/builder/skeptic"
+    )
     rubric: S4RubricResult
 
 
@@ -565,14 +562,15 @@ class S6BOutput(BaseModel):
 
 class S7Input(BaseModel):
     mode: Literal["archive", "note", "structure", "evaluate", "decide"] = "decide"
-    s5_output: Optional[S5OutputData] = None
-    s6a_output: Optional[S6AOutputData] = None
-    s6b_output: Optional[S6BOutputData] = None
+    s5_output: S5OutputData | None = None
+    s6a_output: S6AOutputData | None = None
+    s6b_output: S6BOutputData | None = None
 
     @field_validator("mode", mode="before")
     @classmethod
     def _normalize_legacy_mode(cls, v: object) -> object:
         from app.modes import normalize_mode
+
         return normalize_mode(v) if isinstance(v, str) else v
 
 

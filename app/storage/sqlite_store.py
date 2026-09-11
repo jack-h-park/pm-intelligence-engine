@@ -1,15 +1,14 @@
 import json
 from datetime import UTC, datetime
-from typing import Optional
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.models.workflow import (
-    Artifact,
     ApprovalAction,
     ApprovalEvent,
+    Artifact,
     ArtifactType,
     Base,
     DecisionCaseRecord,
@@ -34,7 +33,6 @@ from app.services.signal_tags import (
     normalize_tag,
     normalize_tags,
 )
-
 
 
 def _loads_or_none(raw):
@@ -82,8 +80,12 @@ class SQLiteStore:
         # stay NULL; no rewrite, safe on the always-on DB.
         if "prompt_tokens_total" not in run_columns:
             with self._engine.begin() as conn:
-                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN prompt_tokens_total INTEGER"))
-                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN completion_tokens_total INTEGER"))
+                conn.execute(
+                    text("ALTER TABLE workflow_runs ADD COLUMN prompt_tokens_total INTEGER")
+                )
+                conn.execute(
+                    text("ALTER TABLE workflow_runs ADD COLUMN completion_tokens_total INTEGER")
+                )
 
         # Retry lineage & failure diagnostics. Nullable/defaulted ADD COLUMNs —
         # existing runs become attempt 1 with no lineage parent and no error,
@@ -92,7 +94,11 @@ class SQLiteStore:
         # is satisfied for existing rows.
         if "attempt_no" not in run_columns:
             with self._engine.begin() as conn:
-                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1"))
+                conn.execute(
+                    text(
+                        "ALTER TABLE workflow_runs ADD COLUMN attempt_no INTEGER NOT NULL DEFAULT 1"
+                    )
+                )
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN root_run_id VARCHAR"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN failed_stage VARCHAR"))
                 conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN error TEXT"))
@@ -116,7 +122,9 @@ class SQLiteStore:
                             )
                         )
                         UPDATE workflow_runs
-                        SET attempt_no = (SELECT rn FROM ranked WHERE ranked.run_id = workflow_runs.run_id),
+                        SET attempt_no = (
+                                SELECT rn FROM ranked WHERE ranked.run_id = workflow_runs.run_id
+                            ),
                             root_run_id = (
                                 SELECT CASE WHEN rn = 1 THEN NULL ELSE root END
                                 FROM ranked WHERE ranked.run_id = workflow_runs.run_id
@@ -159,9 +167,7 @@ class SQLiteStore:
         # (The workflow_runs.status rename is gone — the engine no longer reads or
         # writes that column, and step 7d-2 drops it. US-55.)
         with self._engine.begin() as conn:
-            conn.execute(
-                text("UPDATE signals SET status = 'new' WHERE status = 'pending'")
-            )
+            conn.execute(text("UPDATE signals SET status = 'new' WHERE status = 'pending'"))
 
         # Signal re-ingest support (POST /signals/{id}/refresh). Plain ADD COLUMNs,
         # both nullable / defaulted, so guarded checks keep them idempotent.
@@ -226,11 +232,11 @@ class SQLiteStore:
         self,
         title: str,
         raw_content: str,
-        original_product_id: Optional[str] = None,
-        source_url: Optional[str] = None,
+        original_product_id: str | None = None,
+        source_url: str | None = None,
         category: str = "other",
         source_type: str = "manual",
-        source_ref: Optional[str] = None,
+        source_ref: str | None = None,
     ) -> str:
         with self._Session() as session:
             signal = Signal(
@@ -246,7 +252,7 @@ class SQLiteStore:
             session.commit()
             return signal.signal_id
 
-    def get_signal(self, signal_id: str) -> Optional[dict]:
+    def get_signal(self, signal_id: str) -> dict | None:
         with self._Session() as session:
             s = session.get(Signal, signal_id)
             return self._signal_to_dict(s) if s else None
@@ -262,8 +268,8 @@ class SQLiteStore:
         self,
         signal_id: str,
         raw_content: str,
-        category: Optional[str] = None,
-    ) -> Optional[dict]:
+        category: str | None = None,
+    ) -> dict | None:
         """Re-ingest a signal's content (POST /signals/{id}/refresh).
 
         Signals are otherwise immutable after Gate 0 intake; this is the single
@@ -285,10 +291,10 @@ class SQLiteStore:
 
     def list_signals(
         self,
-        original_product_id: Optional[str] = None,
-        status: Optional[str] = None,
-        tag: Optional[str] = None,
-        source_ref: Optional[str] = None,
+        original_product_id: str | None = None,
+        status: str | None = None,
+        tag: str | None = None,
+        source_ref: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -318,9 +324,9 @@ class SQLiteStore:
         signal_id: str,
         body: str,
         author: str,
-        context: Optional[str] = None,
-        run_id: Optional[str] = None,
-    ) -> Optional[dict]:
+        context: str | None = None,
+        run_id: str | None = None,
+    ) -> dict | None:
         """Append a review note. Returns None if the signal does not exist.
 
         There is deliberately no update/delete counterpart — see ``SignalNote``.
@@ -339,9 +345,7 @@ class SQLiteStore:
             session.commit()
             return self._signal_note_to_dict(note)
 
-    def list_signal_notes(
-        self, signal_id: str, include_superseded: bool = False
-    ) -> list[dict]:
+    def list_signal_notes(self, signal_id: str, include_superseded: bool = False) -> list[dict]:
         """Notes oldest-first — the order the judgments were actually made in."""
         with self._Session() as session:
             q = session.query(SignalNote).filter(SignalNote.signal_id == signal_id)
@@ -350,9 +354,7 @@ class SQLiteStore:
             q = q.order_by(SignalNote.created_at.asc(), SignalNote.note_id.asc())
             return [self._signal_note_to_dict(n) for n in q.all()]
 
-    def add_signal_tags(
-        self, signal_id: str, tags: list[str], author: str
-    ) -> Optional[list[str]]:
+    def add_signal_tags(self, signal_id: str, tags: list[str], author: str) -> list[str] | None:
         """Add tags (idempotent). Returns the signal's full tag set, or None if
         the signal does not exist.
 
@@ -363,10 +365,7 @@ class SQLiteStore:
             if session.get(Signal, signal_id) is None:
                 return None
             existing = {
-                t.tag
-                for t in session.query(SignalTag).filter(
-                    SignalTag.signal_id == signal_id
-                )
+                t.tag for t in session.query(SignalTag).filter(SignalTag.signal_id == signal_id)
             }
             for tag in normalize_tags(tags):
                 if tag in existing:
@@ -376,16 +375,12 @@ class SQLiteStore:
                         f"signal already carries {MAX_TAGS_PER_SIGNAL} tags "
                         "— remove one before adding another"
                     )
-                session.add(
-                    SignalTag(signal_id=signal_id, tag=tag, author=author)
-                )
+                session.add(SignalTag(signal_id=signal_id, tag=tag, author=author))
                 existing.add(tag)
             session.commit()
             return sorted(existing)
 
-    def remove_signal_tags(
-        self, signal_id: str, tags: list[str]
-    ) -> Optional[list[str]]:
+    def remove_signal_tags(self, signal_id: str, tags: list[str]) -> list[str] | None:
         """Remove tags (idempotent). Returns the remaining set, or None if the
         signal does not exist. Removing an absent tag is not an error."""
         with self._Session() as session:
@@ -397,10 +392,7 @@ class SQLiteStore:
                 ).delete()
             session.commit()
             return sorted(
-                t.tag
-                for t in session.query(SignalTag).filter(
-                    SignalTag.signal_id == signal_id
-                )
+                t.tag for t in session.query(SignalTag).filter(SignalTag.signal_id == signal_id)
             )
 
     # --- WorkflowRun ---
@@ -567,7 +559,7 @@ class SQLiteStore:
         self,
         product_id: str,
         signal_id: str,
-        batch_id: Optional[str] = None,
+        batch_id: str | None = None,
         origin: str = "start",
     ) -> str:
         with self._Session() as session:
@@ -622,7 +614,7 @@ class SQLiteStore:
             session.commit()
             return run.run_id
 
-    def get_run(self, run_id: str) -> Optional[dict]:
+    def get_run(self, run_id: str) -> dict | None:
         with self._Session() as session:
             r = session.get(WorkflowRun, run_id)
             return self._run_to_dict(r) if r else None
@@ -708,15 +700,15 @@ class SQLiteStore:
 
     def list_runs(
         self,
-        product_id: Optional[str] = None,
-        routing: Optional[str] = None,
-        event: Optional[str] = None,
-        since: Optional[datetime] = None,
-        batch_id: Optional[str] = None,
-        signal_id: Optional[str] = None,
-        lifecycle: Optional[str] = None,
-        position: Optional[str] = None,
-        outcome: Optional[str] = None,
+        product_id: str | None = None,
+        routing: str | None = None,
+        event: str | None = None,
+        since: datetime | None = None,
+        batch_id: str | None = None,
+        signal_id: str | None = None,
+        lifecycle: str | None = None,
+        position: str | None = None,
+        outcome: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         with self._Session() as session:
@@ -739,9 +731,7 @@ class SQLiteStore:
             if signal_id:
                 q = q.filter(WorkflowRun.signal_id == signal_id)
             if event:
-                q = q.join(ApprovalEvent).filter(
-                    ApprovalEvent.action == ApprovalAction(event)
-                )
+                q = q.join(ApprovalEvent).filter(ApprovalEvent.action == ApprovalAction(event))
             if since:
                 q = q.filter(WorkflowRun.created_at >= since)
             q = q.order_by(WorkflowRun.created_at.desc()).limit(limit)
@@ -766,8 +756,8 @@ class SQLiteStore:
         self,
         run_id: str,
         stage: str,
-        version: Optional[int] = None,
-    ) -> Optional[dict]:
+        version: int | None = None,
+    ) -> dict | None:
         with self._Session() as session:
             q = session.query(StageOutput).filter(
                 StageOutput.run_id == run_id,
@@ -797,7 +787,7 @@ class SQLiteStore:
         run_id: str,
         stage: str,
         action: str,
-        feedback_text: Optional[str] = None,
+        feedback_text: str | None = None,
     ) -> str:
         with self._Session() as session:
             event = ApprovalEvent(
@@ -837,7 +827,7 @@ class SQLiteStore:
         run_id: str,
         artifact_type: str,
         content_md: str,
-        source_stage: Optional[str] = None,
+        source_stage: str | None = None,
     ) -> str:
         with self._Session() as session:
             artifact = Artifact(
@@ -853,7 +843,7 @@ class SQLiteStore:
     def list_artifacts(
         self,
         run_id: str,
-        artifact_type: Optional[str] = None,
+        artifact_type: str | None = None,
         limit: int = 20,
     ) -> list[dict]:
         with self._Session() as session:
@@ -865,7 +855,7 @@ class SQLiteStore:
 
     # --- RunBatch (US-49) ---
 
-    def create_batch(self, signal_id: str, triage: Optional[list] = None) -> str:
+    def create_batch(self, signal_id: str, triage: list | None = None) -> str:
         """Create a fan-out batch, recording Triage's verdict when one is given.
 
         ``triage`` is the full per-product score list. It is stored at creation
@@ -882,7 +872,7 @@ class SQLiteStore:
             session.commit()
             return batch.batch_id
 
-    def get_batch(self, batch_id: str) -> Optional[dict]:
+    def get_batch(self, batch_id: str) -> dict | None:
         with self._Session() as session:
             b = session.get(RunBatch, batch_id)
             if b is None:
@@ -935,7 +925,7 @@ class SQLiteStore:
             session.commit()
             return True
 
-    def get_portfolio_synthesis(self, batch_id: str) -> Optional[dict]:
+    def get_portfolio_synthesis(self, batch_id: str) -> dict | None:
         with self._Session() as session:
             p = session.get(PortfolioSynthesis, batch_id)
             if p is None:

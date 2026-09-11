@@ -155,27 +155,38 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         s2_output_data = S2OutputData(**json.loads(s2_raw["output_json"])["output"])
         signal_id = json.loads(s2_raw["output_json"]).get("signal_id", run_id)
         from app.stages import s3_opportunity
+
         await s3_opportunity.run(
             input=S3Input(
                 signal_id=signal_id,
                 s2_output=s2_output_data,
                 product_id=context.product_id,
             ),
-            context=context, llm=engine.llm, store=store,
+            context=context,
+            llm=engine.llm,
+            store=store,
         )
     elif position == "s4":
         s3_raw = store.get_stage_output(run_id, "s3")
         s3_output_data = S3OutputData(**json.loads(s3_raw["output_json"])["output"])
         from app.stages import s4_evaluation
+
         await s4_evaluation.run(
-            S4Input(s3_output=s3_output_data), context, engine.llm, store,
+            S4Input(s3_output=s3_output_data),
+            context,
+            engine.llm,
+            store,
         )
     elif position == "s5":
         s4_raw = store.get_stage_output(run_id, "s4")
         s4_output_data = S4OutputData(**json.loads(s4_raw["output_json"])["output"])
         from app.stages import s5_prioritization
+
         s5_out = await s5_prioritization.run(
-            S5Input(s4_output=s4_output_data), context, engine.llm, store,
+            S5Input(s4_output=s4_output_data),
+            context,
+            engine.llm,
+            store,
         )
         # Both halves of S5's verdict, not just the routing. `composite_score` is a
         # column on the run and the only write to it is here, so leaving it out left
@@ -190,13 +201,21 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         )
     elif position == "s6a":
         from app.stages import s6a_poc_plan
+
         await s6a_poc_plan.run(
-            S6AInput(s5_output=_load_s5(store, run_id)), context, engine.llm, store,
+            S6AInput(s5_output=_load_s5(store, run_id)),
+            context,
+            engine.llm,
+            store,
         )
     elif position == "s6b":
         from app.stages import s6b_prd
+
         await s6b_prd.run(
-            S6BInput(s5_output=_load_s5(store, run_id)), context, engine.llm, store,
+            S6BInput(s5_output=_load_s5(store, run_id)),
+            context,
+            engine.llm,
+            store,
         )
     elif position == "s7":
         s6a_raw = store.get_stage_output(run_id, "s6a")
@@ -204,10 +223,15 @@ async def run_stage(position: str, run_id: str, engine, context) -> None:
         s7_in = S7Input(
             mode="decide",
             s5_output=_load_s5(store, run_id),
-            s6a_output=(S6AOutputData(**json.loads(s6a_raw["output_json"])["output"]) if s6a_raw else None),
-            s6b_output=(S6BOutputData(**json.loads(s6b_raw["output_json"])["output"]) if s6b_raw else None),
+            s6a_output=(
+                S6AOutputData(**json.loads(s6a_raw["output_json"])["output"]) if s6a_raw else None
+            ),
+            s6b_output=(
+                S6BOutputData(**json.loads(s6b_raw["output_json"])["output"]) if s6b_raw else None
+            ),
         )
         from app.stages import s7_summary
+
         await s7_summary.run(s7_in, context, engine.llm, store)
     else:
         raise ValueError(f"run_stage does not handle position {position!r}")

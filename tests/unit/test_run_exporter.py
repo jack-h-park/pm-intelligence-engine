@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-
 FIXED_DATE = "2026-05-24"
 
 
@@ -102,8 +101,20 @@ def test_export_run_writes_expected_stage_file_set(tmp_path):
     )
     s4 = SimpleNamespace(
         personas=[
-            SimpleNamespace(persona="explorer", dimension="Impact", key_argument="Large impact.", score=4, open_question="How often used?"),
-            SimpleNamespace(persona="skeptic", dimension="Confidence", key_argument="Needs OEM adoption.", score=3, open_question="API stability?"),
+            SimpleNamespace(
+                persona="explorer",
+                dimension="Impact",
+                key_argument="Large impact.",
+                score=4,
+                open_question="How often used?",
+            ),
+            SimpleNamespace(
+                persona="skeptic",
+                dimension="Confidence",
+                key_argument="Needs OEM adoption.",
+                score=3,
+                open_question="API stability?",
+            ),
         ],
         rubric=SimpleNamespace(
             issues=[],
@@ -202,14 +213,24 @@ def test_export_run_writes_to_pm_engine_archive_root_and_returns_canonical_path(
             "app.services.run_exporter._load_stage",
             side_effect=[s1, None, None, None, None, None, None, s7],
         ):
-            with patch("app.services.run_exporter._canonical_archive_root", return_value=tmp_path / "archive" / "runs"):
+            with patch(
+                "app.services.run_exporter._canonical_archive_root",
+                return_value=tmp_path / "archive" / "runs",
+            ):
                 path = export_run(
                     run_id="run-export-test",
                     store=store,
                     decision_system_root=str(tmp_path / "legacy"),
                 )
 
-    assert path == tmp_path / "archive" / "runs" / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
+    assert (
+        path
+        == tmp_path
+        / "archive"
+        / "runs"
+        / "example-security-product"
+        / "2026-05-24-android-16-nfc-allowlist"
+    )
     assert (path / "s1-signal.md").exists()
     assert (path / "s7-report.md").exists()
 
@@ -238,15 +259,26 @@ def test_export_run_does_not_write_legacy_path(tmp_path):
             "app.services.run_exporter._load_stage",
             side_effect=[s1, None, None, None, None, None, None, s7],
         ):
-            with patch("app.services.run_exporter._canonical_archive_root", return_value=canonical_root):
+            with patch(
+                "app.services.run_exporter._canonical_archive_root", return_value=canonical_root
+            ):
                 canonical_path = export_run(
                     run_id="run-export-test",
                     store=store,
                     decision_system_root=str(legacy_root),
                 )
 
-    legacy_path = legacy_root / "products" / "example-security-product" / "runs" / "2026-05-24-android-16-nfc-allowlist"
-    assert canonical_path == canonical_root / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
+    legacy_path = (
+        legacy_root
+        / "products"
+        / "example-security-product"
+        / "runs"
+        / "2026-05-24-android-16-nfc-allowlist"
+    )
+    assert (
+        canonical_path
+        == canonical_root / "example-security-product" / "2026-05-24-android-16-nfc-allowlist"
+    )
     assert (canonical_path / "s7-report.md").read_text(encoding="utf-8") == "# Final report"
     assert not legacy_path.exists()
 
@@ -311,12 +343,23 @@ def test_s4_archive_body_matches_the_evaluation_brief():
 
     s4 = S4OutputData(
         personas=[
-            PersonaOutput(persona="explorer", dimension="Impact", key_argument="Large impact.",
-                          score=4, open_question="How often used?"),
+            PersonaOutput(
+                persona="explorer",
+                dimension="Impact",
+                key_argument="Large impact.",
+                score=4,
+                open_question="How often used?",
+            ),
         ],
-        rubric=S4RubricResult(score_grounding=3, skeptic_quality=2, open_question_quality=2,
-                              persona_independence=3, total_score=10, passed=True,
-                              issues=["Skeptic leaned on the explorer's framing."]),
+        rubric=S4RubricResult(
+            score_grounding=3,
+            skeptic_quality=2,
+            open_question_quality=2,
+            persona_independence=3,
+            total_score=10,
+            passed=True,
+            issues=["Skeptic leaned on the explorer's framing."],
+        ),
     )
     brief = build_evaluation_brief(s4.personas, s4.rubric)
     assert _sections_of(_render_s4(s4, FIXED_DATE)) == _sections_of(brief)

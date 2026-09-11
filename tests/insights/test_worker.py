@@ -101,7 +101,7 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
 ):
     class FixtureLLM:
         async def complete(self, messages, **kwargs):
-            return '''{
+            return """{
               "headline": "A fixture insight", "explanation": "Bounded evidence.",
               "actual_change": "A source was supplied.", "why_now": "The job is queued.",
               "personal_relevance": "It answers the question.", "takeaway": "Test it.",
@@ -110,7 +110,7 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
                 "passage_ids": ["passage-fixture-1"]
               }],
               "uncertainties": []
-            }'''
+            }"""
 
     store = store_factory()
     candidate = store.save_candidate(candidate_payload)
@@ -148,7 +148,7 @@ async def test_oauth_worker_tick_completes_one_learning_job(
 
     class OAuthFixture:
         async def complete(self, messages, **kwargs):
-            return '''{"headline":"OAuth insight","explanation":"Evidence-backed.","actual_change":"A source changed.","why_now":"New evidence.","personal_relevance":"Relevant.","takeaway":"Review it.","claims":[{"text":"A source changed.","passage_ids":["passage-fixture-1"]}]}'''
+            return """{"headline":"OAuth insight","explanation":"Evidence-backed.","actual_change":"A source changed.","why_now":"New evidence.","personal_relevance":"Relevant.","takeaway":"Review it.","claims":[{"text":"A source changed.","passage_ids":["passage-fixture-1"]}]}"""  # noqa: E501
 
     monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", lambda: OAuthFixture())
     store = store_factory()

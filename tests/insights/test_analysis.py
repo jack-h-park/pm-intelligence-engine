@@ -70,7 +70,9 @@ async def test_learning_does_not_require_product_or_note(learning_bundle, contex
 
 
 @pytest.mark.asyncio
-async def test_analysis_prompt_requires_the_complete_insight_json_contract(learning_bundle, context):
+async def test_analysis_prompt_requires_the_complete_insight_json_contract(
+    learning_bundle, context
+):
     class CapturingLLM(FixtureLLM):
         captured_messages = None
 
@@ -83,8 +85,14 @@ async def test_analysis_prompt_requires_the_complete_insight_json_contract(learn
 
     instruction = llm.captured_messages[0]["content"]
     for field in (
-        "headline", "explanation", "actual_change", "why_now",
-        "personal_relevance", "takeaway", "claims", "uncertainties",
+        "headline",
+        "explanation",
+        "actual_change",
+        "why_now",
+        "personal_relevance",
+        "takeaway",
+        "claims",
+        "uncertainties",
     ):
         assert field in instruction
 

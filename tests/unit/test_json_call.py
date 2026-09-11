@@ -1,9 +1,9 @@
 """Unit tests for the shared LLM JSON call with bounded repair retry (US-27)."""
 
 import json
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 from app.llm.json_call import MAX_REPAIR_ATTEMPTS, complete_json, parse_json
 

@@ -1,7 +1,8 @@
 """Unit tests for the enriched Gate 3 notification rendering (US-30)."""
 
-import pytest
 from unittest.mock import AsyncMock, patch
+
+import pytest
 
 from app.services.notifier import FanoutNotifier, TelegramNotifier
 

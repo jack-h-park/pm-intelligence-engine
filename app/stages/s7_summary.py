@@ -4,12 +4,16 @@ Loads all prior stage outputs from the store and synthesizes a narrative
 that is readable by a stakeholder who was not part of the run.
 Output is saved as both a StageOutput and an Artifact (Markdown).
 """
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text.
+# Wrapping them would change what gets sent to the model, and a noqa on a
+# specific line would become part of that prompt text.
+
 
 import json
 
-from app.logging import emit_event
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.stages import (
     RunContext,
     S1OutputData,
@@ -216,8 +220,6 @@ def _mode_description(mode: str) -> str:
         "decide": "full pipeline — evaluation, routing, and next step",
     }
     return descriptions.get(mode, mode)
-
-
 
 
 def _resolve_model() -> str:

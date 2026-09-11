@@ -12,7 +12,6 @@ Passing threshold: 9/12.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
 
 from app.models.stages import PersonaOutput, S4RubricResult
 
@@ -38,9 +37,7 @@ def check(personas: list[PersonaOutput], product_context: str) -> S4RubricResult
     # Extract key context terms from product context (pillars, constraints, pain points)
     context_keywords = _extract_context_keywords(product_context)
     grounded_count = sum(
-        1
-        for p in personas
-        if any(kw.lower() in p.key_argument.lower() for kw in context_keywords)
+        1 for p in personas if any(kw.lower() in p.key_argument.lower() for kw in context_keywords)
     )
     if grounded_count == 4:
         score_grounding = 3
@@ -69,21 +66,19 @@ def check(personas: list[PersonaOutput], product_context: str) -> S4RubricResult
         else:
             skeptic_quality = 1
             issues.append(
-                "Skeptic Quality: defaults to 'insufficient data' rather than a steelman counter-argument"
+                "Skeptic Quality: defaults to 'insufficient data' rather than a steelman counter-argument"  # noqa: E501
             )
 
     # --- 3. Open Question Quality (3 pts) ---
     actionable_count = sum(
-        1
-        for p in personas
-        if bool(_ACTIONABLE_QUESTION_PATTERNS.search(p.open_question))
+        1 for p in personas if bool(_ACTIONABLE_QUESTION_PATTERNS.search(p.open_question))
     )
     if actionable_count == 4:
         open_question_quality = 3
     elif actionable_count >= 2:
         open_question_quality = 2
         issues.append(
-            f"Open Question Quality: {4 - actionable_count} question(s) lack a named resolution method"
+            f"Open Question Quality: {4 - actionable_count} question(s) lack a named resolution method"  # noqa: E501
         )
     else:
         open_question_quality = 1
@@ -111,7 +106,7 @@ def check(personas: list[PersonaOutput], product_context: str) -> S4RubricResult
     else:
         persona_independence = 1
         issues.append(
-            "Persona Independence: all personas gave identical scores — evaluation lacks productive tension"
+            "Persona Independence: all personas gave identical scores — evaluation lacks productive tension"  # noqa: E501
         )
 
     total = score_grounding + skeptic_quality + open_question_quality + persona_independence
@@ -142,9 +137,23 @@ def _extract_context_keywords(product_context: str) -> list[str]:
 
     # Add generic high-value domain terms that appear in context
     domain_terms = [
-        "attack surface", "supply chain", "remote attestation", "kernel",
-        "MDM", "AMAPI", "Knox", "APM", "MTD", "DISA", "STIG", "Pillar",
-        "government", "defense", "enterprise", "KPE", "Android",
+        "attack surface",
+        "supply chain",
+        "remote attestation",
+        "kernel",
+        "MDM",
+        "AMAPI",
+        "Knox",
+        "APM",
+        "MTD",
+        "DISA",
+        "STIG",
+        "Pillar",
+        "government",
+        "defense",
+        "enterprise",
+        "KPE",
+        "Android",
     ]
     for term in domain_terms:
         if term.lower() in product_context.lower():

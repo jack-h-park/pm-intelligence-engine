@@ -11,8 +11,9 @@ Covers:
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from app.models.stages import (
     Assumption,
@@ -21,7 +22,6 @@ from app.models.stages import (
     S6BInput,
     S6BOutput,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures / helpers
@@ -73,8 +73,8 @@ _VALID_S6B_RESPONSE = {
     ],
     "user_stories": [
         "As an IT admin, I want to set APM as mandatory so that all fleet devices comply.",
-        "As a security officer, I want to audit enforcement status so that I can generate compliance reports.",
-        "As a platform developer, I want an API for the policy so that I can build admin enforcement into our MDM.",
+        "As a security officer, I want to audit enforcement status so that I can generate compliance reports.",  # noqa: E501
+        "As a platform developer, I want an API for the policy so that I can build admin enforcement into our MDM.",  # noqa: E501
     ],
     "in_scope": [
         "Platform enforcement policy API",
@@ -144,9 +144,9 @@ async def test_s6b_completeness_computed_not_llm_supplied():
     # Fields with sufficient entries must be True
     assert c.problem_statement is True
     assert c.target_user is True
-    assert c.success_metrics is True       # >= 2 entries
-    assert c.user_stories is True          # >= 3 entries
-    assert c.out_of_scope is True          # >= 2 entries
+    assert c.success_metrics is True  # >= 2 entries
+    assert c.user_stories is True  # >= 3 entries
+    assert c.out_of_scope is True  # >= 2 entries
     assert c.risks is True
     # rollout_phases is always False (not asked in prompt)
     assert c.rollout_phases is False

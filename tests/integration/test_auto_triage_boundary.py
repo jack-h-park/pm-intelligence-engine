@@ -25,7 +25,7 @@ from app.services.context_loader import ContextLoader
 from app.services.notifier import FanoutNotifier
 from app.services.template_service import TemplateService
 from app.storage.sqlite_store import SQLiteStore
-from tests.integration.conftest import run_status, seed_run_state
+from tests.integration.conftest import run_status
 
 
 @pytest.fixture()
@@ -116,8 +116,9 @@ def _start_run_with_s2_score(
     if depth is not None:
         body["depth"] = depth
 
-    with patch("app.stages.s2_insight.run", side_effect=fake_s2), patch(
-        "config.settings.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED", False
+    with (
+        patch("app.stages.s2_insight.run", side_effect=fake_s2),
+        patch("config.settings.AUTO_TRIAGE_LOCAL_ARCHIVE_ENABLED", False),
     ):
         resp = client.post("/runs/start", json=body)
     assert resp.status_code == 202, resp.text
@@ -204,7 +205,11 @@ def test_depth_stated_at_start_is_recorded_as_a_decision(client, engine):
     alongside for the different question of whether the preset matched it.
     """
     run_id = _start_run_with_s2_score(
-        client, engine, relevance_score=4, suggested_mode="brief", depth="evaluate",
+        client,
+        engine,
+        relevance_score=4,
+        suggested_mode="brief",
+        depth="evaluate",
     )
 
     events = engine.store.get_approval_events(run_id)
@@ -229,8 +234,12 @@ def test_force_gate1_with_explicit_depth_still_skips_gate1(client, engine):
     """An explicit depth always wins: force_gate1 has no effect when the PM stated a
     depth, so the run processes immediately rather than pausing at Gate 1."""
     run_id = _start_run_with_s2_score(
-        client, engine, relevance_score=2, suggested_mode="file",
-        force_gate1=True, depth="evaluate",
+        client,
+        engine,
+        relevance_score=2,
+        suggested_mode="file",
+        force_gate1=True,
+        depth="evaluate",
     )
     run = engine.store.get_run(run_id)
     assert run_status(run) != "waiting_direction"
@@ -254,7 +263,9 @@ def test_no_force_gate1_below_threshold_still_auto_triages(client, engine):
 
 def test_auto_triaged_runs_queryable_by_event(client, engine):
     triaged_id = _start_run_with_s2_score(client, engine, relevance_score=2, suggested_mode="file")
-    gated_id = _start_run_with_s2_score(client, engine, relevance_score=4, suggested_mode="evaluate")
+    gated_id = _start_run_with_s2_score(
+        client, engine, relevance_score=4, suggested_mode="evaluate"
+    )
 
     resp = client.get("/runs", params={"event": "auto_triaged"})
     assert resp.status_code == 200
@@ -347,7 +358,11 @@ def test_the_recorded_recommendation_carries_the_depth_basis(client, engine, bas
     """Parametrised so a hardcoded default cannot pass: each run must persist the basis
     S2 actually emitted."""
     run_id = _start_run_with_s2_score(
-        client, engine, relevance_score=4, suggested_mode="brief", depth_basis=basis,
+        client,
+        engine,
+        relevance_score=4,
+        suggested_mode="brief",
+        depth_basis=basis,
     )
 
     rec = json.loads(engine.store.get_run(run_id)["recommendation_json"])
@@ -358,7 +373,10 @@ def test_the_basis_is_recorded_even_when_the_run_auto_triages(client, engine):
     """The runs that never reach Gate 1 are exactly the ones nobody sees, so their
     grounds are the ones most worth having on record."""
     run_id = _start_run_with_s2_score(
-        client, engine, relevance_score=2, suggested_mode="file",
+        client,
+        engine,
+        relevance_score=2,
+        suggested_mode="file",
         depth_basis="no_product_surface",
     )
 

@@ -1,7 +1,8 @@
 """Unit tests for Stage 1 — Signal Ingestion."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 from app.models.stages import RunContext, S1Input, S1Output
 from app.stages import s1_signal
@@ -28,7 +29,7 @@ async def test_s1_produces_valid_output():
     s1_input = S1Input(
         signal_id="sig-001",
         title="Test Signal Title",
-        raw_content="This is the raw signal content with meaningful information about platform changes.",
+        raw_content="This is the raw signal content with meaningful information about platform changes.",  # noqa: E501
         source_url="https://example.com/signal",
     )
     out = await s1_signal.run(

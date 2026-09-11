@@ -29,26 +29,54 @@ from dataclasses import dataclass
 class Stage:
     """One pipeline position and everything derivable from it."""
 
-    id: str                      # position id: s1..s7 (s6 branches to s6a/s6b)
-    name: str                    # human display name ("Insight Extraction")
-    artifact_label: str | None   # human label for the rendered artifact (None → produces none, e.g. s1)
-    artifact_type: str | None    # ArtifactType value produced here (None for s1)
-    stop_depth: str | None       # legacy depth name if this is a valid stop target, else None (intermediate)
-    ended_by: str | None         # terminal reason when a run COMPLETES here (only stop positions)
-    pause: bool                  # is there a human checkpoint (gate) after this stage?
+    id: str  # position id: s1..s7 (s6 branches to s6a/s6b)
+    name: str  # human display name ("Insight Extraction")
+    artifact_label: (
+        str | None
+    )  # human label for the rendered artifact (None → produces none, e.g. s1)
+    artifact_type: str | None  # ArtifactType value produced here (None for s1)
+    stop_depth: (
+        str | None
+    )  # legacy depth name if this is a valid stop target, else None (intermediate)
+    ended_by: str | None  # terminal reason when a run COMPLETES here (only stop positions)
+    pause: bool  # is there a human checkpoint (gate) after this stage?
 
 
 # Ordered by pipeline progression. The order of the *stop* rows also defines the
 # increasing-depth order (archive < note < structure < evaluate < decide).
 STAGES: tuple[Stage, ...] = (
-    Stage("s1",  "Signal Ingestion",         None,                None,               "archive",   "archived",   False),
-    Stage("s2",  "Insight Extraction",       "Insight Memo",      "insight_memo",     "note",      "noted",      True),
-    Stage("s3",  "Opportunity Creation",     "Opportunity Memo",  "opportunity_memo", "structure", "structured", False),
-    Stage("s4",  "Persona Evaluation",       "Evaluation Brief",  "evaluation_brief", "evaluate",  "evaluated",  True),
-    Stage("s5",  "Prioritization & Routing", "Decision Memo",     "decision_memo",    None,        None,         True),
-    Stage("s6a", "PoC Plan",                 "PoC Plan",          "poc_plan",         None,        None,         False),
-    Stage("s6b", "PRD",                      "PRD",               "prd",              None,        None,         False),
-    Stage("s7",  "Executive Summary",        "Executive Summary", "executive_summary","decide",    "decided",    False),
+    Stage("s1", "Signal Ingestion", None, None, "archive", "archived", False),
+    Stage("s2", "Insight Extraction", "Insight Memo", "insight_memo", "note", "noted", True),
+    Stage(
+        "s3",
+        "Opportunity Creation",
+        "Opportunity Memo",
+        "opportunity_memo",
+        "structure",
+        "structured",
+        False,
+    ),
+    Stage(
+        "s4",
+        "Persona Evaluation",
+        "Evaluation Brief",
+        "evaluation_brief",
+        "evaluate",
+        "evaluated",
+        True,
+    ),
+    Stage("s5", "Prioritization & Routing", "Decision Memo", "decision_memo", None, None, True),
+    Stage("s6a", "PoC Plan", "PoC Plan", "poc_plan", None, None, False),
+    Stage("s6b", "PRD", "PRD", "prd", None, None, False),
+    Stage(
+        "s7",
+        "Executive Summary",
+        "Executive Summary",
+        "executive_summary",
+        "decide",
+        "decided",
+        False,
+    ),
 )
 
 _BY_ID: dict[str, Stage] = {s.id: s for s in STAGES}

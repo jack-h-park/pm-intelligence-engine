@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 import shlex
+from dataclasses import dataclass
 
 from app.llm.protocol import LLMProvider
 from app.services.context_loader import ContextLoader
@@ -67,8 +67,8 @@ def _build_llm_provider() -> LLMProvider:
 
 def build_insight_llm_provider() -> LLMProvider:
     """Build the isolated OAuth provider used only by personal Insight jobs."""
-    from config import settings
     from app.llm.hermes_oauth import HermesOAuthProvider
+    from config import settings
 
     command = tuple(shlex.split(settings.INSIGHT_OAUTH_COMMAND))
     if not command:

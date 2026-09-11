@@ -1,14 +1,12 @@
 import json
-import os
 import re
 from pathlib import Path
-from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field
 
-from app.factory import PMEngine
 from app.api.deps import get_engine
+from app.factory import PMEngine
 from app.models.workflow import SourceType
 from app.services.signal_tags import TagError
 
@@ -20,32 +18,32 @@ class SignalCreate(BaseModel):
     # hint, NULL for product-agnostic intake. `product_id` is still accepted as a
     # deprecated alias so existing clients (the operations plane) keep working.
     model_config = ConfigDict(populate_by_name=True)
-    original_product_id: Optional[str] = Field(
+    original_product_id: str | None = Field(
         default=None, validation_alias=AliasChoices("original_product_id", "product_id")
     )
     title: str
     raw_content: str
-    source_url: Optional[str] = None
+    source_url: str | None = None
     # Optional provenance back-link to the originating intake artifact — the
     # Ops-plane sensing filename. Gate 0 submit passes it so the engine signal can
     # be paired with its sensing file deterministically (no fuzzy title match).
-    source_ref: Optional[str] = None
+    source_ref: str | None = None
     category: str = "other"
     source_type: SourceType = SourceType.manual
 
 
 class SignalResponse(BaseModel):
     signal_id: str
-    original_product_id: Optional[str]
+    original_product_id: str | None
     title: str
-    source_url: Optional[str]
-    source_ref: Optional[str] = None
+    source_url: str | None
+    source_ref: str | None = None
     category: str
     status: str
     source_type: str
     ingested_at: str
     # Set when the signal's content was re-ingested via POST /signals/{id}/refresh.
-    refreshed_at: Optional[str] = None
+    refreshed_at: str | None = None
     # Review labels (mutable set) and the number of live review notes. Note
     # bodies are served by GET /signals/{id}/notes, not here — see
     # _signal_to_dict. Defaulted so pre-existing consumers keep working.
@@ -58,6 +56,7 @@ class SignalDetailResponse(SignalResponse):
     response (``GET /signals``) so an inventory scan does not pull every signal's
     full body. Consumers that need the current content (e.g. signal-refresh.py's
     ``--min-improvement`` guard comparing old vs recovered length) read it here."""
+
     raw_content: str
 
 
@@ -87,7 +86,9 @@ def _check_gate0_skip(source_ref: str) -> None:
     if entry is None:
         return
     reason = entry.get("reason", "") if isinstance(entry, dict) else ""
-    detail = f"Signal source '{source_ref}' is in the Gate 0 skipped bucket and cannot be re-ingested."
+    detail = (
+        f"Signal source '{source_ref}' is in the Gate 0 skipped bucket and cannot be re-ingested."
+    )
     if reason:
         detail += f" Reason: {reason}"
     raise HTTPException(status_code=409, detail=detail)
@@ -97,7 +98,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _URL_RE = re.compile(r"^\s*url:\s*(.+?)\s*$", re.MULTILINE)
 
 
-def _sensing_source_url(source_ref: str) -> Optional[str]:
+def _sensing_source_url(source_ref: str) -> str | None:
     """Recover source_url from a sensing file's YAML frontmatter ``url:`` field.
 
     Gate 0's ``POST /signals`` body is composed by an LLM (the gate0-signal-intake
@@ -161,9 +162,10 @@ async def create_signal(
 
 class ReconcileResponse(BaseModel):
     """Result of a signal-status reconciliation sweep."""
-    checked: int          # signals examined
-    corrected: int        # signals whose status was changed
-    changes: list[dict]   # [{signal_id, title, old, new}] per corrected signal
+
+    checked: int  # signals examined
+    corrected: int  # signals whose status was changed
+    changes: list[dict]  # [{signal_id, title, old, new}] per corrected signal
 
 
 @router.post("/reconcile", response_model=ReconcileResponse)
@@ -182,31 +184,32 @@ async def reconcile_signal_statuses(
 
     changes = reconcile_all_signals(engine)
     checked = len(engine.store.list_signals(limit=100000))
-    return ReconcileResponse(
-        checked=checked, corrected=len(changes), changes=changes
-    )
+    return ReconcileResponse(checked=checked, corrected=len(changes), changes=changes)
 
 
 @router.get("", response_model=list[SignalResponse])
 async def list_signals(
     # Query param kept as `product_id` for back-compat; filters on the signal's
     # origin product (original_product_id).
-    product_id: Optional[str] = None,
-    status: Optional[str] = None,
+    product_id: str | None = None,
+    status: str | None = None,
     # Filter to signals carrying this review label. Normalised server-side, so
     # "Gate-1 Blocked" and "gate-1-blocked" find the same rows.
-    tag: Optional[str] = None,
+    tag: str | None = None,
     # Deterministic provenance lookup for external intake recovery. Unlike a
     # title or URL search, this lets a caller prove whether its prior create
     # request reached the engine before retrying it.
-    source_ref: Optional[str] = None,
+    source_ref: str | None = None,
     limit: int = 50,
     engine: PMEngine = Depends(get_engine),
 ) -> list[SignalResponse]:
     try:
         signals = engine.store.list_signals(
-            original_product_id=product_id, status=status, tag=tag,
-            source_ref=source_ref, limit=limit
+            original_product_id=product_id,
+            status=status,
+            tag=tag,
+            source_ref=source_ref,
+            limit=limit,
         )
     except TagError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -229,13 +232,11 @@ class SignalRefreshRequest(BaseModel):
     # engine never fetches — the caller (ops, via its own sensing-fetch tooling) recovers
     # the article and posts it here.
     raw_content: str
-    note: Optional[str] = None  # provenance, e.g. "curl_cffi refetch, 12627 prose chars"
+    note: str | None = None  # provenance, e.g. "curl_cffi refetch, 12627 prose chars"
     # Optional re-run targeting, mirroring POST /runs/start: a product_id starts a
     # single manual run; omitting it re-runs the Portfolio Triage fan-out.
-    product_id: Optional[str] = None
-    depth: Optional[str] = Field(
-        default=None, validation_alias=AliasChoices("depth", "mode")
-    )
+    product_id: str | None = None
+    depth: str | None = Field(default=None, validation_alias=AliasChoices("depth", "mode"))
     force_gate1: bool = False
 
 
@@ -266,10 +267,10 @@ async def refresh_signal(
     if signal is None:
         raise HTTPException(status_code=404, detail="Signal not found")
 
+    from app.api.runs import dispatch_start
     from app.logging import emit_event
     from app.services.run_finalizer import finalize_run
     from app.stages.s1_signal import _infer_category
-    from app.api.runs import dispatch_start
 
     # 1. Void in-flight runs — they reasoned over the now-superseded content.
     #    A terminal run (lifecycle=done) is left untouched (US-55).
@@ -285,7 +286,9 @@ async def refresh_signal(
         )
         engine.store.update_run(run["run_id"], routing=None)
         await finalize_run(
-            run["run_id"], "killed", engine,
+            run["run_id"],
+            "killed",
+            engine,
             event_action="voided",
             event_detail={
                 "reason": "content refreshed",
@@ -302,7 +305,9 @@ async def refresh_signal(
     if updated is None:  # raced with a delete between get_signal and here
         raise HTTPException(status_code=404, detail="Signal not found")
     emit_event(
-        "signal", "refreshed", signal_id,
+        "signal",
+        "refreshed",
+        signal_id,
         {"voided_runs": voided, "note": body.note, "content_len": len(body.raw_content)},
     )
 
@@ -343,8 +348,8 @@ class SignalNoteCreate(BaseModel):
     # agent-written one later, and agents write here far more often than humans.
     author: str
     # Lifecycle capture point — gate0 / triage / gate1 / terminal / manual.
-    context: Optional[str] = None
-    run_id: Optional[str] = None
+    context: str | None = None
+    run_id: str | None = None
 
 
 class SignalNoteResponse(BaseModel):
@@ -352,16 +357,14 @@ class SignalNoteResponse(BaseModel):
     signal_id: str
     body: str
     author: str
-    context: Optional[str]
-    run_id: Optional[str]
+    context: str | None
+    run_id: str | None
     created_at: str
     # Reserved for a future retract/correct path; always NULL today.
-    superseded_by: Optional[str] = None
+    superseded_by: str | None = None
 
 
-@router.post(
-    "/{signal_id}/notes", response_model=SignalNoteResponse, status_code=201
-)
+@router.post("/{signal_id}/notes", response_model=SignalNoteResponse, status_code=201)
 async def add_signal_note(
     signal_id: str,
     body: SignalNoteCreate,
@@ -395,9 +398,7 @@ async def list_signal_notes(
     empty list, so a typo'd id is not mistaken for "no notes yet"."""
     if engine.store.get_signal(signal_id) is None:
         raise HTTPException(status_code=404, detail="Signal not found")
-    notes = engine.store.list_signal_notes(
-        signal_id, include_superseded=include_superseded
-    )
+    notes = engine.store.list_signal_notes(signal_id, include_superseded=include_superseded)
     return [SignalNoteResponse(**n) for n in notes]
 
 
@@ -419,9 +420,7 @@ async def add_signal_tags(
 ) -> SignalTagsResponse:
     """Add labels (idempotent). Returns the resulting full tag set."""
     try:
-        tags = engine.store.add_signal_tags(
-            signal_id, body.tags, author=body.author
-        )
+        tags = engine.store.add_signal_tags(signal_id, body.tags, author=body.author)
     except TagError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     if tags is None:

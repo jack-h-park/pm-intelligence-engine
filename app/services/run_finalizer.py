@@ -19,6 +19,9 @@ and performs wiki sync independently. See EXPORT_AND_SYNC_CONTRACT.md.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+from app import pipeline
+
 if TYPE_CHECKING:
     from app.factory import PMEngine
 
@@ -37,8 +40,6 @@ _ENDED_BY_FROM_ACTION = {
 }
 # Depth → completed-reason, for a normal completion (no distinguishing action).
 # Derived from the stage registry (single source of truth) rather than restated.
-from app import pipeline
-
 _ENDED_BY_FROM_MODE = pipeline.ended_by_by_depth()
 
 

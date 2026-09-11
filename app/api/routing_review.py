@@ -11,7 +11,6 @@ State transitions:
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
@@ -21,8 +20,8 @@ router = APIRouter(prefix="/runs", tags=["routing-review"])
 
 class RoutingReviewRequest(BaseModel):
     action: str  # "confirm" or "override"
-    routing: Optional[str] = None  # required when action == "override": "poc" | "prd" | "kill"
-    reason: Optional[str] = None  # optional PM note
+    routing: str | None = None  # required when action == "override": "poc" | "prd" | "kill"
+    reason: str | None = None  # optional PM note
 
 
 def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict:
@@ -34,7 +33,7 @@ def _require_waiting_routing_review(run_id: str, engine: PMEngine) -> dict:
         raise HTTPException(
             status_code=409,
             detail=f"Run is '{run.get('lifecycle')}@{run.get('position')}', "
-                   "expected paused at Gate 3 (s5)",
+            "expected paused at Gate 3 (s5)",
         )
     return run
 
@@ -64,13 +63,19 @@ async def routing_review(
     if body.action == "confirm":
         routing = run.get("routing", "kill")
         _record_routing_decision(engine, run_id, "confirm", routing, s5_recommended, body.reason)
-        return await _apply_routing(run_id, routing, engine, background_tasks, body.reason, confirmed=True)
+        return await _apply_routing(
+            run_id, routing, engine, background_tasks, body.reason, confirmed=True
+        )
 
     # override: PM changes the routing from S5's recommendation
     effective_routing = body.routing
-    _record_routing_decision(engine, run_id, "override", effective_routing, s5_recommended, body.reason)
+    _record_routing_decision(
+        engine, run_id, "override", effective_routing, s5_recommended, body.reason
+    )
     engine.store.update_run(run_id, routing=effective_routing)
-    return await _apply_routing(run_id, effective_routing, engine, background_tasks, body.reason, confirmed=False)
+    return await _apply_routing(
+        run_id, effective_routing, engine, background_tasks, body.reason, confirmed=False
+    )
 
 
 def _record_routing_decision(engine, run_id, action, chosen, recommended, reason):
@@ -87,7 +92,7 @@ async def _apply_routing(
     routing: str,
     engine: PMEngine,
     background_tasks: BackgroundTasks,
-    reason: Optional[str],
+    reason: str | None,
     confirmed: bool,
 ) -> dict:
     """Apply an effective routing: kill finalizes immediately; poc/prd starts Stage 6."""
@@ -97,7 +102,9 @@ async def _apply_routing(
 
     if routing == "kill":
         await finalize_run(
-            run_id, "killed", engine,
+            run_id,
+            "killed",
+            engine,
             event_action="kill_confirmed" if confirmed else "kill_overridden",
             event_detail={"reason": reason},
         )
@@ -116,7 +123,6 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
     planner; ``runner.run_stage`` builds each stage's input from the store.
     """
     from app import runner
-    from app.models.stages import RunContext
     from app.runner import plan_advance, target_for_depth
     from app.services.run_finalizer import finalize_run
 
@@ -126,6 +132,7 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
             return
 
         from app.services.run_context import load_run_context
+
         context = load_run_context(run_id, engine)
 
         # plan_advance("s5", decide, routing) -> run (s6a|s6b, s7), then complete.
@@ -134,7 +141,9 @@ async def _execute_s6_s7_with_routing(run_id: str, routing: str, engine: PMEngin
             await runner.run_stage(position, run_id, engine, context)
 
         await finalize_run(
-            run_id, "completed", engine,
+            run_id,
+            "completed",
+            engine,
             event_detail={"routing_override": routing},
         )
 

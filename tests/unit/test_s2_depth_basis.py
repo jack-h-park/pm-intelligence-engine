@@ -77,7 +77,7 @@ def test_every_basis_maps_to_exactly_one_depth_in_the_table():
     """A basis with no mapping, or two, would put the model back to guessing."""
     table = _MODE_GUIDANCE[_MODE_GUIDANCE.index("| depth_basis | suggested_mode |"):]
     for basis, depth in zip(BASES, DEPTHS):
-        rows = re.findall(r"^\|\s*%s\s*\|\s*(\w+)\s*\|$" % basis, table, re.M)
+        rows = re.findall(rf"^\|\s*{basis}\s*\|\s*(\w+)\s*\|$", table, re.M)
         assert rows == [depth], (basis, rows)
 
 

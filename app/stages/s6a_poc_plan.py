@@ -3,6 +3,10 @@
 Converts Blocking assumptions from S5 into a minimum experiment design.
 Only runs when S5 routing is 'poc'.
 """
+# ruff: noqa: E501 — the long lines below are LLM prompt/schema text.
+# Wrapping them would change what gets sent to the model, and a noqa on a
+# specific line would become part of that prompt text.
+
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider

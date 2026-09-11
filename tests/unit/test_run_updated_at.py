@@ -1,5 +1,6 @@
 """run.updated_at is exposed and bumps on every change (gate-watcher dedup support)."""
 import time
+
 from app.storage.sqlite_store import SQLiteStore
 
 

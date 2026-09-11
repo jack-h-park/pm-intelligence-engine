@@ -157,9 +157,12 @@ def test_finish_failed_no_completed_at(store):
 # --- list_runs filters on (lifecycle, position, outcome) ------------------------
 
 def test_list_runs_lifecycle_position_filter(store):
-    g2 = _seed(store); store.pause(g2, "s4")           # Gate 2
-    g3 = _seed(store); store.pause(g3, "s5")           # Gate 3
-    live = _seed(store); store.advance(live, "s3")     # running
+    g2 = _seed(store)
+    store.pause(g2, "s4")  # Gate 2
+    g3 = _seed(store)
+    store.pause(g3, "s5")  # Gate 3
+    live = _seed(store)
+    store.advance(live, "s3")  # running
 
     by_state = store.list_runs(lifecycle="paused", position="s4")
     assert [r["run_id"] for r in by_state] == [g2]
@@ -170,9 +173,12 @@ def test_list_runs_lifecycle_position_filter(store):
 
 
 def test_list_runs_outcome_filter_distinguishes_terminals(store):
-    done_c = _seed(store); store.finish(done_c, "completed", position="s7")
-    done_k = _seed(store); store.finish(done_k, "stopped", position=None)
-    done_f = _seed(store); store.finish(done_f, "failed", position="s3")
+    done_c = _seed(store)
+    store.finish(done_c, "completed", position="s7")
+    done_k = _seed(store)
+    store.finish(done_k, "stopped", position=None)
+    done_f = _seed(store)
+    store.finish(done_f, "failed", position="s3")
 
     assert {r["run_id"] for r in store.list_runs(lifecycle="done")} == {done_c, done_k, done_f}
     assert [r["run_id"] for r in store.list_runs(lifecycle="done", outcome="completed")] == [done_c]
