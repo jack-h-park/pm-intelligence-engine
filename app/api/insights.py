@@ -102,6 +102,17 @@ class DecisionRequestCreate(_Request):
     options: list[str] = Field(default_factory=list)
 
 
+class InsightDecisionRequestCreate(_Request):
+    """Human-confirmed decision choices for one immutable learning Insight."""
+
+    revision: int = Field(ge=1)
+    product_id: str = Field(min_length=1)
+    confirmed_product_id: str = Field(min_length=1)
+    question: str = Field(min_length=1)
+    depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None = None
+    options: list[str] = Field(default_factory=list)
+
+
 class DecisionRequestAccepted(BaseModel):
     request_id: str
     run_id: str
@@ -323,6 +334,60 @@ async def create_decision_request(
         )
     response.status_code = stored_status
     return DecisionRequestAccepted(request_id=result["request_id"], run_id=result["run_id"])
+
+
+@router.post(
+    "/insights/{insight_id}/decision-requests",
+    response_model=DecisionRequestAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def create_insight_decision_request(
+    insight_id: str,
+    body: InsightDecisionRequestCreate,
+    background_tasks: BackgroundTasks,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> DecisionRequestAccepted:
+    """Create a decision request from a reviewer-selected Insight revision."""
+    from config import settings
+
+    if not settings.DECISION_PIPELINE_V2_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Decision pipeline is disabled",
+        )
+    insight_store = _store(engine)
+    insight = insight_store.get_insight(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    if insight.revision != body.revision:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insight revision changed")
+    prepared = insight_store.get_prepared_context(insight.prepared_context_id)
+    if prepared is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Prepared context not found"
+        )
+    return await create_decision_request(
+        DecisionRequestCreate(
+            prepared_context_id=prepared.prepared_context_id,
+            prepared_context_revision=prepared.revision,
+            insight_references=[
+                InsightRevisionReference(insight_id=insight.insight_id, revision=insight.revision)
+            ],
+            product_id=body.product_id,
+            confirmed_product_id=body.confirmed_product_id,
+            question=body.question,
+            depth=body.depth,
+            options=body.options,
+        ),
+        background_tasks,
+        response,
+        idempotency_key,
+        authorization,
+        engine,
+    )
 
 
 @router.post("/insight-candidates", response_model=Candidate, status_code=status.HTTP_201_CREATED)

@@ -6,7 +6,16 @@ from fastapi.testclient import TestClient
 from app.api.deps import get_engine
 from app.api.main import app
 from app.factory import PMEngine
-from app.models.insights import Candidate, EvidenceBundle, Passage, PreparedContext, SourceRecord
+from app.models.decision_case import InsightRevisionReference
+from app.models.insights import (
+    Candidate,
+    EvidenceBundle,
+    InsightClaim,
+    InsightRevision,
+    Passage,
+    PreparedContext,
+    SourceRecord,
+)
 from app.services.context_loader import ContextLoader
 from app.storage.insight_store import InsightStore
 from app.storage.sqlite_store import SQLiteStore
@@ -95,6 +104,21 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
             context_revision="fixture-v1",
         ).model_dump(mode="json")
     )
+    insight = insight_store.save_insight(
+        InsightRevision(
+            insight_id="insight-decision-api",
+            revision=3,
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Managed profile finding",
+            explanation="A managed profile changed.",
+            actual_change="The profile can now expose a sharing target.",
+            why_now="The behavior was newly observed.",
+            personal_relevance="It affects enterprise policy.",
+            takeaway="Assess the policy boundary.",
+            claims=[InsightClaim(text="The target was exposed.", passage_ids=["passage-api"])],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
     engine = PMEngine(
         store=SQLiteStore(f"sqlite:///{tmp_path}/workflow.db"),
         llm=None,
@@ -117,8 +141,32 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
         "question": "Should we investigate the behavior?",
         "depth": "evaluate",
     }
+    insight_payload = {
+        "revision": insight.revision,
+        "product_id": "android-enterprise",
+        "confirmed_product_id": "android-enterprise",
+        "question": "Should we change the managed-profile sharing policy?",
+        "depth": "evaluate",
+    }
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
+            monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", False)
+            disabled_insight_request = client.post(
+                f"/insights/{insight.insight_id}/decision-requests",
+                json=insight_payload,
+                headers={**headers, "Idempotency-Key": "insight-disabled"},
+            )
+            monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", True)
+            first_insight_request = client.post(
+                f"/insights/{insight.insight_id}/decision-requests",
+                json=insight_payload,
+                headers={**headers, "Idempotency-Key": "insight-request"},
+            )
+            repeated_insight_request = client.post(
+                f"/insights/{insight.insight_id}/decision-requests",
+                json=insight_payload,
+                headers={**headers, "Idempotency-Key": "insight-request"},
+            )
             missing_prepared_context = client.post(
                 "/decision-requests",
                 json={
@@ -149,9 +197,18 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
         app.dependency_overrides.clear()
 
     assert missing_prepared_context.status_code == 422
+    assert disabled_insight_request.status_code == 503
+    assert first_insight_request.status_code == 202
+    assert repeated_insight_request.status_code == 200
+    assert repeated_insight_request.json() == first_insight_request.json()
+    insight_case = engine.store.get_decision_case(first_insight_request.json()["run_id"])
+    assert insight_case is not None
+    assert insight_case.insight_references == [
+        InsightRevisionReference(insight_id=insight.insight_id, revision=insight.revision)
+    ]
     assert unconfirmed_product.status_code == 422
     assert insufficient_evidence.status_code == 422
     assert first.status_code == 202
     assert repeated.status_code == 200
     assert repeated.json() == first.json()
-    assert len(engine.store.list_runs(limit=10)) == 1
+    assert len(engine.store.list_runs(limit=10)) == 2
