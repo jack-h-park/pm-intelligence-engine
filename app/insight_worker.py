@@ -36,7 +36,11 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
         validation_status=status,
         context_revision=job.context_revision,
     )
-    insight = await analyze_bundle(bundle, prepared, llm)
+    try:
+        insight = await analyze_bundle(bundle, prepared, llm)
+    except Exception as exc:
+        store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))
+        raise
     return store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
 
 

@@ -170,3 +170,28 @@ async def test_oauth_worker_tick_returns_none_when_queue_is_empty(monkeypatch, s
     monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", object)
 
     assert await run_oauth_worker_tick(store_factory()) is None
+
+
+@pytest.mark.asyncio
+async def test_worker_returns_oauth_failure_to_retryable_queue(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    class FailingLLM:
+        async def complete(self, messages, **kwargs):
+            raise ValueError("OAuth provider returned malformed JSON")
+
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    with pytest.raises(ValueError, match="malformed JSON"):
+        await process_one(store, FailingLLM())
+
+    saved = store.get_job(job.job_id)
+    assert saved.state == "retryable_failed"
+    assert saved.lease_token is None
+    assert saved.lease_expires_at is None
+    assert saved.next_attempt_at is not None
+    assert "malformed JSON" in saved.error
