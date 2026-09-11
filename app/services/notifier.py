@@ -409,7 +409,7 @@ class SlackNotifier:
 class FanoutNotifier:
     """Sends to all configured providers. One provider failing never affects others."""
 
-    def __init__(self, providers: list) -> None:
+    def __init__(self, providers: list[TelegramNotifier | SlackNotifier]) -> None:
         self._providers = providers
 
     @property
@@ -551,7 +551,7 @@ def build_notifier() -> FanoutNotifier:
         emit_event("notifier", "gate_notifications_disabled", "-")
         return FanoutNotifier([])
 
-    providers: list = []
+    providers: list[TelegramNotifier | SlackNotifier] = []
 
     if settings.TELEGRAM_BOT_TOKEN and settings.TELEGRAM_CHAT_ID:
         providers.append(

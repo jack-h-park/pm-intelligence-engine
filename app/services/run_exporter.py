@@ -18,6 +18,9 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TypeVar
+
+from pydantic import BaseModel
 
 from app.models.stages import (
     S1OutputData,
@@ -30,6 +33,8 @@ from app.models.stages import (
     S7OutputData,
 )
 from app.storage.protocol import PMWorkflowStore
+
+_StageModel = TypeVar("_StageModel", bound=BaseModel)
 
 
 def export_run(
@@ -45,7 +50,7 @@ def export_run(
     if run is None:
         raise ValueError(f"Run {run_id} not found")
 
-    product_id = run["product_id"]
+    product_id: str = run["product_id"]
     # Folder date = run terminal date (completed_at), else created_at, else now().
     # Keeps backfilled exports on the run real date, not the export date.
     _run_date = run.get("completed_at") or run.get("created_at")
@@ -191,8 +196,8 @@ def _load_stage(
     store: PMWorkflowStore,
     run_id: str,
     stage: str,
-    model_class,  # type: ignore[no-untyped-def]
-) -> object | None:
+    model_class: type[_StageModel],
+) -> _StageModel | None:
     raw = store.get_stage_output(run_id, stage)
     if raw is None:
         return None

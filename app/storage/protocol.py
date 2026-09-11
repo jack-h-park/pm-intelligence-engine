@@ -38,6 +38,25 @@ class PMWorkflowStore(Protocol):
         limit: int = 50,
     ) -> list[dict[str, Any]]: ...
 
+    def add_signal_note(
+        self,
+        signal_id: str,
+        body: str,
+        author: str,
+        context: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, Any] | None: ...
+
+    def list_signal_notes(
+        self, signal_id: str, include_superseded: bool = False
+    ) -> list[dict[str, Any]]: ...
+
+    def add_signal_tags(
+        self, signal_id: str, tags: list[str], author: str
+    ) -> list[str] | None: ...
+
+    def remove_signal_tags(self, signal_id: str, tags: list[str]) -> list[str] | None: ...
+
     # --- WorkflowRun ---
     def create_decision_request_run(self, case: DecisionCase) -> dict[str, Any]: ...
 
