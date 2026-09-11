@@ -81,14 +81,18 @@ def _s2_output(
 ) -> S2Output:
     return S2Output(
         run_id=run_id,
-        output=S2OutputData(
+        # `suggested_mode`/`depth_basis` are plain `str` here on purpose: callers
+        # throughout this file pass legacy pre-US-43 mode names ("file", "brief")
+        # to exercise S2OutputData's backward-compat coercion, alongside
+        # `relevance_explanation` (the pre-`claims` field, also auto-coerced).
+        output=S2OutputData(  # type: ignore[call-arg]
             what_changed="A consumer app changed its theme engine.",
             reframing="Consumer UX framing vs no enterprise-security implication.",
             pillar_references=[],
             relevance_explanation="No connection to product strategy pillars.",
             relevance_score=relevance_score,
-            depth_basis=depth_basis,
-            suggested_mode=suggested_mode,
+            depth_basis=depth_basis,  # type: ignore[arg-type]
+            suggested_mode=suggested_mode,  # type: ignore[arg-type]
             suggestion_reasoning="Boundary-test reasoning.",
         ),
         metadata=StageMetadata(model_used="mock"),
@@ -110,7 +114,7 @@ def _start_run_with_s2_score(
     async def fake_s2(input, context, llm, store):  # noqa: A002 - matches stage signature
         return _s2_output(context.run_id, relevance_score, suggested_mode, depth_basis)
 
-    body = {"signal_id": signal_id, "product_id": "example-security-product"}
+    body: dict[str, str | bool] = {"signal_id": signal_id, "product_id": "example-security-product"}
     if force_gate1:
         body["force_gate1"] = True
     if depth is not None:
@@ -122,7 +126,8 @@ def _start_run_with_s2_score(
     ):
         resp = client.post("/runs/start", json=body)
     assert resp.status_code == 202, resp.text
-    return resp.json()["run_id"]
+    run_id: str = resp.json()["run_id"]
+    return run_id
 
 
 def test_relevance_below_threshold_auto_triages(client, engine):

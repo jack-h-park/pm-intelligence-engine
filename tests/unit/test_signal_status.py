@@ -6,6 +6,7 @@ this module: a signal holding a ``completed`` run that bypassed ``finalize_run``
 (synthetic/backfilled row) staying stuck at ``in_run`` instead of ``done``.
 """
 
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -30,7 +31,7 @@ _RUNNING = {"lifecycle": "running", "outcome": None}
 _PAUSED = {"lifecycle": "paused", "outcome": None}
 
 
-def _done(outcome: str, attempt_no: int = 1) -> dict:
+def _done(outcome: str, attempt_no: int = 1) -> dict[str, Any]:
     return {"lifecycle": "done", "outcome": outcome, "attempt_no": attempt_no}
 
 

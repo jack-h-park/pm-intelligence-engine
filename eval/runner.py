@@ -23,17 +23,17 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.factory import build_engine
+from app.factory import PMEngine, build_engine
 from app.models.stages import RunContext, S1Input, S2Input, S3Input, S4Input, S5Input
 from app.stages import s1_signal, s2_insight, s3_opportunity, s4_evaluation, s5_prioritization
-from config import settings
+from config import Settings, settings
 from eval.rubrics import s3_hypothesis as s3_rubric
 from eval.rubrics import s5_routing as s5_rubric
 
 SCENARIOS_PATH = Path(__file__).parent / "scenarios.json"
 
 
-def resolve_eval_model_name(settings_obj: Any) -> str:
+def resolve_eval_model_name(settings_obj: Settings) -> str:
     provider = settings_obj.LLM_PROVIDER.lower()
     if provider == "claude":
         return settings_obj.ANTHROPIC_MODEL
@@ -42,17 +42,18 @@ def resolve_eval_model_name(settings_obj: Any) -> str:
     raise ValueError(f"Unsupported LLM_PROVIDER '{settings_obj.LLM_PROVIDER}' for eval")
 
 
-def resolve_eval_runtime(settings_obj: Any) -> tuple[str, str]:
+def resolve_eval_runtime(settings_obj: Settings) -> tuple[str, str]:
     provider = settings_obj.LLM_PROVIDER.lower()
     model = resolve_eval_model_name(settings_obj)
     return provider, model
 
 
-def load_scenarios() -> list[dict]:
-    return json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))
+def load_scenarios() -> list[dict[str, Any]]:
+    scenarios: list[dict[str, Any]] = json.loads(SCENARIOS_PATH.read_text(encoding="utf-8"))
+    return scenarios
 
 
-async def run_scenario(scenario: dict[str, Any], engine) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+async def run_scenario(scenario: dict[str, Any], engine: PMEngine) -> dict[str, Any]:
     result: dict[str, Any] = {
         "run_id_label": scenario["run_id"],
         "product_id": scenario["product_id"],

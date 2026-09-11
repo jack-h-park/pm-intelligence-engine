@@ -1,4 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from app.services.insight_budget import BudgetPolicy, BudgetService
 
@@ -10,7 +11,7 @@ def _policy() -> BudgetPolicy:
     )
 
 
-def _request(operation_id: str, maximum_micros: int = 100) -> dict:
+def _request(operation_id: str, maximum_micros: int = 100) -> dict[str, Any]:
     return {
         "operation_id": operation_id,
         "operation_type": "fixture_analysis",

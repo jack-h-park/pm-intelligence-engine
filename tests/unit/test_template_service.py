@@ -75,7 +75,7 @@ _EXPECTED = {
 
 @pytest.fixture()
 def service() -> TemplateService:
-    return TemplateService(settings.DECISION_SYSTEM_ROOT)
+    return TemplateService(settings.decision_system_root)
 
 
 @pytest.mark.parametrize("persona", sorted(_EXPECTED))

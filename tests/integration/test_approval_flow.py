@@ -71,7 +71,9 @@ def client(engine):
     app.dependency_overrides.clear()
 
 
-def _seed_run(engine: PMEngine, status: str, mode: str = "decide", routing: str = None) -> str:
+def _seed_run(
+    engine: PMEngine, status: str, mode: str = "decide", routing: str | None = None
+) -> str:
     """Create a signal and run, then fast-forward the run to the given status."""
     signal_id = engine.store.save_signal(
         original_product_id="example-security-product",

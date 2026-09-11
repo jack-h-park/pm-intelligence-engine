@@ -7,6 +7,7 @@ covered directly, since neither surfaces as a JSON-repair or retry failure.
 """
 
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
@@ -18,11 +19,11 @@ from app.llm.openai import OpenAIProvider
 _MESSAGES = [{"role": "user", "content": "hi"}]
 
 
-def _anthropic_response(content: list, usage=None):
+def _anthropic_response(content: list[Any], usage=None):
     return SimpleNamespace(content=content, usage=usage)
 
 
-def _bad_request_error(body: dict):
+def _bad_request_error(body: dict[str, Any]):
     from openai import BadRequestError
 
     request = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")

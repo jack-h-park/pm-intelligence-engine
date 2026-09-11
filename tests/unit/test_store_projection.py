@@ -7,6 +7,8 @@ tests assert the canonical columns are stored (raw SQL, as the observatory reads
 stay consistent across transitions, and that `position` survives finalize.
 """
 
+from typing import Any
+
 import pytest
 from sqlalchemy import text
 
@@ -25,7 +27,7 @@ def _seed(store: SQLiteStore) -> str:
     return store.create_run("example-security-product", signal_id)
 
 
-def _raw(store: SQLiteStore, run_id: str) -> dict:
+def _raw(store: SQLiteStore, run_id: str) -> dict[str, Any]:
     """Read the canonical columns straight from SQLite (as the observatory does)."""
     with store._engine.connect() as conn:
         row = conn.execute(

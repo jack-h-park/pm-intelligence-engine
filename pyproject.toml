@@ -49,6 +49,18 @@ python_version = "3.12"
 strict = true
 ignore_missing_imports = true
 
+# Test/eval code is exempt from strict function-signature typing: pytest
+# fixtures make per-parameter annotation awkward for little real benefit, and
+# a full pass on tests/ (~900 findings, ~85% no-untyped-def/no-untyped-call)
+# would be typing the tests rather than the code they exercise. Real modules
+# (app/) are held to the full strict standard.
+[[tool.mypy.overrides]]
+module = ["tests.*", "eval.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+check_untyped_defs = false
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"

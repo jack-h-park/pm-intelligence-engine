@@ -54,7 +54,9 @@ async def test_s3_includes_pinned_decision_case_without_rewriting_its_facts():
 
 
 def _make_s2_output() -> S2OutputData:
-    return S2OutputData(
+    # `relevance_explanation` is the pre-`claims` field, auto-coerced into a
+    # single inference claim by S2OutputData's backward-compat validator.
+    return S2OutputData(  # type: ignore[call-arg]
         what_changed="Android 16 APM lacks admin enforcement API.",
         reframing="Consumer feature → compliance gap for the enterprise segment.",
         pillar_references=["Reduce attack surface (Ingress & Egress)"],
