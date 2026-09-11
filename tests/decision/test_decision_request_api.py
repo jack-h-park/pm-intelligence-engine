@@ -107,11 +107,20 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
     }
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
+            missing_prepared_context = client.post(
+                "/decision-requests",
+                json={
+                    "product_id": "android-enterprise",
+                    "question": "Can an Observe hold start a decision?",
+                },
+                headers={**headers, "Idempotency-Key": "missing-prepared-context"},
+            )
             first = client.post("/decision-requests", json=payload, headers=headers)
             repeated = client.post("/decision-requests", json=payload, headers=headers)
     finally:
         app.dependency_overrides.clear()
 
+    assert missing_prepared_context.status_code == 422
     assert first.status_code == 202
     assert repeated.status_code == 200
     assert repeated.json() == first.json()
