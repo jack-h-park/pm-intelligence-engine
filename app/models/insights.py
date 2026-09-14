@@ -464,6 +464,7 @@ class IntelligenceMigrationManifestRow(Base):
     snapshot_hash: Mapped[str] = mapped_column(String, nullable=False)
     classification: Mapped[str] = mapped_column(String, nullable=False)
     migration_state: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
 class IntelligenceInsightReviewRow(Base):
