@@ -114,7 +114,7 @@ Run: `python -m pytest tests/insights/test_api.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the API slice**
+- [x] **Step 5: Commit the API slice**
 
 ```bash
 git add app/api/insights.py tests/insights/test_api.py
@@ -156,7 +156,7 @@ Run: `python -m pytest tests/insights tests/decision -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit the contract and verification evidence**
+- [x] **Step 5: Commit the contract and verification evidence**
 
 ```bash
 git add docs/design/insight-review-checkpoint.md docs/superpowers/plans/2026-09-14-insight-review-checkpoint.md tests/insights/test_api.py
