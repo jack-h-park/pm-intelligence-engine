@@ -436,3 +436,20 @@ class IntelligenceInsightFeedbackRow(Base):
     revision: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(String, nullable=False, index=True)
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class IntelligenceMigrationManifestRow(Base):
+    """Additive overlay; never mutates a legacy signal or workflow row."""
+
+    __tablename__ = "intelligence_migration_manifests"
+    __table_args__ = (
+        UniqueConstraint("original_system", "original_id", name="uq_intelligence_migration_origin"),
+    )
+
+    migration_id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_uuid)
+    original_system: Mapped[str] = mapped_column(String, nullable=False)
+    original_id: Mapped[str] = mapped_column(String, nullable=False)
+    snapshot_hash: Mapped[str] = mapped_column(String, nullable=False)
+    classification: Mapped[str] = mapped_column(String, nullable=False)
+    migration_state: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)

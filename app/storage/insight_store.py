@@ -25,6 +25,7 @@ from app.models.insights import (
     IntelligenceInsightFeedbackRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
+    IntelligenceMigrationManifestRow,
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
@@ -77,6 +78,35 @@ class InsightStore:
 
     def initialize_schema(self) -> None:
         initialize_insight_schema(self._engine)
+
+    def save_migration_manifest(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Persist a review-only migration overlay keyed by the immutable origin."""
+        required = (
+            "original_system", "original_id", "snapshot_hash", "classification",
+            "migration_state", "notification_handling",
+        )
+        if any(not isinstance(payload.get(key), str) or not payload[key] for key in required):
+            raise ValueError("migration manifest has missing required fields")
+        with self._Session.begin() as session:
+            row = session.execute(select(IntelligenceMigrationManifestRow).where(
+                IntelligenceMigrationManifestRow.original_system == payload["original_system"],
+                IntelligenceMigrationManifestRow.original_id == payload["original_id"],
+            )).scalar_one_or_none()
+            if row is not None:
+                saved = json.loads(row.payload_json)
+                if not isinstance(saved, dict):
+                    raise ValueError("stored migration manifest is invalid")
+                if saved["snapshot_hash"] != payload["snapshot_hash"]:
+                    raise IdempotencyConflict("migration origin changed since its snapshot")
+                return saved
+            row = IntelligenceMigrationManifestRow(
+                original_system=payload["original_system"], original_id=payload["original_id"],
+                snapshot_hash=payload["snapshot_hash"], classification=payload["classification"],
+                migration_state=payload["migration_state"],
+                payload_json=json.dumps(payload, sort_keys=True),
+            )
+            session.add(row)
+            return payload
 
     def save_candidate(self, payload: dict[str, Any]) -> Candidate:
         candidate = Candidate.model_validate(payload)
