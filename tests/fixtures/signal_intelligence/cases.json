@@ -152,6 +152,9 @@
         "content": "A short unattributed background summary.",
         "url": "https://fixture.example/fallback"
       },
+      "bundle_overrides": {
+        "provenance_status": "missing"
+      },
       "expected": {
         "s2k_disposition": "needs_evidence",
         "connection_assessment": "no_clear_connection",
@@ -176,6 +179,9 @@
         "content": "Previously observed release behavior with no new detail.",
         "url": "https://fixture.example/duplicate"
       },
+      "bundle_overrides": {
+        "novelty_status": "duplicate"
+      },
       "expected": {
         "s2k_disposition": "no_new_learning",
         "connection_assessment": "no_clear_connection",
@@ -199,6 +205,9 @@
         "acquisition_status": "ok",
         "content": "A historical platform behavior from an obsolete release.",
         "url": "https://fixture.example/stale"
+      },
+      "bundle_overrides": {
+        "freshness_status": "superseded"
       },
       "expected": {
         "s2k_disposition": "no_new_learning",
@@ -248,6 +257,9 @@
         "content": "This guidance was explicitly superseded by a later release.",
         "url": "https://fixture.example/superseded"
       },
+      "bundle_overrides": {
+        "freshness_status": "superseded"
+      },
       "expected": {
         "s2k_disposition": "no_new_learning",
         "connection_assessment": "no_clear_connection",
@@ -272,6 +284,9 @@
         "content": "A repeated report contains no material change from the prior event.",
         "url": "https://fixture.example/repeated"
       },
+      "bundle_overrides": {
+        "novelty_status": "no_material_delta"
+      },
       "expected": {
         "s2k_disposition": "no_new_learning",
         "connection_assessment": "no_clear_connection",
@@ -294,7 +309,10 @@
         "origin": "discovered",
         "acquisition_status": "low_quality",
         "content": null,
-        "url": null
+        "url": "https://fixture.example/missing-provenance"
+      },
+      "bundle_overrides": {
+        "provenance_status": "missing"
       },
       "expected": {
         "s2k_disposition": "needs_evidence",
