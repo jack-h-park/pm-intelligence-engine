@@ -337,3 +337,83 @@ def test_authenticated_insight_listing_returns_product_agnostic_revision(
     assert response.status_code == 200
     assert response.json()["items"][0]["insight_id"] == insight.insight_id
     assert "product_id" not in response.json()["items"][0]
+
+
+def test_insight_review_is_authenticated_idempotent_and_does_not_start_a_decision(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    from app.models.insights import InsightRevision, PreparedContext
+
+    engine = app.dependency_overrides[get_engine]()
+    candidate = engine.insight_store.save_candidate(candidate_payload)
+    source = engine.insight_store.save_source(
+        {**source_payload, "candidate_id": candidate.candidate_id}
+    )
+    bundle = engine.insight_store.save_bundle(
+        bundle_payload(candidate.candidate_id, source.source_id)
+    )
+    prepared = engine.insight_store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What changed?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = engine.insight_store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Android work-profile learning",
+            explanation="A bounded learning observation.",
+            actual_change="A work profile changed the observed boundary.",
+            why_now="New evidence is available.",
+            personal_relevance="It informs enterprise mobile security.",
+            takeaway="Review profile-boundary controls.",
+            claims=[{"text": "The boundary changed.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    review_payload = {
+        "revision": insight.revision,
+        "disposition": "retain",
+        "note": "Useful boundary to remember.",
+    }
+    headers = {**auth_headers, "Idempotency-Key": "insight-review-1"}
+
+    first = client.post(
+        f"/insights/{insight.insight_id}/reviews", json=review_payload, headers=headers
+    )
+    repeated = client.post(
+        f"/insights/{insight.insight_id}/reviews", json=review_payload, headers=headers
+    )
+    listed = client.get(f"/insights/{insight.insight_id}/reviews", headers=auth_headers)
+
+    assert engine.store is None
+    assert first.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json() == first.json()
+    assert listed.status_code == 200
+    assert listed.json()["items"] == [first.json()]
+    assert "product_id" not in first.json()
+    assert "insight-test-token" not in first.text
+
+    unauthenticated = client.post(
+        f"/insights/{insight.insight_id}/reviews",
+        json=review_payload,
+        headers={"Idempotency-Key": "review-no-auth"},
+    )
+    stale = client.post(
+        f"/insights/{insight.insight_id}/reviews",
+        json={**review_payload, "revision": insight.revision + 1},
+        headers={**auth_headers, "Idempotency-Key": "review-stale"},
+    )
+    product_attempt = client.post(
+        f"/insights/{insight.insight_id}/reviews",
+        json={**review_payload, "product_id": "samsung-knox-mtd"},
+        headers={**auth_headers, "Idempotency-Key": "review-product-attempt"},
+    )
+
+    assert unauthenticated.status_code == 401
+    assert stale.status_code == 409
+    assert product_attempt.status_code == 422

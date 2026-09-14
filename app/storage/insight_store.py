@@ -16,6 +16,7 @@ from app.models.insights import (
     Candidate,
     EvidenceBundle,
     InsightJob,
+    InsightReview,
     InsightRevision,
     IntelligenceBudgetReservationRow,
     IntelligenceBundleRow,
@@ -23,6 +24,7 @@ from app.models.insights import (
     IntelligenceDeliveryReceiptRow,
     IntelligenceIdempotencyRow,
     IntelligenceInsightFeedbackRow,
+    IntelligenceInsightReviewRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
     IntelligenceMigrationManifestRow,
@@ -37,7 +39,7 @@ from app.models.insights import (
 )
 from app.storage.insight_migrations import initialize_insight_schema
 
-Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle, InsightJob)
+Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle, InsightJob, InsightReview)
 
 
 class MissingInsightRecord(ValueError):
@@ -263,6 +265,46 @@ class InsightStore:
                 )
             )
             return payload
+
+    def save_idempotent_review(
+        self, actor: str, key: str, request_hash: str, payload: dict[str, Any]
+    ) -> tuple[InsightReview, int]:
+        review = InsightReview.model_validate({**payload, "actor_fingerprint": actor})
+
+        def save(session: Session) -> tuple[InsightReview, bool]:
+            row = session.get(IntelligenceInsightRow, review.insight_id)
+            if row is None:
+                raise MissingInsightRecord(f"insight {review.insight_id} was not found")
+            insight = InsightRevision.model_validate_json(row.payload_json)
+            if insight.revision != review.revision:
+                raise InvalidInsightReference("insight revision changed")
+            session.add(
+                IntelligenceInsightReviewRow(
+                    review_id=review.review_id,
+                    insight_id=review.insight_id,
+                    revision=review.revision,
+                    disposition=review.disposition,
+                    created_at=review.created_at,
+                    payload_json=_json(review),
+                )
+            )
+            return review, True
+
+        return self.create_idempotent(
+            "insight_review", actor, key, request_hash, InsightReview, save
+        )
+
+    def list_reviews(self, insight_id: str) -> list[InsightReview]:
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceInsightReviewRow)
+                .where(IntelligenceInsightReviewRow.insight_id == insight_id)
+                .order_by(
+                    IntelligenceInsightReviewRow.created_at.asc(),
+                    IntelligenceInsightReviewRow.review_id.asc(),
+                )
+            ).scalars()
+            return [InsightReview.model_validate_json(row.payload_json) for row in rows]
 
     def list_insights(self) -> list[InsightRevision]:
         with self._Session() as session:

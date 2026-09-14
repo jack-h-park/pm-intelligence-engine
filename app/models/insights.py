@@ -210,6 +210,18 @@ class InsightRevision(_Record):
     created_at: datetime = Field(default_factory=_utc_now)
 
 
+class InsightReview(_Record):
+    """A human assessment of one immutable learning Insight revision."""
+
+    review_id: str = Field(default_factory=_new_uuid)
+    insight_id: str
+    revision: int = Field(ge=1)
+    disposition: Literal["retain", "needs_evidence", "not_useful"]
+    note: str | None = Field(default=None, max_length=2000)
+    actor_fingerprint: str = Field(min_length=1)
+    created_at: datetime = Field(default_factory=_utc_now)
+
+
 class InsightJob(_Record):
     job_id: str = Field(default_factory=_new_uuid)
     candidate_id: str
@@ -452,4 +464,17 @@ class IntelligenceMigrationManifestRow(Base):
     snapshot_hash: Mapped[str] = mapped_column(String, nullable=False)
     classification: Mapped[str] = mapped_column(String, nullable=False)
     migration_state: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class IntelligenceInsightReviewRow(Base):
+    __tablename__ = "intelligence_insight_reviews"
+
+    review_id: Mapped[str] = mapped_column(String, primary_key=True)
+    insight_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    disposition: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
