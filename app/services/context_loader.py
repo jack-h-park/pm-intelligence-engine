@@ -1,5 +1,5 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -22,6 +22,7 @@ class ProductProfile:
     product_id: str
     title: str
     overview: str
+    connection_anchors: list[str] = field(default_factory=list)
 
 
 # Pseudo-products that are not real fan-out targets: the scaffold template and
@@ -63,6 +64,30 @@ def _extract_overview(context_md: str) -> tuple[str, str]:
     if not overview and sections:
         overview = "\n".join(sections[0][1]).strip()
     return title, overview
+
+
+def _extract_connection_anchors(context_md: str) -> list[str]:
+    """Return reviewed, literal connection anchors from a product context.
+
+    These anchors are deliberately narrower than the product overview. They are
+    used only by the read-only Insight connection assessor, never by the legacy
+    Portfolio Triage path that can start a run.
+    """
+    anchors: list[str] = []
+    in_section = False
+    for line in context_md.splitlines():
+        heading = re.match(r"^##\s+(.+?)\s*$", line)
+        if heading:
+            in_section = heading.group(1).strip().lower() == "connection anchors"
+            continue
+        if not in_section:
+            continue
+        bullet = re.match(r"^\s*[-*]\s+(.+?)\s*$", line)
+        if bullet:
+            anchor = bullet.group(1).strip()
+            if anchor:
+                anchors.append(anchor)
+    return anchors
 
 
 class ContextLoader:
@@ -112,9 +137,8 @@ class ContextLoader:
             context_path = product_dir / "context.md"
             if not context_path.exists():
                 continue
-            title, overview = _extract_overview(
-                context_path.read_text(encoding="utf-8")
-            )
+            content = context_path.read_text(encoding="utf-8")
+            title, overview = _extract_overview(content)
             if not overview:
                 continue
             profiles.append(
@@ -122,6 +146,7 @@ class ContextLoader:
                     product_id=product_dir.name,
                     title=title or product_dir.name,
                     overview=overview,
+                    connection_anchors=_extract_connection_anchors(content),
                 )
             )
         return profiles
