@@ -1,55 +1,306 @@
 {
-  "fixture_version": 1,
+  "fixture_version": 2,
   "cases": [
     {
-      "case_id": "manual-attributed-context",
-      "disposition": "fixture_only",
+      "case_id": "actionable-learning-no-product",
       "candidate": {
         "origin": "user_supplied",
-        "subject": "Managed Android work-profile behavior",
-        "question_ids": ["android-enterprise-isolation"],
+        "subject": "Practical platform learning",
+        "question_ids": [
+          "platform-learning"
+        ],
         "source_ids": [],
-        "policy_revision": "fixture-v1"
+        "policy_revision": "fixture-v2"
       },
       "source": {
         "origin": "user_supplied",
         "acquisition_status": "ok",
-        "content": "The user observed that a managed work profile can share selected intents.",
+        "content": "A bounded operational learning with no product-specific implication.",
         "url": null
+      },
+      "expected": {
+        "s2k_disposition": "ready",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": [
+          "actionable-learning-no-product:0"
+        ]
       }
     },
     {
-      "case_id": "duplicate-content",
-      "disposition": "fixture_only",
+      "case_id": "android-enterprise-strong-connection",
       "candidate": {
         "origin": "discovered",
-        "subject": "Platform release evidence",
-        "question_ids": ["platform-release-delta"],
+        "subject": "Managed work profile boundary",
+        "question_ids": [
+          "android-enterprise-isolation"
+        ],
         "source_ids": [],
-        "policy_revision": "fixture-v1"
+        "policy_revision": "fixture-v2"
       },
       "source": {
         "origin": "discovered",
         "acquisition_status": "ok",
-        "content": "A permitted excerpt describing a platform release mechanism.",
-        "url": "https://example.test/release"
+        "content": "A managed work profile permits an explicitly configured cross-profile interaction.",
+        "url": "https://fixture.example/android"
+      },
+      "expected": {
+        "s2k_disposition": "ready",
+        "connection_assessment": "candidates",
+        "candidate_product_ids": [
+          "android-enterprise"
+        ],
+        "required_passage_ids": [
+          "android-enterprise-strong-connection:0"
+        ]
       }
     },
     {
-      "case_id": "missing-date",
-      "disposition": "fixture_only",
+      "case_id": "security-product-strong-connection",
       "candidate": {
         "origin": "discovered",
-        "subject": "Undated background reference",
-        "question_ids": ["historical-context"],
+        "subject": "Mobile threat behavior",
+        "question_ids": [
+          "mobile-security"
+        ],
         "source_ids": [],
-        "policy_revision": "fixture-v1"
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "The report describes malware detection evasion on a managed mobile device.",
+        "url": "https://fixture.example/security"
+      },
+      "expected": {
+        "s2k_disposition": "ready",
+        "connection_assessment": "candidates",
+        "candidate_product_ids": [
+          "samsung-knox-mtd"
+        ],
+        "required_passage_ids": [
+          "security-product-strong-connection:0"
+        ]
+      }
+    },
+    {
+      "case_id": "ambiguous-product-connection",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Shared mobile boundary",
+        "question_ids": [
+          "mobile-security"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "A managed work profile changed while malware detection reported the same device boundary.",
+        "url": "https://fixture.example/ambiguous"
+      },
+      "expected": {
+        "s2k_disposition": "ready",
+        "connection_assessment": "ambiguous",
+        "candidate_product_ids": [],
+        "required_passage_ids": [
+          "ambiguous-product-connection:0"
+        ]
+      }
+    },
+    {
+      "case_id": "unsupported-keyword-overlap",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Unrelated profile wording",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "A social profile mentioned a work arrangement without managed-device evidence.",
+        "url": "https://fixture.example/keyword"
+      },
+      "expected": {
+        "s2k_disposition": "ready",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": [
+          "unsupported-keyword-overlap:0"
+        ]
+      }
+    },
+    {
+      "case_id": "weak-fallback-evidence",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Thin background summary",
+        "question_ids": [
+          "historical-context"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
       },
       "source": {
         "origin": "discovered",
         "acquisition_status": "fallback_summary",
-        "content": "A permitted summary with an unknown event date.",
-        "url": "https://example.test/background"
+        "content": "A short unattributed background summary.",
+        "url": "https://fixture.example/fallback"
+      },
+      "expected": {
+        "s2k_disposition": "needs_evidence",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "duplicate-content",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Repeated source",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "Previously observed release behavior with no new detail.",
+        "url": "https://fixture.example/duplicate"
+      },
+      "expected": {
+        "s2k_disposition": "no_new_learning",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "stale-background-context",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Old background reference",
+        "question_ids": [
+          "historical-context"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "A historical platform behavior from an obsolete release.",
+        "url": "https://fixture.example/stale"
+      },
+      "expected": {
+        "s2k_disposition": "no_new_learning",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "late-body-title-only",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Title without body",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "fetch_failed",
+        "content": null,
+        "url": "https://fixture.example/title-only"
+      },
+      "expected": {
+        "s2k_disposition": "needs_evidence",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "superseded-evidence",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Superseded guidance",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "This guidance was explicitly superseded by a later release.",
+        "url": "https://fixture.example/superseded"
+      },
+      "expected": {
+        "s2k_disposition": "no_new_learning",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "repeated-no-material-delta",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Repeated signal without delta",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "ok",
+        "content": "A repeated report contains no material change from the prior event.",
+        "url": "https://fixture.example/repeated"
+      },
+      "expected": {
+        "s2k_disposition": "no_new_learning",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
+      }
+    },
+    {
+      "case_id": "missing-provenance",
+      "candidate": {
+        "origin": "discovered",
+        "subject": "Unattributable claim",
+        "question_ids": [
+          "platform-learning"
+        ],
+        "source_ids": [],
+        "policy_revision": "fixture-v2"
+      },
+      "source": {
+        "origin": "discovered",
+        "acquisition_status": "low_quality",
+        "content": null,
+        "url": null
+      },
+      "expected": {
+        "s2k_disposition": "needs_evidence",
+        "connection_assessment": "no_clear_connection",
+        "candidate_product_ids": [],
+        "required_passage_ids": []
       }
     }
   ]
