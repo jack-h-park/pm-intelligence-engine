@@ -14,3 +14,13 @@ def test_migration_manifest_is_idempotent_and_never_touches_legacy_rows(store_fa
     assert store.save_migration_manifest(payload) == first
     with pytest.raises(IdempotencyConflict):
         store.save_migration_manifest({**payload, "snapshot_hash": "b" * 64})
+
+
+def test_migration_api_only_accepts_unreviewed_notification_free_manifest(client, auth_headers):
+    payload = {
+        "original_system": "gate0_sensing", "original_id": "legacy.md", "snapshot_hash": "a" * 64,
+        "classification": "legacy_submitted_preserve", "migration_state": "unreviewed",
+        "notification_handling": "none",
+    }
+    response = client.post("/insight-migrations", json=payload, headers=auth_headers)
+    assert response.status_code == 201
