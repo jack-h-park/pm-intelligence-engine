@@ -67,6 +67,8 @@ def bundle_payload():
             ],
             "coverage_gaps": ["No external verification was supplied."],
             "freshness_status": "unknown",
+            "provenance_status": "attributable",
+            "novelty_status": "new",
             "context_revision": "fixture-v1",
         }
 

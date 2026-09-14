@@ -138,6 +138,8 @@ class EvidenceBundle(_Record):
     dates: list[EvidenceDate] = Field(default_factory=list)
     coverage_gaps: list[str] = Field(default_factory=list)
     freshness_status: Literal["current", "background", "superseded", "unknown"]
+    provenance_status: Literal["attributable", "missing", "unknown"] = "unknown"
+    novelty_status: Literal["new", "duplicate", "no_material_delta", "unknown"] = "unknown"
     context_revision: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=_utc_now)
 

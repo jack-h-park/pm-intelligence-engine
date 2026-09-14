@@ -44,5 +44,13 @@ def prepare_evidence(
         passages=passages,
         coverage_gaps=gaps,
         freshness_status="unknown",
+        provenance_status="attributable" if selected and all(
+            source.acquisition_status == "ok" for source in selected
+        ) else "unknown",
+        novelty_status=(
+            "duplicate"
+            if any(source.candidate_id != candidate.candidate_id for source in selected)
+            else "new"
+        ),
         context_revision=context_revision,
     )
