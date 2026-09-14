@@ -24,6 +24,7 @@ from app.models.insights import (
     EvidenceBundle,
     EvidenceDate,
     InsightJob,
+    InsightReview,
     InsightRevision,
     Passage,
     ResearchRequest,
@@ -221,6 +222,16 @@ class InsightFeedbackAccepted(BaseModel):
     insight_id: str
     revision: int
     label: str
+
+
+class InsightReviewCreate(_Request):
+    revision: int = Field(ge=1)
+    disposition: Literal["retain", "needs_evidence", "not_useful"]
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class InsightReviewList(BaseModel):
+    items: list[InsightReview]
 
 
 def _request_hash(body: BaseModel) -> str:
@@ -674,6 +685,49 @@ async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -
     if insight is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     return insight
+
+
+@router.get("/insights/{insight_id}/reviews", response_model=InsightReviewList)
+async def list_insight_reviews(
+    insight_id: str, engine: PMEngine = Depends(get_engine)
+) -> InsightReviewList:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    if engine.insight_store.get_insight(insight_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    return InsightReviewList(items=engine.insight_store.list_reviews(insight_id))
+
+
+@router.post(
+    "/insights/{insight_id}/reviews",
+    response_model=InsightReview,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_insight_review(
+    insight_id: str,
+    body: InsightReviewCreate,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightReview:
+    """Record a human learning review without promoting the Insight to a decision."""
+    try:
+        review, stored_status = _store(engine).save_idempotent_review(
+            _actor_fingerprint(authorization),
+            _key(idempotency_key),
+            _request_hash(body),
+            {"insight_id": insight_id, **body.model_dump()},
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (InvalidInsightReference, IdempotencyConflict) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    response.status_code = stored_status
+    return review
 
 
 @router.post(
