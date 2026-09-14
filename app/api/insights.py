@@ -168,6 +168,10 @@ class MigrationManifestCreate(_Request):
     notification_handling: Literal["none"] = "none"
 
 
+class MigrationManifestResults(BaseModel):
+    items: list[MigrationManifestCreate]
+
+
 class SemanticTriageRequest(_Request):
     question: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -238,6 +242,15 @@ def _store(engine: PMEngine) -> InsightStore:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Insight writes are disabled",
         )
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    return engine.insight_store
+
+
+def _read_store(engine: PMEngine) -> InsightStore:
     if engine.insight_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -432,6 +445,21 @@ async def create_migration_manifest(
         return _store(engine).save_migration_manifest(body.model_dump())
     except IdempotencyConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/insight-migrations", response_model=MigrationManifestResults)
+async def list_migration_manifests(
+    classification: str | None = Query(default=None, min_length=1),
+    limit: int = Query(default=100, ge=1, le=500),
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationManifestResults:
+    """List read-only migration overlays without reprocessing legacy records."""
+    manifests = _read_store(engine).list_migration_manifests()
+    if classification is not None:
+        manifests = [item for item in manifests if item["classification"] == classification]
+    return MigrationManifestResults(
+        items=[MigrationManifestCreate.model_validate(item) for item in manifests[:limit]]
+    )
 
 
 @router.post("/insight-sources", response_model=SourceRecord, status_code=status.HTTP_201_CREATED)

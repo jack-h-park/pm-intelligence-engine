@@ -5,7 +5,7 @@ import uuid
 from collections import Counter
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, TypeVar
+from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 from sqlalchemy import Engine, create_engine, select
@@ -107,6 +107,22 @@ class InsightStore:
             )
             session.add(row)
             return payload
+
+    def list_migration_manifests(self) -> list[dict[str, Any]]:
+        """Read migration overlays without exposing or changing legacy records."""
+        with self._Session() as session:
+            rows = session.execute(
+                select(IntelligenceMigrationManifestRow).order_by(
+                    IntelligenceMigrationManifestRow.original_id
+                )
+            ).scalars()
+            manifests: list[dict[str, Any]] = []
+            for row in rows:
+                manifest = json.loads(row.payload_json)
+                if not isinstance(manifest, dict):
+                    raise ValueError("stored migration manifest is invalid")
+                manifests.append(cast(dict[str, Any], manifest))
+            return manifests
 
     def save_candidate(self, payload: dict[str, Any]) -> Candidate:
         candidate = Candidate.model_validate(payload)
