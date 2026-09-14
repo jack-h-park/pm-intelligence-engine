@@ -142,6 +142,59 @@ async def test_worker_marks_an_empty_bundle_as_needing_evidence(store_factory, c
 
 
 @pytest.mark.asyncio
+async def test_worker_requires_attributable_provenance_before_creating_an_insight(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(
+        {
+            **bundle_payload(candidate.candidate_id, source.source_id),
+            "provenance_status": "missing",
+        }
+    )
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    completed = await process_one(store, object())
+
+    assert completed is None
+    saved = store.get_job(job.job_id)
+    assert saved.completion_disposition == "needs_evidence"
+    assert "provenance" in (saved.error or "").lower()
+    assert store.list_insights() == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("bundle_patch", "expected_reason"),
+    [
+        ({"freshness_status": "superseded"}, "superseded"),
+        ({"novelty_status": "duplicate"}, "duplicate"),
+        ({"novelty_status": "no_material_delta"}, "material delta"),
+    ],
+)
+async def test_worker_does_not_create_an_insight_for_explicit_no_new_learning(
+    store_factory, candidate_payload, source_payload, bundle_payload, bundle_patch, expected_reason
+):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(
+        {**bundle_payload(candidate.candidate_id, source.source_id), **bundle_patch}
+    )
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    completed = await process_one(store, object())
+
+    assert completed is None
+    saved = store.get_job(job.job_id)
+    assert saved.completion_disposition == "no_new_learning"
+    assert expected_reason in (saved.error or "").lower()
+    assert store.list_insights() == []
+
+
+@pytest.mark.asyncio
 async def test_oauth_worker_tick_completes_one_learning_job(
     monkeypatch, store_factory, candidate_payload, source_payload, bundle_payload
 ):

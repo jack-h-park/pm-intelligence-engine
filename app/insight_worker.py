@@ -28,6 +28,26 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     if not bundle.passages:
         store.complete_job_needs_evidence(job.job_id, job.lease_token or "")
         return None
+    if bundle.provenance_status != "attributable":
+        store.complete_job_needs_evidence(
+            job.job_id, job.lease_token or "", "Attributable source provenance is required"
+        )
+        return None
+    if bundle.freshness_status == "superseded":
+        store.complete_job_no_new_learning(
+            job.job_id, job.lease_token or "", "Evidence bundle is superseded"
+        )
+        return None
+    if bundle.novelty_status == "duplicate":
+        store.complete_job_no_new_learning(
+            job.job_id, job.lease_token or "", "Evidence bundle duplicates prior learning"
+        )
+        return None
+    if bundle.novelty_status == "no_material_delta":
+        store.complete_job_no_new_learning(
+            job.job_id, job.lease_token or "", "Evidence bundle has no material delta"
+        )
+        return None
     status: Literal["valid", "needs_evidence"] = "valid" if bundle.passages else "needs_evidence"
     prepared = PreparedContext(
         candidate_id=candidate.candidate_id,

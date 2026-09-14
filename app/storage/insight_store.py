@@ -360,7 +360,11 @@ class InsightStore:
             return insight
 
     def complete_job_needs_evidence(
-        self, job_id: str, lease_token: str, now: datetime | None = None
+        self,
+        job_id: str,
+        lease_token: str,
+        reason: str = "No evidence bundle is available for analysis",
+        now: datetime | None = None,
     ) -> InsightJob:
         """Close an unanalysable job explicitly instead of stranding its lease."""
         current = _now(now)
@@ -375,7 +379,28 @@ class InsightStore:
             job.completion_disposition = "needs_evidence"
             job.lease_token = None
             job.lease_expires_at = None
-            job.error = "No evidence bundle is available for analysis"
+            job.error = reason[:1000]
+            job.updated_at = current
+            self._write_job(row, job)
+            return job
+
+    def complete_job_no_new_learning(
+        self, job_id: str, lease_token: str, reason: str, now: datetime | None = None
+    ) -> InsightJob:
+        """Close an explicit duplicate/stale result without creating an Insight."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if job.state != "running" or job.lease_token != lease_token:
+                raise StaleLease("job lease is stale")
+            job.state = "complete"
+            job.completion_disposition = "no_new_learning"
+            job.lease_token = None
+            job.lease_expires_at = None
+            job.error = reason[:1000]
             job.updated_at = current
             self._write_job(row, job)
             return job
