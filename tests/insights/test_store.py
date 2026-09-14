@@ -152,6 +152,56 @@ def test_prepared_context_and_insight_are_immutable_and_reference_existing_recor
     assert other_channel["receipt_id"] != first_receipt["receipt_id"]
 
 
+def test_review_is_idempotent_and_product_agnostic(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    prepared = store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What changed?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="A bounded learning",
+            explanation="The source supports a limited observation.",
+            actual_change="A practice changed.",
+            why_now="A source became available.",
+            personal_relevance="It addresses the question.",
+            takeaway="Test the boundary.",
+            claims=[{"text": "A practice changed.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+
+    payload = {
+        "insight_id": insight.insight_id,
+        "revision": insight.revision,
+        "disposition": "retain",
+        "note": "Useful boundary to remember.",
+    }
+    first, first_status = store.save_idempotent_review(
+        "actor-hash", "review-1", "request-hash", payload
+    )
+    repeated, repeated_status = store.save_idempotent_review(
+        "actor-hash", "review-1", "request-hash", payload
+    )
+
+    assert first_status == 201
+    assert repeated_status == 200
+    assert repeated == first
+    assert store.list_reviews(insight.insight_id) == [first]
+    assert "product_id" not in first.model_dump()
+
+
 def test_unknown_delivery_receipt_holds_and_cannot_be_requeued(
     store_factory, candidate_payload, source_payload, bundle_payload
 ):
