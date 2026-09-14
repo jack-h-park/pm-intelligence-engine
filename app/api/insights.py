@@ -159,6 +159,15 @@ class NoveltyLookupResult(BaseModel):
     known_content_hashes: list[str]
 
 
+class MigrationManifestCreate(_Request):
+    original_system: str = Field(min_length=1)
+    original_id: str = Field(min_length=1)
+    snapshot_hash: str = Field(min_length=64, max_length=64)
+    classification: str = Field(min_length=1)
+    migration_state: Literal["unreviewed"] = "unreviewed"
+    notification_handling: Literal["none"] = "none"
+
+
 class SemanticTriageRequest(_Request):
     question: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -411,6 +420,18 @@ async def create_candidate(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     response.status_code = status_code
     return candidate
+
+
+@router.post("/insight-migrations", status_code=status.HTTP_201_CREATED)
+async def create_migration_manifest(
+    body: MigrationManifestCreate,
+    engine: PMEngine = Depends(get_engine),
+) -> dict[str, Any]:
+    """Store a review-only legacy overlay; it cannot start processing work."""
+    try:
+        return _store(engine).save_migration_manifest(body.model_dump())
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.post("/insight-sources", response_model=SourceRecord, status_code=status.HTTP_201_CREATED)
