@@ -35,6 +35,7 @@ from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
+from app.services.product_connections import ProductConnectionAssessment, ProductConnectionService
 from app.storage.insight_store import (
     IdempotencyConflict,
     InsightStore,
@@ -590,6 +591,27 @@ async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict[str
             detail="Insight storage is unavailable",
         )
     return engine.insight_store.operational_summary()
+
+
+@router.get(
+    "/insights/{insight_id}/product-connections", response_model=ProductConnectionAssessment
+)
+async def get_product_connections(
+    insight_id: str,
+    revision: int | None = Query(default=None, ge=1),
+    engine: PMEngine = Depends(get_engine),
+) -> ProductConnectionAssessment:
+    """Return ephemeral evidence-grounded candidates without creating workflow work."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
+        )
+    insight = engine.insight_store.get_insight(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    if revision is not None and revision != insight.revision:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insight revision changed")
+    return ProductConnectionService(engine.context_loader).assess(insight, engine.insight_store)
 
 
 @router.get("/insights/{insight_id}", response_model=InsightRevision)
