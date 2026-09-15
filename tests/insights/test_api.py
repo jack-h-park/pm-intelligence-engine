@@ -127,6 +127,21 @@ def test_evidence_backfill_api_rejects_changed_replays_and_invalid_bases(
         },
         headers=headers,
     )
+    widened = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json={
+            **_backfill_payload(insight.revision),
+            "targets": [
+                *_backfill_payload(insight.revision)["targets"],
+                {
+                    "url": "https://example.test/unapproved-third-source",
+                    "purpose": "independent_corroboration",
+                    "question": "What new source should be added?",
+                },
+            ],
+        },
+        headers=headers,
+    )
     missing = client.post(
         "/insights/missing-insight/evidence-backfills",
         json=_backfill_payload(),
@@ -156,6 +171,7 @@ def test_evidence_backfill_api_rejects_changed_replays_and_invalid_bases(
     )
 
     assert changed.status_code == 409
+    assert widened.status_code == 409
     assert missing.status_code == 404
     assert stale.status_code == 404
     assert caller_candidate.status_code == 422
