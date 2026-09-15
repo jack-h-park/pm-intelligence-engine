@@ -23,6 +23,7 @@ def prepare_evidence(
     """
     usable = [source for source in fetched_sources if source.acquisition_status in _USABLE_STATUSES]
     selected = usable[:4]
+    source_ids = [source.source_id for source in selected if source.content or source.excerpts]
     passages: list[Passage] = []
     gaps: list[str] = []
     for index, source in enumerate(selected):
@@ -57,9 +58,11 @@ def prepare_evidence(
             )
     if not passages:
         gaps.append("No usable source body was supplied for this candidate.")
+    elif len(source_ids) == 1:
+        gaps.append("Only one attributable source was available.")
     return EvidenceBundle(
         candidate_id=candidate.candidate_id,
-        source_ids=[source.source_id for source in selected if source.content or source.excerpts],
+        source_ids=source_ids,
         passages=passages,
         coverage_gaps=gaps,
         freshness_status="unknown",

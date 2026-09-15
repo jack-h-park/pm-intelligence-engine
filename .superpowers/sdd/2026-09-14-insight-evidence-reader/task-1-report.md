@@ -21,6 +21,16 @@ Implemented and verified. The evidence preparation service now splits source bod
 - `ruff check app/services/insight_evidence.py tests/insights/test_evidence.py`: **passed**.
 - `git diff --check`: **passed**.
 
+## Review Follow-up 2
+
+Restored the `Only one attributable source was available.` coverage disclosure for a single selected source, regardless of whether paragraph splitting produces one or many passages. The source-count decision is now based on selected attributable `source_ids`, and a regression assertion covers the three-paragraph source case.
+
+- RED: the multi-paragraph regression failed because `coverage_gaps` was empty.
+- GREEN: `python -m pytest tests/insights/test_evidence.py -q`: **5 passed**.
+- Full focused suite: `python -m pytest tests/insights -q`: **55 passed**.
+- `ruff check app/services/insight_evidence.py tests/insights/test_evidence.py`: **passed**.
+- `git diff --check`: **passed**.
+
 The repository-wide `python -m pytest -q` run reached unrelated integration/configuration failures outside the evidence tests; the complete `tests/insights` suite remains green.
 
 ## Commit

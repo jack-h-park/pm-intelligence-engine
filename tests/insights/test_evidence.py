@@ -94,6 +94,7 @@ def test_prepare_evidence_splits_a_long_source_into_ordered_passages():
         "Second supported paragraph.",
         "Third supported paragraph.",
     ]
+    assert "Only one attributable source was available." in bundle.coverage_gaps
 
 
 def test_prepare_evidence_marks_a_single_unsplittable_body_as_coarse():
