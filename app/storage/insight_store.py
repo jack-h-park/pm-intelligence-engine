@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.insights import (
     BudgetReservation,
     Candidate,
+    EvidenceBackfillRequest,
+    EvidenceBackfillTarget,
     EvidenceBundle,
     InsightJob,
     InsightReview,
@@ -22,6 +24,7 @@ from app.models.insights import (
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
     IntelligenceDeliveryReceiptRow,
+    IntelligenceEvidenceBackfillRow,
     IntelligenceIdempotencyRow,
     IntelligenceInsightFeedbackRow,
     IntelligenceInsightReviewRow,
@@ -39,7 +42,15 @@ from app.models.insights import (
 )
 from app.storage.insight_migrations import initialize_insight_schema
 
-Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle, InsightJob, InsightReview)
+Record = TypeVar(
+    "Record",
+    Candidate,
+    SourceRecord,
+    EvidenceBundle,
+    EvidenceBackfillRequest,
+    InsightJob,
+    InsightReview,
+)
 
 
 class MissingInsightRecord(ValueError):
@@ -249,6 +260,76 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
+
+    def create_idempotent_backfill(
+        self,
+        actor: str,
+        key: str,
+        request_hash: str,
+        *,
+        insight_id: str,
+        base_revision: int,
+        targets: list[EvidenceBackfillTarget],
+    ) -> tuple[EvidenceBackfillRequest, int]:
+        """Persist a bounded request without allowing caller-selected lineage."""
+
+        def save(session: Session) -> tuple[EvidenceBackfillRequest, bool]:
+            base_row = session.get(IntelligenceInsightRow, insight_id)
+            if base_row is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            base = InsightRevision.model_validate_json(base_row.payload_json)
+            if base.revision != base_revision:
+                raise MissingInsightRecord(
+                    f"insight {insight_id} revision {base_revision} was not found"
+                )
+            prepared_row = session.get(IntelligencePreparedContextRow, base.prepared_context_id)
+            if prepared_row is None:
+                raise InvalidInsightReference(
+                    f"prepared context {base.prepared_context_id} was not found"
+                )
+            prepared = PreparedContext.model_validate_json(prepared_row.payload_json)
+            if session.get(IntelligenceCandidateRow, prepared.candidate_id) is None:
+                raise InvalidInsightReference(f"candidate {prepared.candidate_id} was not found")
+            completed = session.execute(
+                select(IntelligenceEvidenceBackfillRow).where(
+                    IntelligenceEvidenceBackfillRow.insight_id == insight_id,
+                    IntelligenceEvidenceBackfillRow.base_revision == base_revision,
+                    IntelligenceEvidenceBackfillRow.state == "complete",
+                )
+            ).scalar_one_or_none()
+            if completed is not None:
+                raise InvalidInsightReference("a completed evidence backfill already exists")
+            request = EvidenceBackfillRequest(
+                insight_id=insight_id,
+                base_revision=base_revision,
+                candidate_id=prepared.candidate_id,
+                targets=targets,
+                actor_fingerprint=actor,
+                idempotency_key=key,
+                request_hash=request_hash,
+            )
+            session.add(
+                IntelligenceEvidenceBackfillRow(
+                    backfill_id=request.backfill_id,
+                    insight_id=request.insight_id,
+                    base_revision=request.base_revision,
+                    candidate_id=request.candidate_id,
+                    state=request.state,
+                    created_at=request.created_at,
+                    payload_json=_json(request),
+                )
+            )
+            return request, True
+
+        record, status_code = self.create_idempotent(
+            "evidence_backfill", actor, key, request_hash, EvidenceBackfillRequest, save
+        )
+        return cast(EvidenceBackfillRequest, record), status_code
+
+    def get_backfill(self, backfill_id: str) -> EvidenceBackfillRequest | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceEvidenceBackfillRow, backfill_id)
+            return EvidenceBackfillRequest.model_validate_json(row.payload_json) if row else None
 
     def get_insight_evidence(
         self, insight_id: str
@@ -868,6 +949,13 @@ class InsightStore:
         row.lease_token = job.lease_token
         row.lease_expires_at = job.lease_expires_at
         row.payload_json = _json(job)
+
+    @staticmethod
+    def _write_backfill(
+        row: IntelligenceEvidenceBackfillRow, request: EvidenceBackfillRequest
+    ) -> None:
+        row.state = request.state
+        row.payload_json = _json(request)
 
     @staticmethod
     def _write_research(row: IntelligenceResearchRequestRow, request: ResearchRequest) -> None:
