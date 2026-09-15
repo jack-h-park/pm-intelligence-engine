@@ -952,6 +952,7 @@ class InsightStore:
                     parent_lease_token=lease_token,
                     targets=[target.url for target in backfill.targets],
                     questions=[target.question for target in backfill.targets],
+                    target_purposes=[target.purpose for target in backfill.targets],
                     maximum_fetch_count=len(backfill.targets),
                     expires_at=current + timedelta(minutes=10),
                 )

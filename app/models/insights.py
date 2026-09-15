@@ -362,6 +362,9 @@ class ResearchRequest(_Record):
     parent_lease_token: str
     targets: list[str] = Field(min_length=1)
     questions: list[str] = Field(min_length=1)
+    target_purposes: list[
+        Literal["primary_incident", "platform_behavior", "independent_corroboration"]
+    ] = Field(default_factory=list)
     maximum_fetch_count: int = Field(ge=1, le=3)
     state: Literal["queued", "running", "complete", "expired"] = "queued"
     adapter_id: str | None = None
@@ -371,6 +374,12 @@ class ResearchRequest(_Record):
     created_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
     failures: list[dict[str, object]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _target_purposes_align(self) -> "ResearchRequest":
+        if self.target_purposes and len(self.target_purposes) != len(self.targets):
+            raise ValueError("target_purposes must align with targets")
+        return self
 
 
 class BudgetReservation(_Record):
