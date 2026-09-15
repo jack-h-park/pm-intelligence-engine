@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
+from app.insight_worker import run_oauth_backfill_worker_tick
 from app.models.decision_case import InsightRevisionReference
 from app.models.insights import (
     Candidate,
@@ -570,6 +571,31 @@ async def create_evidence_backfill(
     except IdempotencyConflict as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     response.status_code = stored_status
+    return request
+
+
+@router.post(
+    "/evidence-backfills/{backfill_id}/worker-tick",
+    response_model=EvidenceBackfillRequest,
+)
+async def tick_evidence_backfill_worker(
+    backfill_id: str,
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> EvidenceBackfillRequest:
+    """Advance one named backfill without ever falling through to the generic queue."""
+    store = _processing_store(engine)
+    if store.get_backfill(backfill_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="backfill was not found")
+    try:
+        await run_oauth_backfill_worker_tick(store, backfill_id)
+    except (InvalidInsightReference, MissingInsightRecord) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    request = store.get_backfill(backfill_id)
+    if request is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="backfill was not found")
     return request
 
 

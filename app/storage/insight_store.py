@@ -768,6 +768,45 @@ class InsightStore:
             self._write_job(claimable, job)
             return job
 
+    def claim_backfill_job(
+        self, backfill_id: str, now: datetime | None = None
+    ) -> InsightJob | None:
+        """Lease only the named evidence-backfill job, never the generic queue."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            backfill_row = session.get(IntelligenceEvidenceBackfillRow, backfill_id)
+            if backfill_row is None:
+                raise MissingInsightRecord(f"backfill {backfill_id} was not found")
+            backfill = EvidenceBackfillRequest.model_validate_json(backfill_row.payload_json)
+            if backfill.job_id is None:
+                raise InvalidInsightReference("backfill has no evidence job")
+            job_row = session.get(IntelligenceJobRow, backfill.job_id)
+            if job_row is None:
+                raise InvalidInsightReference("backfill evidence job was not found")
+            job = InsightJob.model_validate_json(job_row.payload_json)
+            if job.backfill_id != backfill_id:
+                raise InvalidInsightReference("backfill does not reference its evidence job")
+            if job.state == "running" and job.lease_expires_at and job.lease_expires_at <= current:
+                job.state = "queued"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.error = "Scoped worker lease expired before completion"
+                job.next_attempt_at = current
+                job.updated_at = current
+                self._write_job(job_row, job)
+            if job.state not in {"queued", "retryable_failed"} or (
+                job.next_attempt_at is not None and job.next_attempt_at > current
+            ):
+                return None
+            job.state = "running"
+            job.attempt_count += 1
+            job.lease_token = str(uuid.uuid4())
+            job.lease_expires_at = current + timedelta(seconds=120)
+            job.next_attempt_at = None
+            job.updated_at = current
+            self._write_job(job_row, job)
+            return job
+
     def create_research_request(
         self,
         job_id: str,
