@@ -42,6 +42,18 @@ def build_engine(runtime: str = "local") -> PMEngine:
 
 
 def _build_llm_provider() -> LLMProvider:
+    """Build the configured provider, wrapped for tracing.
+
+    The wrapper is applied here rather than inside each provider so that every
+    implementation — including ones added later — is instrumented once. It is
+    transparent when tracing is off.
+    """
+    from app.telemetry import TracingLLMProvider
+
+    return TracingLLMProvider(_build_raw_llm_provider())
+
+
+def _build_raw_llm_provider() -> LLMProvider:
     from config import settings
 
     provider = settings.LLM_PROVIDER.lower()
