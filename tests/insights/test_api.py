@@ -40,6 +40,126 @@ def _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundl
     return insight, source
 
 
+def _backfill_payload(revision=1):
+    return {
+        "base_revision": revision,
+        "targets": [
+            {
+                "url": "https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+                "purpose": "primary_incident",
+                "question": "What campaign facts and malware behaviour are directly observed?",
+            },
+            {
+                "url": "https://source.android.com/docs/devices/admin/managed-profiles",
+                "purpose": "platform_behavior",
+                "question": "What work-profile behaviour is documented by Android?",
+            },
+        ],
+    }
+
+
+def test_evidence_backfill_api_creates_an_idempotent_product_agnostic_request(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    """Catches an API path that accepts caller lineage or starts product-decision state."""
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    headers = {**auth_headers, "Idempotency-Key": "gigabud-backfill-api-1"}
+
+    first = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json=_backfill_payload(insight.revision),
+        headers=headers,
+    )
+    repeated = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json=_backfill_payload(insight.revision),
+        headers=headers,
+    )
+
+    assert first.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json() == first.json()
+    assert first.json()["candidate_id"] == engine.insight_store.get_candidate(
+        engine.insight_store.get_prepared_context(insight.prepared_context_id).candidate_id
+    ).candidate_id
+    assert first.json()["state"] == "queued"
+    assert [target["url"] for target in first.json()["targets"]] == [
+        "https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory",
+        "https://source.android.com/docs/devices/admin/managed-profiles",
+    ]
+    assert [target["purpose"] for target in first.json()["targets"]] == [
+        "primary_incident", "platform_behavior"
+    ]
+    assert not {"product_id", "review_id", "decision_case_id", "delivery_receipt_id"} & set(
+        first.json()
+    )
+
+
+def test_evidence_backfill_api_rejects_changed_replays_and_invalid_bases(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    """Catches a retry widening targets or a request attached to a missing/stale Insight."""
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    headers = {**auth_headers, "Idempotency-Key": "gigabud-backfill-api-conflict"}
+    assert client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json=_backfill_payload(insight.revision),
+        headers=headers,
+    ).status_code == 201
+
+    changed = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json={
+            "base_revision": insight.revision,
+            "targets": [{
+                "url": "https://example.test/unapproved-expansion",
+                "purpose": "independent_corroboration",
+                "question": "What independently corroborates the campaign?",
+            }],
+        },
+        headers=headers,
+    )
+    missing = client.post(
+        "/insights/missing-insight/evidence-backfills",
+        json=_backfill_payload(),
+        headers={**auth_headers, "Idempotency-Key": "backfill-missing"},
+    )
+    stale = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json=_backfill_payload(insight.revision + 1),
+        headers={**auth_headers, "Idempotency-Key": "backfill-stale"},
+    )
+    caller_candidate = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json={**_backfill_payload(insight.revision), "candidate_id": "caller-selected"},
+        headers={**auth_headers, "Idempotency-Key": "backfill-caller-candidate"},
+    )
+    unsafe_target = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json={
+            "base_revision": insight.revision,
+            "targets": [{
+                "url": "file:///private/source",
+                "purpose": "primary_incident",
+                "question": "What is directly observed?",
+            }],
+        },
+        headers={**auth_headers, "Idempotency-Key": "backfill-unsafe-target"},
+    )
+
+    assert changed.status_code == 409
+    assert missing.status_code == 404
+    assert stale.status_code == 404
+    assert caller_candidate.status_code == 422
+    assert unsafe_target.status_code == 422
+
+
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):
     headers = {**auth_headers, "Idempotency-Key": "candidate-fixture-1"}
     first = client.post("/insight-candidates", json=candidate_payload, headers=headers)
