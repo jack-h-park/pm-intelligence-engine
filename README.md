@@ -38,6 +38,7 @@ directories. Provide your own context files or override the paths in `.env`.
 ```bash
 pytest -q
 ruff check app tests eval
+mypy --strict app
 python eval/runner.py
 ```
 
