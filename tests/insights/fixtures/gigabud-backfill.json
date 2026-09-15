@@ -1,0 +1,26 @@
+{
+  "base_insight_id": "3ddb6cba-6932-48f1-8076-baf0b397c191",
+  "base_revision": 1,
+  "sources": [
+    {
+      "role": "primary_incident",
+      "url": "https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+      "passages": [
+        {
+          "locator": "incident summary",
+          "text": "The incident report describes Android work-profile cloning as part of the Gigabud campaign."
+        }
+      ]
+    },
+    {
+      "role": "platform_behavior",
+      "url": "https://source.android.com/docs/devices/admin/managed-profiles",
+      "passages": [
+        {
+          "locator": "managed-profile overview",
+          "text": "Android documents managed profiles as separated work containers on a device."
+        }
+      ]
+    }
+  ]
+}

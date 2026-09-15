@@ -1,4 +1,6 @@
+import json
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -7,6 +9,28 @@ import app.insight_worker as insight_worker
 from app.insight_worker import process_backfill_one, process_one, run_oauth_backfill_worker_tick
 from app.models.insights import EvidenceBackfillTarget, InsightRevision, PreparedContext
 from app.storage.insight_store import StaleLease
+
+GIGABUD_BACKFILL_FIXTURE = Path(__file__).parent / "fixtures" / "gigabud-backfill.json"
+
+
+def test_gigabud_backfill_fixture_locks_review_scope_without_a_product():
+    """The non-live pilot fixture must not silently widen its review scope."""
+    fixture = json.loads(GIGABUD_BACKFILL_FIXTURE.read_text())
+
+    assert fixture["base_insight_id"] == "3ddb6cba-6932-48f1-8076-baf0b397c191"
+    assert fixture["base_revision"] == 1
+    assert "product_id" not in fixture
+    assert [(source["role"], source["url"]) for source in fixture["sources"]] == [
+        (
+            "primary_incident",
+            "https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+        ),
+        (
+            "platform_behavior",
+            "https://source.android.com/docs/devices/admin/managed-profiles",
+        ),
+    ]
+    assert all(source["passages"] for source in fixture["sources"])
 
 
 def _job_payload(candidate_id: str) -> dict[str, Any]:
