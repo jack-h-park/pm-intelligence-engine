@@ -130,7 +130,23 @@ async def run_stage(position: str, run_id: str, engine: PMEngine, context: RunCo
     reused when already computed (what makes ``POST /deepen`` cheap); S5–S7 always
     run. S5 additionally records the routing AND the composite score it computes
     onto the run.
+
+    The reuse check sits here, above the span, so a reused stage does not emit an
+    empty one — a trace should show the work that happened, and a deepen that
+    skips S3/S4 did not do that work.
     """
+    from app.telemetry import stage_span
+
+    if position in ("s3", "s4") and engine.store.get_stage_output(run_id, position) is not None:
+        return  # already computed — deepen reuse
+
+    with stage_span(position, run_id, product_id=context.product_id):
+        await _execute_stage(position, run_id, engine, context)
+
+
+async def _execute_stage(position: str, run_id: str, engine: PMEngine, context: RunContext) -> None:
+    """The stage bodies. Split from ``run_stage`` only so the span wraps them
+    without re-indenting every branch."""
     import json
 
     from app.models.stages import (
@@ -148,9 +164,6 @@ async def run_stage(position: str, run_id: str, engine: PMEngine, context: RunCo
     )
 
     store = engine.store
-    if position in ("s3", "s4") and store.get_stage_output(run_id, position) is not None:
-        return  # already computed — deepen reuse
-
     store.advance(run_id, position)
 
     if position == "s3":
