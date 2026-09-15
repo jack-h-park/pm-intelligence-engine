@@ -221,6 +221,52 @@ class InsightReview(_Record):
     actor_fingerprint: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=_utc_now)
 
+class InsightEvidenceSource(BaseModel):
+    """Cited source metadata; source bodies remain private to the evidence store."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_id: str
+    origin: Literal["discovered", "user_supplied", "legacy_import"]
+    acquisition_status: Literal["ok", "fallback_summary", "low_quality", "fetch_failed"]
+    retrieved_at: datetime
+    url: str | None = None
+    legacy_reference: str | None = None
+
+
+class InsightEvidencePassage(BaseModel):
+    """A passage explicitly cited by an Insight claim."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passage_id: str
+    source_id: str
+    locator: str
+    text: str
+    role: Literal["seed", "enrichment"]
+
+
+class InsightClaimPassageLink(BaseModel):
+    """A claim's position in the immutable revision and its cited passage IDs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    claim_index: int = Field(ge=0)
+    passage_ids: list[str] = Field(min_length=1)
+
+
+class InsightEvidenceView(BaseModel):
+    """Read-only, revision-pinned evidence for an immutable Insight."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    insight_id: str
+    revision: int = Field(ge=1)
+    sources: list[InsightEvidenceSource]
+    passages: list[InsightEvidencePassage]
+    claim_passage_links: list[InsightClaimPassageLink]
+    coarse_evidence: bool
+
 
 class InsightJob(_Record):
     job_id: str = Field(default_factory=_new_uuid)

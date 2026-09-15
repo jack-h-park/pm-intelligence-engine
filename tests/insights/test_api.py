@@ -5,6 +5,41 @@ from app.api.deps import get_engine
 from app.api.main import app
 
 
+def _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundle_payload):
+    from app.models.insights import InsightRevision, PreparedContext
+
+    candidate = engine.insight_store.save_candidate(candidate_payload)
+    source = engine.insight_store.save_source(
+        {**source_payload, "candidate_id": candidate.candidate_id}
+    )
+    bundle = engine.insight_store.save_bundle(
+        bundle_payload(candidate.candidate_id, source.source_id)
+    )
+    prepared = engine.insight_store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What changed?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = engine.insight_store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Android control",
+            explanation="A bounded change.",
+            actual_change="Android added a control.",
+            why_now="A release documented it.",
+            personal_relevance="It informs device management.",
+            takeaway="Verify it.",
+            claims=[{"text": "A control was added.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    return insight, source
+
+
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):
     headers = {**auth_headers, "Idempotency-Key": "candidate-fixture-1"}
     first = client.post("/insight-candidates", json=candidate_payload, headers=headers)
@@ -207,6 +242,74 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
 
     assert response.status_code == 409
     assert response.json()["detail"] == "budget_denied"
+
+
+def test_insight_evidence_returns_only_cited_passages_and_source_metadata(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    def bundle_with_uncited_passage(candidate_id, source_id):
+        payload = bundle_payload(candidate_id, source_id)
+        payload["passages"].append(
+            {
+                "passage_id": "passage-fixture-uncited",
+                "source_id": source_id,
+                "locator": "uncited statement",
+                "text": "This uncited passage must remain private.",
+                "role": "enrichment",
+            }
+        )
+        return payload
+
+    engine = app.dependency_overrides[get_engine]()
+    insight, source = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_with_uncited_passage
+    )
+
+    response = client.get(
+        f"/insights/{insight.insight_id}/evidence?revision=1", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "insight_id": insight.insight_id,
+        "revision": 1,
+        "sources": [
+            {
+                "source_id": source.source_id,
+                "origin": "user_supplied",
+                "acquisition_status": "ok",
+                "retrieved_at": "2026-09-08T00:00:00Z",
+                "url": None,
+                "legacy_reference": None,
+            }
+        ],
+        "passages": [
+            {
+                "passage_id": "passage-fixture-1",
+                "source_id": source.source_id,
+                "locator": "user statement",
+                "text": "The user observed selected intent sharing in a managed work profile.",
+                "role": "seed",
+            }
+        ],
+        "claim_passage_links": [{"claim_index": 0, "passage_ids": ["passage-fixture-1"]}],
+        "coarse_evidence": True,
+    }
+
+
+def test_insight_evidence_rejects_a_stale_revision(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+
+    response = client.get(
+        f"/insights/{insight.insight_id}/evidence?revision=2", headers=auth_headers
+    )
+
+    assert response.status_code == 409
 
 
 def test_authenticated_insight_search_returns_stored_revision(

@@ -23,6 +23,10 @@ from app.models.insights import (
     Candidate,
     EvidenceBundle,
     EvidenceDate,
+    InsightClaimPassageLink,
+    InsightEvidencePassage,
+    InsightEvidenceSource,
+    InsightEvidenceView,
     InsightJob,
     InsightReview,
     InsightRevision,
@@ -672,6 +676,74 @@ async def get_product_connections(
     if revision is not None and revision != insight.revision:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Insight revision changed")
     return ProductConnectionService(engine.context_loader).assess(insight, engine.insight_store)
+
+@router.get("/insights/{insight_id}/evidence", response_model=InsightEvidenceView)
+async def get_insight_evidence(
+    insight_id: str,
+    revision: int = Query(ge=1),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightEvidenceView:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    evidence = engine.insight_store.get_insight_evidence(insight_id)
+    if evidence is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    insight, _, bundle, sources = evidence
+    if insight.revision != revision:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Insight revision is stale"
+        )
+
+    cited_passage_ids = {
+        passage_id for claim in insight.claims for passage_id in claim.passage_ids
+    }
+    passages = [
+        passage for passage in bundle.passages if passage.passage_id in cited_passage_ids
+    ]
+    cited_source_ids = {passage.source_id for passage in passages}
+    cited_sources = [source for source in sources if source.source_id in cited_source_ids]
+    source_by_id = {source.source_id: source for source in cited_sources}
+    coarse_evidence = any(
+        source is not None
+        and source.content is not None
+        and passage.text.strip() == source.content.strip()
+        for passage in passages
+        for source in [source_by_id.get(passage.source_id)]
+    )
+
+    return InsightEvidenceView(
+        insight_id=insight.insight_id,
+        revision=insight.revision,
+        sources=[
+            InsightEvidenceSource(
+                source_id=source.source_id,
+                origin=source.origin,
+                acquisition_status=source.acquisition_status,
+                retrieved_at=source.retrieved_at,
+                url=source.url,
+                legacy_reference=source.legacy_reference,
+            )
+            for source in cited_sources
+        ],
+        passages=[
+            InsightEvidencePassage(
+                passage_id=passage.passage_id,
+                source_id=passage.source_id,
+                locator=passage.locator,
+                text=passage.text,
+                role=passage.role,
+            )
+            for passage in passages
+        ],
+        claim_passage_links=[
+            InsightClaimPassageLink(claim_index=index, passage_ids=claim.passage_ids)
+            for index, claim in enumerate(insight.claims)
+        ],
+        coarse_evidence=coarse_evidence,
+    )
 
 
 @router.get("/insights/{insight_id}", response_model=InsightRevision)
