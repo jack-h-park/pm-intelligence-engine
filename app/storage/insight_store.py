@@ -146,6 +146,11 @@ class InsightStore:
             row = session.get(IntelligenceBundleRow, bundle_id)
             return EvidenceBundle.model_validate_json(row.payload_json) if row else None
 
+    def get_source(self, source_id: str) -> SourceRecord | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceSourceRow, source_id)
+            return SourceRecord.model_validate_json(row.payload_json) if row else None
+
     def get_candidate(self, candidate_id: str) -> Candidate | None:
         with self._Session() as session:
             row = session.get(IntelligenceCandidateRow, candidate_id)
@@ -244,6 +249,19 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
+
+    def get_insight_evidence(
+        self, insight_id: str
+    ) -> tuple[InsightRevision, PreparedContext, EvidenceBundle, list[SourceRecord]] | None:
+        insight = self.get_insight(insight_id)
+        if insight is None:
+            return None
+        prepared = self.get_prepared_context(insight.prepared_context_id)
+        bundle = self.get_bundle(prepared.bundle_id) if prepared else None
+        if prepared is None or bundle is None:
+            raise InvalidInsightReference("stored Insight evidence chain is incomplete")
+        sources = [self.get_source(source_id) for source_id in bundle.source_ids]
+        return insight, prepared, bundle, [source for source in sources if source is not None]
 
     def save_feedback(self, insight_id: str, revision: int, label: str) -> dict[str, Any]:
         with self._Session.begin() as session:
