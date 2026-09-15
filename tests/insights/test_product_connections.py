@@ -114,10 +114,10 @@ def _engine_with_insight(tmp_path, *, content: str) -> tuple[PMEngine, InsightRe
     return (
         PMEngine(
             store=SQLiteStore(f"sqlite:///{tmp_path}/workflow.db"),
-            llm=None,
+            llm=None,  # type: ignore[arg-type]
             context_loader=ContextLoader(str(decision_root)),
-            template_service=None,
-            notifier=None,
+            template_service=None,  # type: ignore[arg-type]
+            notifier=None,  # type: ignore[arg-type]
             insight_store=insight_store,
         ),
         insight,
