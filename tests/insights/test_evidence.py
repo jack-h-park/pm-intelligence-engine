@@ -1,3 +1,4 @@
+import hashlib
 from datetime import UTC, datetime
 
 from app.models.insights import Candidate, SourceRecord
@@ -60,3 +61,61 @@ def test_missing_body_stays_an_evidence_gap():
     assert bundle.coverage_gaps
     assert bundle.source_ids == []
     assert bundle.passages == []
+
+
+def test_prepare_evidence_splits_a_long_source_into_ordered_passages():
+    candidate = Candidate(
+        candidate_id="paragraph-candidate",
+        origin="user_supplied",
+        subject="A paragraph-backed lesson",
+        question_ids=["learning-loop"],
+        policy_revision="fixture-v1",
+    )
+    content = (
+        "First supported paragraph.\n\nSecond supported paragraph.\n\n"
+        "Third supported paragraph."
+    )
+    long_source = SourceRecord(
+        source_id="source-0",
+        candidate_id=candidate.candidate_id,
+        origin="user_supplied",
+        content=content,
+        content_hash=hashlib.sha256(content.encode()).hexdigest(),
+        acquisition_status="ok",
+        retrieved_at=datetime(2026, 9, 8, tzinfo=UTC),
+        url="https://example.test/source-0",
+    )
+
+    bundle = prepare_evidence(candidate, [long_source], context_revision="fixture-v1")
+
+    assert [p.passage_id for p in bundle.passages] == ["source-0:0", "source-0:1", "source-0:2"]
+    assert [p.text for p in bundle.passages] == [
+        "First supported paragraph.",
+        "Second supported paragraph.",
+        "Third supported paragraph.",
+    ]
+
+
+def test_prepare_evidence_marks_a_single_unsplittable_body_as_coarse():
+    candidate = Candidate(
+        candidate_id="coarse-candidate",
+        origin="user_supplied",
+        subject="A single-line lesson",
+        question_ids=["learning-loop"],
+        policy_revision="fixture-v1",
+    )
+    content = "A single supported body without paragraph boundaries."
+    single_line_source = SourceRecord(
+        source_id="source-coarse",
+        candidate_id=candidate.candidate_id,
+        origin="user_supplied",
+        content=content,
+        content_hash=hashlib.sha256(content.encode()).hexdigest(),
+        acquisition_status="ok",
+        retrieved_at=datetime(2026, 9, 8, tzinfo=UTC),
+    )
+
+    bundle = prepare_evidence(candidate, [single_line_source], context_revision="fixture-v1")
+
+    assert bundle.passages[0].text == single_line_source.content
+    assert "coarse passage" in bundle.coverage_gaps[0].lower()
