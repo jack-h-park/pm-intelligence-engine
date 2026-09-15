@@ -119,3 +119,28 @@ def test_prepare_evidence_marks_a_single_unsplittable_body_as_coarse():
 
     assert bundle.passages[0].text == single_line_source.content
     assert "coarse passage" in bundle.coverage_gaps[0].lower()
+
+
+def test_prepare_evidence_marks_one_non_empty_paragraph_with_blank_whitespace_as_coarse():
+    candidate = Candidate(
+        candidate_id="coarse-whitespace-candidate",
+        origin="user_supplied",
+        subject="A whitespace-padded lesson",
+        question_ids=["learning-loop"],
+        policy_revision="fixture-v1",
+    )
+    content = "  Only supported paragraph.  \n\n  "
+    source = SourceRecord(
+        source_id="source-coarse-whitespace",
+        candidate_id=candidate.candidate_id,
+        origin="user_supplied",
+        content=content,
+        content_hash=hashlib.sha256(content.encode()).hexdigest(),
+        acquisition_status="ok",
+        retrieved_at=datetime(2026, 9, 8, tzinfo=UTC),
+    )
+
+    bundle = prepare_evidence(candidate, [source], context_revision="fixture-v1")
+
+    assert len(bundle.passages) == 1
+    assert "coarse passage" in bundle.coverage_gaps[0].lower()

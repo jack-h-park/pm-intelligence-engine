@@ -26,3 +26,13 @@ The repository-wide `python -m pytest -q` run reached unrelated integration/conf
 ## Commit
 
 `feat: split insight evidence into passages` (committed on the task branch).
+
+## Review Follow-up
+
+Corrected coarse-passage disclosure to use the parsed count of non-empty paragraphs rather than the presence of a raw blank-line delimiter. Added regression coverage for a single paragraph with trailing blank whitespace (`"Only paragraph.\\n\\n"`).
+
+- RED: the new regression failed with an empty `coverage_gaps` list.
+- GREEN: `python -m pytest tests/insights/test_evidence.py -q`: **5 passed**.
+- Full focused suite: `python -m pytest tests/insights -q`: **55 passed**.
+- `ruff check app/services/insight_evidence.py tests/insights/test_evidence.py`: **passed**.
+- `git diff --check`: **passed**.

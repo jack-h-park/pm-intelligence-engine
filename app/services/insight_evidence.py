@@ -43,13 +43,13 @@ def prepare_evidence(
                     role="seed" if index == 0 else "enrichment",
                 )
             )
-        if len(texts) == 1 and len(re.findall(r"\n\s*\n", material)) == 0:
-            gaps.append(
-                f"Source {source.source_id} is a coarse passage without paragraph boundaries."
-            )
         paragraph_count = len(
             [part for part in re.split(r"\n\s*\n", material) if part.strip()]
         )
+        if paragraph_count == 1:
+            gaps.append(
+                f"Source {source.source_id} is a coarse passage without paragraph boundaries."
+            )
         if paragraph_count > MAX_PASSAGES_PER_SOURCE:
             gaps.append(
                 f"Source {source.source_id} exceeded the passage limit; "
