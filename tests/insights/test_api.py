@@ -1,8 +1,10 @@
 import hashlib
 import json
 
+import app.api.insights as insights_api
 from app.api.deps import get_engine
 from app.api.main import app
+from app.insight_worker import process_backfill_one
 
 
 def _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundle_payload):
@@ -158,6 +160,42 @@ def test_evidence_backfill_api_rejects_changed_replays_and_invalid_bases(
     assert stale.status_code == 404
     assert caller_candidate.status_code == 422
     assert unsafe_target.status_code == 422
+
+
+def test_evidence_backfill_worker_tick_advances_only_the_named_backfill(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    """Catches a control-plane tick falling through to the generic worker queue."""
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    created = client.post(
+        f"/insights/{insight.insight_id}/evidence-backfills",
+        json=_backfill_payload(insight.revision),
+        headers={**auth_headers, "Idempotency-Key": "scoped-backfill-endpoint"},
+    )
+    backfill_id = created.json()["backfill_id"]
+    unrelated, _ = engine.insight_store.create_idempotent_job(
+        "fixture-reviewer",
+        "unrelated-learning-job",
+        "unrelated-learning-job-hash",
+        {
+            "candidate_id": created.json()["candidate_id"],
+            "context_revision": "fixture-v1",
+            "purpose": "learning",
+        },
+    )
+
+    async def tick(store, requested_backfill_id):
+        return await process_backfill_one(store, requested_backfill_id, object())
+
+    monkeypatch.setattr(insights_api, "run_oauth_backfill_worker_tick", tick)
+    response = client.post(f"/evidence-backfills/{backfill_id}/worker-tick", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "waiting_research"
+    assert engine.insight_store.get_job(unrelated.job_id).state == "queued"
 
 
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):

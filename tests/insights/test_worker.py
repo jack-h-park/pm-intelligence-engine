@@ -1,9 +1,10 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 
-from app.insight_worker import process_one
+import app.insight_worker as insight_worker
+from app.insight_worker import process_backfill_one, process_one, run_oauth_backfill_worker_tick
 from app.models.insights import EvidenceBackfillTarget, InsightRevision, PreparedContext
 from app.storage.insight_store import StaleLease
 
@@ -65,6 +66,90 @@ def _save_base_insight(
         ).model_dump(mode="json")
     )
     return candidate, insight
+
+
+@pytest.mark.asyncio
+async def test_scoped_backfill_tick_never_claims_an_unrelated_learning_job(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches a bounded runner silently consuming the generic learning queue."""
+    store = store_factory()
+    candidate, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer",
+        "scoped-backfill-tick",
+        "request-hash-scoped-backfill-tick",
+        insight_id=base.insight_id,
+        base_revision=base.revision,
+        targets=[EvidenceBackfillTarget(
+            url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+            purpose="primary_incident",
+            question="What campaign facts are directly observed?",
+        )],
+    )
+    unrelated = store.create_job(_job_payload(candidate.candidate_id))
+
+    assert await process_backfill_one(store, backfill.backfill_id, object()) is None
+    assert store.get_backfill(backfill.backfill_id).state == "waiting_research"
+    assert store.get_job(unrelated.job_id).state == "queued"
+
+
+@pytest.mark.asyncio
+async def test_terminal_or_waiting_scoped_tick_does_not_initialize_an_oauth_provider(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    """Catches a no-op runner spending OAuth setup before proving a lease exists."""
+    store = store_factory()
+    _, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer",
+        "scoped-backfill-noop",
+        "request-hash-scoped-backfill-noop",
+        insight_id=base.insight_id,
+        base_revision=base.revision,
+        targets=[EvidenceBackfillTarget(
+            url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+            purpose="primary_incident",
+            question="What campaign facts are directly observed?",
+        )],
+    )
+    assert await process_backfill_one(store, backfill.backfill_id, object()) is None
+    monkeypatch.setattr(
+        insight_worker,
+        "build_insight_llm_provider",
+        lambda: (_ for _ in ()).throw(AssertionError("provider must not initialize")),
+    )
+
+    assert await run_oauth_backfill_worker_tick(store, backfill.backfill_id) is None
+
+
+def test_scoped_backfill_claim_recovers_only_its_own_expired_lease(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches a crashed scoped tick leaving its approved backfill permanently running."""
+    store = store_factory()
+    _, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer",
+        "scoped-backfill-expired-lease",
+        "request-hash-scoped-backfill-expired-lease",
+        insight_id=base.insight_id,
+        base_revision=base.revision,
+        targets=[EvidenceBackfillTarget(
+            url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+            purpose="primary_incident",
+            question="What campaign facts are directly observed?",
+        )],
+    )
+    started = datetime(2026, 9, 15, tzinfo=UTC)
+    first = store.claim_backfill_job(backfill.backfill_id, now=started)
+
+    recovered = store.claim_backfill_job(backfill.backfill_id, now=started + timedelta(seconds=121))
+
+    assert first is not None
+    assert recovered is not None
+    assert recovered.job_id == first.job_id
+    assert recovered.attempt_count == 2
 
 
 @pytest.mark.asyncio

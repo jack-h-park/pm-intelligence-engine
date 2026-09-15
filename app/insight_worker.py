@@ -4,7 +4,7 @@ from typing import Literal
 
 from app.factory import build_insight_llm_provider
 from app.llm.protocol import LLMProvider
-from app.models.insights import InsightRevision, PreparedContext
+from app.models.insights import InsightJob, InsightRevision, PreparedContext
 from app.services.insight_analysis import analyze_bundle
 from app.storage.insight_store import InsightStore
 
@@ -15,7 +15,19 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     Acquisition requests are handled by the control-plane adapter. This worker
     only processes a job after a bundle has been persisted by the engine.
     """
-    job = store.claim_job()
+    return await _process_claimed_job(store, store.claim_job(), llm)
+
+
+async def process_backfill_one(
+    store: InsightStore, backfill_id: str, llm: LLMProvider
+) -> InsightRevision | None:
+    """Advance only the named backfill by one bounded worker step."""
+    return await _process_claimed_job(store, store.claim_backfill_job(backfill_id), llm)
+
+
+async def _process_claimed_job(
+    store: InsightStore, job: InsightJob | None, llm: LLMProvider
+) -> InsightRevision | None:
     if job is None:
         return None
     if job.bundle_id is None:
@@ -83,6 +95,16 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
 async def process_one_oauth(store: InsightStore) -> InsightRevision | None:
     """Claim at most one learning job with the isolated OAuth provider."""
     return await process_one(store, build_insight_llm_provider())
+
+
+async def run_oauth_backfill_worker_tick(
+    store: InsightStore, backfill_id: str
+) -> InsightRevision | None:
+    """Run one OAuth analysis step for exactly one explicitly named backfill."""
+    job = store.claim_backfill_job(backfill_id)
+    if job is None:
+        return None
+    return await _process_claimed_job(store, job, build_insight_llm_provider())
 
 
 async def run_oauth_worker_tick(store: InsightStore) -> InsightRevision | None:
