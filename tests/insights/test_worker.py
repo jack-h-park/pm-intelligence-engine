@@ -4,6 +4,7 @@ from typing import Any
 import pytest
 
 from app.insight_worker import process_one
+from app.models.insights import EvidenceBackfillTarget, InsightRevision, PreparedContext
 from app.storage.insight_store import StaleLease
 
 
@@ -14,6 +15,251 @@ def _job_payload(candidate_id: str) -> dict[str, Any]:
         "purpose": "learning",
         "bundle_id": None,
     }
+
+
+def _save_base_insight(
+    store, candidate_payload, source_payload, bundle_payload, *, with_prior_enrichment=False
+):
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    payload = bundle_payload(candidate.candidate_id, source.source_id)
+    if with_prior_enrichment:
+        import hashlib
+
+        content = "A prior bounded enrichment remains part of the base Insight."
+        enrichment = store.save_source({
+            **source_payload,
+            "candidate_id": candidate.candidate_id,
+            "content": content,
+            "content_hash": hashlib.sha256(content.encode()).hexdigest(),
+        })
+        payload["source_ids"].append(enrichment.source_id)
+        payload["passages"].append({
+            "passage_id": "passage-fixture-prior-enrichment",
+            "source_id": enrichment.source_id,
+            "locator": "prior enrichment",
+            "text": content,
+            "role": "enrichment",
+        })
+    bundle = store.save_bundle(payload)
+    prepared = store.save_prepared_context(
+        PreparedContext(
+            candidate_id=candidate.candidate_id,
+            bundle_id=bundle.bundle_id,
+            question="What is the learning?",
+            validation_status="valid",
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    insight = store.save_insight(
+        InsightRevision(
+            prepared_context_id=prepared.prepared_context_id,
+            headline="Original learning",
+            explanation="Original bounded evidence.",
+            actual_change="A source was supplied.",
+            why_now="The original job was queued.",
+            personal_relevance="It addresses the question.",
+            takeaway="Keep the original evidence.",
+            claims=[{"text": "A source was supplied.", "passage_ids": ["passage-fixture-1"]}],
+            context_revision="fixture-v1",
+        ).model_dump(mode="json")
+    )
+    return candidate, insight
+
+
+@pytest.mark.asyncio
+async def test_backfill_worker_uses_allowlisted_results_to_create_a_superseding_insight(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches a backfill that skips research, replaces its base, or lacks provenance linkage."""
+    class FixtureLLM:
+        async def complete(self, messages, **kwargs):
+            import json
+
+            evidence = json.loads(messages[1]["content"])["evidence"]
+            return json.dumps({
+                "headline": "Enriched learning",
+                "explanation": "The original source is supplemented by two bounded reports.",
+                "actual_change": "Additional incident and platform evidence is available.",
+                "why_now": "An operator requested a bounded evidence backfill.",
+                "personal_relevance": "It improves the reviewable learning record.",
+                "takeaway": "Review incident and platform claims separately.",
+                "claims": [
+                    {
+                        "text": "The incident report describes campaign behavior.",
+                        "passage_ids": [evidence[-2]["passage_id"]],
+                    },
+                    {
+                        "text": "Android documents managed-profile behavior.",
+                        "passage_ids": [evidence[-1]["passage_id"]],
+                    },
+                ],
+                "uncertainties": ["No product relevance is inferred from the sources."],
+            })
+
+    store = store_factory()
+    candidate, base = _save_base_insight(
+        store, candidate_payload, source_payload, bundle_payload, with_prior_enrichment=True
+    )
+    targets = [
+        EvidenceBackfillTarget(
+            url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+            purpose="primary_incident",
+            question="What campaign facts are directly observed?",
+        ),
+        EvidenceBackfillTarget(
+            url="https://source.android.com/docs/devices/admin/managed-profiles",
+            purpose="platform_behavior",
+            question="What managed-profile behavior is documented?",
+        ),
+    ]
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer", "backfill-worker", "request-hash-worker",
+        insight_id=base.insight_id, base_revision=base.revision, targets=targets,
+    )
+
+    assert backfill.candidate_id == candidate.candidate_id
+    assert backfill.job_id is not None
+    assert await process_one(store, FixtureLLM()) is None
+    waiting = store.get_backfill(backfill.backfill_id)
+    research = store.get_research_request(waiting.research_request_id)
+    assert waiting.state == "waiting_research"
+    assert research.targets == [target.url for target in targets]
+
+    claimed = store.claim_research("fixture-adapter")
+    group_ib = "Group-IB directly observed the Gigabud campaign behavior."
+    aosp = "Android documents managed profiles as a separate work container."
+    store.submit_research_results(
+        research.research_request_id,
+        claimed.lease_token,
+        [
+            {
+                "target": targets[0].url,
+                "content": group_ib,
+                "content_hash": __import__("hashlib").sha256(group_ib.encode()).hexdigest(),
+                "acquisition_status": "ok",
+            },
+            {
+                "target": targets[1].url,
+                "content": aosp,
+                "content_hash": __import__("hashlib").sha256(aosp.encode()).hexdigest(),
+                "acquisition_status": "ok",
+            },
+        ],
+        [],
+    )
+
+    completed = await process_one(store, FixtureLLM())
+
+    assert completed is not None
+    assert completed.supersedes_insight_id == base.insight_id
+    assert store.get_insight(base.insight_id) == base
+    saved_backfill = store.get_backfill(backfill.backfill_id)
+    assert saved_backfill.state == "complete"
+    assert saved_backfill.resulting_insight_id == completed.insight_id
+    bundle = store.get_bundle(saved_backfill.bundle_id)
+    base_bundle = store.get_bundle(store.get_prepared_context(base.prepared_context_id).bundle_id)
+    assert len(bundle.source_ids) == 4
+    assert set(base_bundle.source_ids) <= set(bundle.source_ids)
+    assert all(claim.passage_ids for claim in completed.claims)
+
+
+@pytest.mark.asyncio
+async def test_backfill_with_no_usable_enrichment_completes_quietly_as_needs_evidence(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches failed acquisition replacing the base Insight or creating a partial learning."""
+    store = store_factory()
+    _, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    target = EvidenceBackfillTarget(
+        url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+        purpose="primary_incident",
+        question="What campaign facts are directly observed?",
+    )
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer", "backfill-no-evidence", "request-hash-no-evidence",
+        insight_id=base.insight_id, base_revision=base.revision, targets=[target],
+    )
+
+    assert await process_one(store, object()) is None
+    waiting = store.get_backfill(backfill.backfill_id)
+    research = store.get_research_request(waiting.research_request_id)
+    claimed = store.claim_research("fixture-adapter")
+    store.submit_research_results(
+        research.research_request_id,
+        claimed.lease_token,
+        [],
+        [{"target": target.url, "status": "fetch_failed"}],
+    )
+
+    assert await process_one(store, object()) is None
+    saved_backfill = store.get_backfill(backfill.backfill_id)
+    assert saved_backfill.state == "needs_evidence"
+    assert store.get_insight(base.insight_id) == base
+    assert store.list_insights() == [base]
+
+
+@pytest.mark.asyncio
+async def test_fallback_backfill_evidence_marks_the_backfill_needs_evidence(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches a non-attributable fallback leaving an operator request stuck analyzing."""
+    store = store_factory()
+    _, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    target = EvidenceBackfillTarget(
+        url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+        purpose="primary_incident",
+        question="What campaign facts are directly observed?",
+    )
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer", "backfill-fallback", "request-hash-fallback",
+        insight_id=base.insight_id, base_revision=base.revision, targets=[target],
+    )
+    assert await process_one(store, object()) is None
+    waiting = store.get_backfill(backfill.backfill_id)
+    research = store.get_research_request(waiting.research_request_id)
+    claimed = store.claim_research("fixture-adapter")
+    fallback_body = "A fallback summary without direct attributable source material."
+    store.submit_research_results(
+        research.research_request_id,
+        claimed.lease_token,
+        [{
+            "target": target.url,
+            "content": fallback_body,
+            "content_hash": __import__("hashlib").sha256(fallback_body.encode()).hexdigest(),
+            "acquisition_status": "fallback_summary",
+        }],
+        [],
+    )
+
+    assert await process_one(store, object()) is None
+    assert store.get_job(backfill.job_id).completion_disposition == "needs_evidence"
+    assert store.get_backfill(backfill.backfill_id).state == "needs_evidence"
+
+
+def test_backfill_evidence_preparation_rejects_an_expired_job_lease(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """Catches an expired worker claiming new research after its authority ended."""
+    store = store_factory()
+    _, base = _save_base_insight(store, candidate_payload, source_payload, bundle_payload)
+    target = EvidenceBackfillTarget(
+        url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
+        purpose="primary_incident",
+        question="What campaign facts are directly observed?",
+    )
+    backfill, _ = store.create_idempotent_backfill(
+        "fixture-reviewer", "backfill-expired-lease", "request-hash-expired-lease",
+        insight_id=base.insight_id, base_revision=base.revision, targets=[target],
+    )
+    claimed = store.claim_job(now=datetime(2026, 9, 8, tzinfo=UTC))
+
+    with pytest.raises(StaleLease):
+        store.prepare_backfill_evidence(
+            backfill.job_id,
+            claimed.lease_token,
+            now=datetime(2026, 9, 8, 0, 3, tzinfo=UTC),
+        )
 
 
 def test_stale_worker_lease_cannot_create_research_request(store_factory, candidate_payload):

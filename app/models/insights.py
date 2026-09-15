@@ -336,6 +336,8 @@ class InsightJob(_Record):
     job_id: str = Field(default_factory=_new_uuid)
     candidate_id: str
     bundle_id: str | None = None
+    backfill_id: str | None = None
+    supersedes_insight_id: str | None = None
     prepared_context_id: str | None = None
     context_revision: str
     purpose: Literal["learning", "decision_preparation"]
@@ -368,6 +370,7 @@ class ResearchRequest(_Record):
     expires_at: datetime
     created_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
+    failures: list[dict[str, object]] = Field(default_factory=list)
 
 
 class BudgetReservation(_Record):
