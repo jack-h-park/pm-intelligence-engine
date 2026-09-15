@@ -45,6 +45,28 @@ def _shadow_origin_reference(url: str, content_hash: str) -> str:
     return f"shadow-source:{digest}"
 
 
+def _canonical_backfill_url(url: str) -> str:
+    """Normalize an allowlisted public fetch target for stable comparison."""
+    parsed = urlsplit(url)
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
+        raise ValueError("backfill target must be an absolute HTTP(S) URL")
+    scheme = parsed.scheme.lower()
+    hostname = parsed.hostname.lower()
+    port = parsed.port
+    authority = hostname
+    if port is not None and (scheme, port) not in {("http", 80), ("https", 443)}:
+        authority = f"{hostname}:{port}"
+    path = parsed.path or "/"
+    if path != "/":
+        path = path.rstrip("/")
+    return urlunsplit((scheme, authority, path, parsed.query, ""))
+
+
 class _Record(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -221,6 +243,48 @@ class InsightReview(_Record):
     actor_fingerprint: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=_utc_now)
 
+
+class EvidenceBackfillTarget(_Record):
+    """One operator-approved public URL and the question it is allowed to answer."""
+
+    url: str = Field(min_length=1)
+    purpose: Literal["primary_incident", "platform_behavior", "independent_corroboration"]
+    question: str = Field(min_length=1)
+
+    @field_validator("url")
+    @classmethod
+    def _url_is_public_http_target(cls, value: str) -> str:
+        return _canonical_backfill_url(value)
+
+
+class EvidenceBackfillRequest(_Record):
+    """Immutable operator request to enrich one existing learning Insight."""
+
+    backfill_id: str = Field(default_factory=_new_uuid)
+    insight_id: str
+    base_revision: int = Field(ge=1)
+    candidate_id: str
+    targets: list[EvidenceBackfillTarget] = Field(min_length=1, max_length=3)
+    actor_fingerprint: str = Field(min_length=1)
+    idempotency_key: str = Field(min_length=1)
+    request_hash: str = Field(min_length=1)
+    state: Literal[
+        "queued", "waiting_research", "analyzing", "complete", "needs_evidence", "failed", "expired"
+    ] = "queued"
+    research_request_id: str | None = None
+    bundle_id: str | None = None
+    job_id: str | None = None
+    resulting_insight_id: str | None = None
+    created_at: datetime = Field(default_factory=_utc_now)
+    updated_at: datetime = Field(default_factory=_utc_now)
+
+    @model_validator(mode="after")
+    def _targets_are_unique(self) -> "EvidenceBackfillRequest":
+        urls = [target.url for target in self.targets]
+        if len(urls) != len(set(urls)):
+            raise ValueError("backfill target URLs must be unique")
+        return self
+
 class InsightEvidenceSource(BaseModel):
     """Cited source metadata; source bodies remain private to the evidence store."""
 
@@ -272,6 +336,8 @@ class InsightJob(_Record):
     job_id: str = Field(default_factory=_new_uuid)
     candidate_id: str
     bundle_id: str | None = None
+    backfill_id: str | None = None
+    supersedes_insight_id: str | None = None
     prepared_context_id: str | None = None
     context_revision: str
     purpose: Literal["learning", "decision_preparation"]
@@ -296,6 +362,9 @@ class ResearchRequest(_Record):
     parent_lease_token: str
     targets: list[str] = Field(min_length=1)
     questions: list[str] = Field(min_length=1)
+    target_purposes: list[
+        Literal["primary_incident", "platform_behavior", "independent_corroboration"]
+    ] = Field(default_factory=list)
     maximum_fetch_count: int = Field(ge=1, le=3)
     state: Literal["queued", "running", "complete", "expired"] = "queued"
     adapter_id: str | None = None
@@ -304,6 +373,13 @@ class ResearchRequest(_Record):
     expires_at: datetime
     created_at: datetime = Field(default_factory=_utc_now)
     completed_at: datetime | None = None
+    failures: list[dict[str, object]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _target_purposes_align(self) -> "ResearchRequest":
+        if self.target_purposes and len(self.target_purposes) != len(self.targets):
+            raise ValueError("target_purposes must align with targets")
+        return self
 
 
 class BudgetReservation(_Record):
@@ -378,6 +454,20 @@ class IntelligenceInsightRow(Base):
     insight_id: Mapped[str] = mapped_column(String, primary_key=True)
     prepared_context_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     context_revision: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class IntelligenceEvidenceBackfillRow(Base):
+    __tablename__ = "intelligence_evidence_backfills"
+
+    backfill_id: Mapped[str] = mapped_column(String, primary_key=True)
+    insight_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    base_revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    state: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utc_now
     )

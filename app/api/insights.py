@@ -21,6 +21,8 @@ from app.factory import PMEngine
 from app.models.decision_case import InsightRevisionReference
 from app.models.insights import (
     Candidate,
+    EvidenceBackfillRequest,
+    EvidenceBackfillTarget,
     EvidenceBundle,
     EvidenceDate,
     InsightClaimPassageLink,
@@ -96,6 +98,11 @@ class JobCreate(_Request):
 class JobAccepted(BaseModel):
     job_id: str
     state: Literal["queued"]
+
+
+class EvidenceBackfillCreate(_Request):
+    base_revision: int = Field(ge=1)
+    targets: list[EvidenceBackfillTarget] = Field(min_length=1, max_length=3)
 
 
 class DecisionRequestCreate(_Request):
@@ -529,6 +536,41 @@ async def create_bundle(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     response.status_code = status_code
     return bundle
+
+
+@router.post(
+    "/insights/{insight_id}/evidence-backfills",
+    response_model=EvidenceBackfillRequest,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_evidence_backfill(
+    insight_id: str,
+    body: EvidenceBackfillCreate,
+    response: Response,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> EvidenceBackfillRequest:
+    """Start a review-only evidence request without selecting a product or decision path."""
+    try:
+        request, stored_status = _processing_store(engine).create_idempotent_backfill(
+            _actor_fingerprint(authorization),
+            _key(idempotency_key),
+            _request_hash(body),
+            insight_id=insight_id,
+            base_revision=body.base_revision,
+            targets=body.targets,
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidInsightReference as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except IdempotencyConflict as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    response.status_code = stored_status
+    return request
 
 
 @router.post("/insight-jobs", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)

@@ -19,6 +19,18 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     if job is None:
         return None
     if job.bundle_id is None:
+        if job.backfill_id:
+            bundle = store.prepare_backfill_evidence(job.job_id, job.lease_token or "")
+            if bundle is None:
+                return None
+            refreshed = store.get_job(job.job_id)
+            if refreshed is None:
+                raise ValueError("backfill job disappeared during evidence preparation")
+            job = refreshed
+        else:
+            store.complete_job_needs_evidence(job.job_id, job.lease_token or "")
+            return None
+    if job.bundle_id is None:
         store.complete_job_needs_evidence(job.job_id, job.lease_token or "")
         return None
     candidate = store.get_candidate(job.candidate_id)
@@ -63,6 +75,8 @@ async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision 
     except Exception as exc:
         store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))
         raise
+    if job.supersedes_insight_id:
+        insight = insight.model_copy(update={"supersedes_insight_id": job.supersedes_insight_id})
     return store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
 
 

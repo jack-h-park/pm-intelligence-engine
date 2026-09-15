@@ -14,6 +14,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.models.insights import (
     BudgetReservation,
     Candidate,
+    EvidenceBackfillRequest,
+    EvidenceBackfillTarget,
     EvidenceBundle,
     InsightJob,
     InsightReview,
@@ -22,6 +24,7 @@ from app.models.insights import (
     IntelligenceBundleRow,
     IntelligenceCandidateRow,
     IntelligenceDeliveryReceiptRow,
+    IntelligenceEvidenceBackfillRow,
     IntelligenceIdempotencyRow,
     IntelligenceInsightFeedbackRow,
     IntelligenceInsightReviewRow,
@@ -37,9 +40,18 @@ from app.models.insights import (
     ResearchRequest,
     SourceRecord,
 )
+from app.services.insight_evidence import prepare_evidence
 from app.storage.insight_migrations import initialize_insight_schema
 
-Record = TypeVar("Record", Candidate, SourceRecord, EvidenceBundle, InsightJob, InsightReview)
+Record = TypeVar(
+    "Record",
+    Candidate,
+    SourceRecord,
+    EvidenceBundle,
+    EvidenceBackfillRequest,
+    InsightJob,
+    InsightReview,
+)
 
 
 class MissingInsightRecord(ValueError):
@@ -250,6 +262,95 @@ class InsightStore:
             row = session.get(IntelligenceInsightRow, insight_id)
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
+    def create_idempotent_backfill(
+        self,
+        actor: str,
+        key: str,
+        request_hash: str,
+        *,
+        insight_id: str,
+        base_revision: int,
+        targets: list[EvidenceBackfillTarget],
+    ) -> tuple[EvidenceBackfillRequest, int]:
+        """Persist a bounded request without allowing caller-selected lineage."""
+
+        def save(session: Session) -> tuple[EvidenceBackfillRequest, bool]:
+            base_row = session.get(IntelligenceInsightRow, insight_id)
+            if base_row is None:
+                raise MissingInsightRecord(f"insight {insight_id} was not found")
+            base = InsightRevision.model_validate_json(base_row.payload_json)
+            if base.revision != base_revision:
+                raise MissingInsightRecord(
+                    f"insight {insight_id} revision {base_revision} was not found"
+                )
+            prepared_row = session.get(IntelligencePreparedContextRow, base.prepared_context_id)
+            if prepared_row is None:
+                raise InvalidInsightReference(
+                    f"prepared context {base.prepared_context_id} was not found"
+                )
+            prepared = PreparedContext.model_validate_json(prepared_row.payload_json)
+            if session.get(IntelligenceCandidateRow, prepared.candidate_id) is None:
+                raise InvalidInsightReference(f"candidate {prepared.candidate_id} was not found")
+            completed = session.execute(
+                select(IntelligenceEvidenceBackfillRow).where(
+                    IntelligenceEvidenceBackfillRow.insight_id == insight_id,
+                    IntelligenceEvidenceBackfillRow.base_revision == base_revision,
+                    IntelligenceEvidenceBackfillRow.state == "complete",
+                )
+            ).scalar_one_or_none()
+            if completed is not None:
+                raise InvalidInsightReference("a completed evidence backfill already exists")
+            request = EvidenceBackfillRequest(
+                insight_id=insight_id,
+                base_revision=base_revision,
+                candidate_id=prepared.candidate_id,
+                targets=targets,
+                actor_fingerprint=actor,
+                idempotency_key=key,
+                request_hash=request_hash,
+            )
+            job = InsightJob(
+                candidate_id=prepared.candidate_id,
+                context_revision=base.context_revision,
+                purpose="learning",
+                backfill_id=request.backfill_id,
+                supersedes_insight_id=base.insight_id,
+            )
+            request.job_id = job.job_id
+            session.add(
+                IntelligenceEvidenceBackfillRow(
+                    backfill_id=request.backfill_id,
+                    insight_id=request.insight_id,
+                    base_revision=request.base_revision,
+                    candidate_id=request.candidate_id,
+                    state=request.state,
+                    created_at=request.created_at,
+                    payload_json=_json(request),
+                )
+            )
+            session.add(
+                IntelligenceJobRow(
+                    job_id=job.job_id,
+                    candidate_id=job.candidate_id,
+                    state=job.state,
+                    next_attempt_at=job.next_attempt_at,
+                    lease_token=job.lease_token,
+                    lease_expires_at=job.lease_expires_at,
+                    payload_json=_json(job),
+                )
+            )
+            return request, True
+
+        record, status_code = self.create_idempotent(
+            "evidence_backfill", actor, key, request_hash, EvidenceBackfillRequest, save
+        )
+        return cast(EvidenceBackfillRequest, record), status_code
+
+    def get_backfill(self, backfill_id: str) -> EvidenceBackfillRequest | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceEvidenceBackfillRow, backfill_id)
+            return EvidenceBackfillRequest.model_validate_json(row.payload_json) if row else None
+
     def get_insight_evidence(
         self, insight_id: str
     ) -> tuple[InsightRevision, PreparedContext, EvidenceBundle, list[SourceRecord]] | None:
@@ -431,12 +532,21 @@ class InsightStore:
             if job_row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
             job = InsightJob.model_validate_json(job_row.payload_json)
-            if job.state != "running" or job.lease_token != lease_token:
+            if (
+                job.state != "running"
+                or job.lease_token != lease_token
+                or (job.lease_expires_at and job.lease_expires_at <= current)
+            ):
                 raise StaleLease("job lease is stale")
             if job.bundle_id != prepared.bundle_id or prepared.candidate_id != job.candidate_id:
                 raise InvalidInsightReference("prepared context does not match the leased job")
             if insight.prepared_context_id != prepared.prepared_context_id:
                 raise InvalidInsightReference("insight does not reference the prepared context")
+            if (
+                job.supersedes_insight_id
+                and insight.supersedes_insight_id != job.supersedes_insight_id
+            ):
+                raise InvalidInsightReference("insight does not preserve the backfill supersession")
             session.add(
                 IntelligencePreparedContextRow(
                     prepared_context_id=prepared.prepared_context_id,
@@ -463,6 +573,19 @@ class InsightStore:
             job.lease_expires_at = None
             job.updated_at = current
             self._write_job(job_row, job)
+            if job.backfill_id:
+                backfill_row = session.get(IntelligenceEvidenceBackfillRow, job.backfill_id)
+                if backfill_row is None:
+                    raise InvalidInsightReference(f"backfill {job.backfill_id} was not found")
+                backfill = EvidenceBackfillRequest.model_validate_json(backfill_row.payload_json)
+                if backfill.job_id != job.job_id or backfill.bundle_id != prepared.bundle_id:
+                    raise InvalidInsightReference(
+                        "backfill completion does not match the prepared context"
+                    )
+                backfill.state = "complete"
+                backfill.resulting_insight_id = insight.insight_id
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
             return insight
 
     def complete_job_needs_evidence(
@@ -479,7 +602,11 @@ class InsightStore:
             if row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
             job = InsightJob.model_validate_json(row.payload_json)
-            if job.state != "running" or job.lease_token != lease_token:
+            if (
+                job.state != "running"
+                or job.lease_token != lease_token
+                or (job.lease_expires_at and job.lease_expires_at <= current)
+            ):
                 raise StaleLease("job lease is stale")
             job.state = "complete"
             job.completion_disposition = "needs_evidence"
@@ -488,6 +615,16 @@ class InsightStore:
             job.error = reason[:1000]
             job.updated_at = current
             self._write_job(row, job)
+            if job.backfill_id:
+                backfill_row = session.get(IntelligenceEvidenceBackfillRow, job.backfill_id)
+                if backfill_row is None:
+                    raise InvalidInsightReference(f"backfill {job.backfill_id} was not found")
+                backfill = EvidenceBackfillRequest.model_validate_json(backfill_row.payload_json)
+                if backfill.job_id != job.job_id:
+                    raise InvalidInsightReference("backfill does not reference its evidence job")
+                backfill.state = "needs_evidence"
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
             return job
 
     def complete_job_no_new_learning(
@@ -675,6 +812,17 @@ class InsightStore:
                     payload_json=_json(request),
                 )
             )
+            if job.backfill_id:
+                backfill_row = session.get(IntelligenceEvidenceBackfillRow, job.backfill_id)
+                if backfill_row is None:
+                    raise InvalidInsightReference(f"backfill {job.backfill_id} was not found")
+                backfill = EvidenceBackfillRequest.model_validate_json(backfill_row.payload_json)
+                if backfill.job_id != job.job_id:
+                    raise InvalidInsightReference("backfill does not reference its research job")
+                backfill.state = "waiting_research"
+                backfill.research_request_id = request.research_request_id
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
             return request
 
     def get_research_request(self, request_id: str) -> ResearchRequest | None:
@@ -747,6 +895,7 @@ class InsightStore:
                     )
             request.state = "complete"
             request.completed_at = current
+            request.failures = failures
             request.lease_token = None
             request.lease_expires_at = None
             self._write_research(row, request)
@@ -759,7 +908,193 @@ class InsightStore:
                     job.next_attempt_at = current
                     job.updated_at = current
                     self._write_job(job_row, job)
+                    if job.backfill_id:
+                        backfill_row = session.get(IntelligenceEvidenceBackfillRow, job.backfill_id)
+                        if backfill_row is None:
+                            raise InvalidInsightReference(
+                                f"backfill {job.backfill_id} was not found"
+                            )
+                        backfill = EvidenceBackfillRequest.model_validate_json(
+                            backfill_row.payload_json
+                        )
+                        backfill.state = "analyzing"
+                        backfill.updated_at = current
+                        self._write_backfill(backfill_row, backfill)
             return request
+
+    def prepare_backfill_evidence(
+        self, job_id: str, lease_token: str, now: datetime | None = None
+    ) -> EvidenceBundle | None:
+        """Create/assemble only an allowlisted backfill bundle under its active job lease."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            job_row = session.get(IntelligenceJobRow, job_id)
+            if job_row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(job_row.payload_json)
+            if (
+                job.state != "running"
+                or job.lease_token != lease_token
+                or (job.lease_expires_at and job.lease_expires_at <= current)
+            ):
+                raise StaleLease("job lease is stale")
+            if not job.backfill_id:
+                raise InvalidInsightReference("job is not an evidence backfill")
+            backfill_row = session.get(IntelligenceEvidenceBackfillRow, job.backfill_id)
+            if backfill_row is None:
+                raise InvalidInsightReference(f"backfill {job.backfill_id} was not found")
+            backfill = EvidenceBackfillRequest.model_validate_json(backfill_row.payload_json)
+            if backfill.job_id != job.job_id or backfill.candidate_id != job.candidate_id:
+                raise InvalidInsightReference("backfill lineage does not match the job")
+            if backfill.research_request_id is None:
+                request = ResearchRequest(
+                    job_id=job.job_id,
+                    parent_lease_token=lease_token,
+                    targets=[target.url for target in backfill.targets],
+                    questions=[target.question for target in backfill.targets],
+                    target_purposes=[target.purpose for target in backfill.targets],
+                    maximum_fetch_count=len(backfill.targets),
+                    expires_at=current + timedelta(minutes=10),
+                )
+                job.state = "waiting_research"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.updated_at = current
+                self._write_job(job_row, job)
+                backfill.state = "waiting_research"
+                backfill.research_request_id = request.research_request_id
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
+                session.add(
+                    IntelligenceResearchRequestRow(
+                        research_request_id=request.research_request_id,
+                        job_id=request.job_id,
+                        state=request.state,
+                        expires_at=request.expires_at,
+                        lease_token=None,
+                        payload_json=_json(request),
+                    )
+                )
+                return None
+            research_row = session.get(
+                IntelligenceResearchRequestRow, backfill.research_request_id
+            )
+            if research_row is None:
+                raise InvalidInsightReference("backfill research request was not found")
+            research = ResearchRequest.model_validate_json(research_row.payload_json)
+            if research.state == "expired":
+                job.state = "complete"
+                job.completion_disposition = "needs_evidence"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.error = "Backfill research request expired; evidence gap retained"
+                job.updated_at = current
+                self._write_job(job_row, job)
+                backfill.state = "expired"
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
+                return None
+            if research.state != "complete":
+                raise InvalidInsightReference("backfill research is not complete")
+
+            base_row = session.get(IntelligenceInsightRow, backfill.insight_id)
+            if base_row is None:
+                raise InvalidInsightReference(f"base insight {backfill.insight_id} was not found")
+            base = InsightRevision.model_validate_json(base_row.payload_json)
+            if base.revision != backfill.base_revision:
+                raise InvalidInsightReference("base insight revision no longer matches the request")
+            prepared_row = session.get(IntelligencePreparedContextRow, base.prepared_context_id)
+            if prepared_row is None:
+                raise InvalidInsightReference("base Insight prepared context was not found")
+            prepared = PreparedContext.model_validate_json(prepared_row.payload_json)
+            base_bundle_row = session.get(IntelligenceBundleRow, prepared.bundle_id)
+            if base_bundle_row is None:
+                raise InvalidInsightReference("base Insight evidence bundle was not found")
+            base_bundle = EvidenceBundle.model_validate_json(base_bundle_row.payload_json)
+            candidate_row = session.get(IntelligenceCandidateRow, backfill.candidate_id)
+            if candidate_row is None:
+                raise InvalidInsightReference("backfill candidate was not found")
+            candidate = Candidate.model_validate_json(candidate_row.payload_json)
+
+            sources: list[SourceRecord] = []
+            gaps = [
+                "Backfill acquisition failed for "
+                f"{failure.get('target', 'unknown')}: {failure.get('status', 'unknown')}"
+                for failure in research.failures
+            ]
+            for source_id in base_bundle.source_ids:
+                seed_row = session.get(IntelligenceSourceRow, source_id)
+                if seed_row is not None:
+                    sources.append(SourceRecord.model_validate_json(seed_row.payload_json))
+                else:
+                    gaps.append(f"The base Insight source {source_id} was unavailable.")
+            allowed_targets = {target.url for target in backfill.targets}
+            result_rows = session.execute(
+                select(IntelligenceResearchResultRow)
+                .where(
+                    IntelligenceResearchResultRow.research_request_id
+                    == research.research_request_id
+                )
+                .order_by(IntelligenceResearchResultRow.result_id)
+            ).scalars()
+            enrichment_count = 0
+            for result_row in result_rows:
+                if len(sources) >= 4:
+                    gaps.append("A backfill source was omitted at the four-source bundle limit.")
+                    break
+                result = json.loads(result_row.payload_json)
+                target = result.get("target")
+                if not isinstance(target, str) or target not in allowed_targets:
+                    gaps.append("An adapter result did not match an allowlisted target.")
+                    continue
+                status = result.get("acquisition_status")
+                content = result.get("content")
+                content_hash = result.get("content_hash")
+                if status not in {"ok", "fallback_summary"} or not isinstance(content, str):
+                    gaps.append(f"Backfill source {target} was not usable.")
+                    continue
+                try:
+                    source = SourceRecord(
+                        candidate_id=candidate.candidate_id,
+                        origin="user_supplied",
+                        content_hash=str(content_hash),
+                        acquisition_status=status,
+                        retrieved_at=current,
+                        content=content,
+                        url=target,
+                    )
+                except ValueError:
+                    gaps.append(f"Backfill source {target} failed material validation.")
+                    continue
+                stored_source, created = self._save_source(session, source)
+                if not created:
+                    gaps.append(f"Backfill source {target} duplicated existing evidence.")
+                    continue
+                sources.append(stored_source)
+                enrichment_count += 1
+            if enrichment_count == 0:
+                job.state = "complete"
+                job.completion_disposition = "needs_evidence"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.error = "No usable enrichment source was available for the evidence backfill"
+                job.updated_at = current
+                self._write_job(job_row, job)
+                backfill.state = "needs_evidence"
+                backfill.updated_at = current
+                self._write_backfill(backfill_row, backfill)
+                return None
+            bundle = prepare_evidence(candidate, sources, context_revision=job.context_revision)
+            bundle = bundle.model_copy(update={"coverage_gaps": [*bundle.coverage_gaps, *gaps]})
+            self._save_bundle(session, bundle)
+            job.bundle_id = bundle.bundle_id
+            job.updated_at = current
+            self._write_job(job_row, job)
+            backfill.state = "analyzing"
+            backfill.bundle_id = bundle.bundle_id
+            backfill.updated_at = current
+            self._write_backfill(backfill_row, backfill)
+            return bundle
 
     def expire_research_requests(self, now: datetime | None = None) -> None:
         current = _now(now)
@@ -789,6 +1124,17 @@ class InsightStore:
                         job.next_attempt_at = current
                         job.updated_at = current
                         self._write_job(job_row, job)
+                        if job.backfill_id:
+                            backfill_row = session.get(
+                                IntelligenceEvidenceBackfillRow, job.backfill_id
+                            )
+                            if backfill_row is not None:
+                                backfill = EvidenceBackfillRequest.model_validate_json(
+                                    backfill_row.payload_json
+                                )
+                                backfill.state = "expired"
+                                backfill.updated_at = current
+                                self._write_backfill(backfill_row, backfill)
 
     # --- Budget reservations (E02) ---
 
@@ -868,6 +1214,13 @@ class InsightStore:
         row.lease_token = job.lease_token
         row.lease_expires_at = job.lease_expires_at
         row.payload_json = _json(job)
+
+    @staticmethod
+    def _write_backfill(
+        row: IntelligenceEvidenceBackfillRow, request: EvidenceBackfillRequest
+    ) -> None:
+        row.state = request.state
+        row.payload_json = _json(request)
 
     @staticmethod
     def _write_research(row: IntelligenceResearchRequestRow, request: ResearchRequest) -> None:
