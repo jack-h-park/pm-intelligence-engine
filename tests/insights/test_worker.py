@@ -42,6 +42,29 @@ def _job_payload(candidate_id: str) -> dict[str, Any]:
     }
 
 
+def test_scoped_candidate_job_uses_only_its_stored_source_and_never_claims_generic_work(
+    store_factory, candidate_payload, source_payload
+):
+    """A one-candidate runner must not consume a generic job, even for the same Candidate."""
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+
+    scoped = store.ensure_scoped_candidate_job(candidate.candidate_id)
+    assert store.claim_job() is None
+    unrelated = store.create_job(_job_payload(candidate.candidate_id))
+    claimed = store.claim_scoped_candidate_job(candidate.candidate_id)
+
+    assert scoped.scoped_candidate_runner is True
+    assert scoped.bundle_id is not None
+    bundle = store.get_bundle(scoped.bundle_id)
+    assert bundle is not None
+    assert bundle.source_ids == [source.source_id]
+    assert claimed is not None
+    assert claimed.job_id == scoped.job_id
+    assert store.get_job(unrelated.job_id).state == "queued"
+
+
 def _save_base_insight(
     store, candidate_payload, source_payload, bundle_payload, *, with_prior_enrichment=False
 ):

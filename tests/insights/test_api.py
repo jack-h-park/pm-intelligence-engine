@@ -214,6 +214,84 @@ def test_evidence_backfill_worker_tick_advances_only_the_named_backfill(
     assert engine.insight_store.get_job(unrelated.job_id).state == "queued"
 
 
+def test_scoped_candidate_worker_tick_never_falls_through_to_generic_work(
+    client, auth_headers, candidate_payload, source_payload, monkeypatch
+):
+    """The Candidate endpoint may initialize only its named, marked job."""
+    engine = app.dependency_overrides[get_engine]()
+    candidate = engine.insight_store.save_candidate(candidate_payload)
+    engine.insight_store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    unrelated = engine.insight_store.create_job(
+        {
+            "candidate_id": candidate.candidate_id,
+            "context_revision": "generic-fixture-v1",
+            "purpose": "learning",
+        }
+    )
+
+    async def tick(store, requested_candidate_id):
+        store.ensure_scoped_candidate_job(requested_candidate_id)
+        return None
+
+    monkeypatch.setattr(insights_api, "run_oauth_scoped_candidate_worker_tick", tick)
+    response = client.post(
+        f"/insight-candidates/{candidate.candidate_id}/worker-tick", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["candidate_id"] == candidate.candidate_id
+    assert response.json()["state"] == "queued"
+    assert response.json()["completion_disposition"] is None
+    assert engine.insight_store.get_job(unrelated.job_id).state == "queued"
+
+
+def test_scoped_candidate_worker_tick_replays_its_completed_insight_id(
+    client, auth_headers, candidate_payload, source_payload, monkeypatch
+):
+    """A transport retry must retain the reviewable Insight identifier."""
+    from app.models.insights import InsightRevision, PreparedContext
+
+    engine = app.dependency_overrides[get_engine]()
+    store = engine.insight_store
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    scoped = store.ensure_scoped_candidate_job(candidate.candidate_id)
+    claimed = store.claim_scoped_candidate_job(candidate.candidate_id)
+    prepared = PreparedContext(
+        candidate_id=candidate.candidate_id,
+        bundle_id=scoped.bundle_id,
+        question="What changed?",
+        validation_status="valid",
+        context_revision=scoped.context_revision,
+    )
+    insight = InsightRevision(
+        prepared_context_id=prepared.prepared_context_id,
+        headline="Scoped learning",
+        explanation="Only the stored source was used.",
+        actual_change="A bounded source was reviewed.",
+        why_now="The explicit Candidate was requested.",
+        personal_relevance="It answers the requested question.",
+        takeaway="Review the evidence.",
+        claims=[
+            {"text": "A bounded source was reviewed.", "passage_ids": [f"{source.source_id}:0"]}
+        ],
+        context_revision=scoped.context_revision,
+    )
+    store.complete_job_analysis(claimed.job_id, claimed.lease_token, prepared, insight)
+
+    async def tick(store, requested_candidate_id):
+        return None
+
+    monkeypatch.setattr(insights_api, "run_oauth_scoped_candidate_worker_tick", tick)
+    response = client.post(
+        f"/insight-candidates/{candidate.candidate_id}/worker-tick", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "complete"
+    assert response.json()["insight_id"] == insight.insight_id
+
+
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):
     headers = {**auth_headers, "Idempotency-Key": "candidate-fixture-1"}
     first = client.post("/insight-candidates", json=candidate_payload, headers=headers)

@@ -341,6 +341,7 @@ class InsightJob(_Record):
     prepared_context_id: str | None = None
     context_revision: str
     purpose: Literal["learning", "decision_preparation"]
+    scoped_candidate_runner: bool = False
     state: Literal[
         "queued", "running", "waiting_research", "retryable_failed", "complete", "exhausted"
     ] = "queued"
@@ -507,6 +508,7 @@ class IntelligenceJobRow(Base):
 
     job_id: Mapped[str] = mapped_column(String, primary_key=True)
     candidate_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    scoped_candidate_id: Mapped[str | None] = mapped_column(String, nullable=True, unique=True)
     state: Mapped[str] = mapped_column(String, nullable=False, index=True)
     next_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     lease_token: Mapped[str | None] = mapped_column(String, nullable=True)

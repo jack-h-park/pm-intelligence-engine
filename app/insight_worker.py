@@ -25,6 +25,14 @@ async def process_backfill_one(
     return await _process_claimed_job(store, store.claim_backfill_job(backfill_id), llm)
 
 
+async def process_scoped_candidate_one(
+    store: InsightStore, candidate_id: str, llm: LLMProvider
+) -> InsightRevision | None:
+    """Advance one named Candidate without touching the generic job queue."""
+    store.ensure_scoped_candidate_job(candidate_id)
+    return await _process_claimed_job(store, store.claim_scoped_candidate_job(candidate_id), llm)
+
+
 async def _process_claimed_job(
     store: InsightStore, job: InsightJob | None, llm: LLMProvider
 ) -> InsightRevision | None:
@@ -105,6 +113,13 @@ async def run_oauth_backfill_worker_tick(
     if job is None:
         return None
     return await _process_claimed_job(store, job, build_insight_llm_provider())
+
+
+async def run_oauth_scoped_candidate_worker_tick(
+    store: InsightStore, candidate_id: str
+) -> InsightRevision | None:
+    """Run OAuth analysis for only one explicitly named Candidate."""
+    return await process_scoped_candidate_one(store, candidate_id, build_insight_llm_provider())
 
 
 async def run_oauth_worker_tick(store: InsightStore) -> InsightRevision | None:

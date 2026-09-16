@@ -9,6 +9,7 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 from sqlalchemy import Engine, create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.models.insights import (
@@ -260,6 +261,15 @@ class InsightStore:
     def get_insight(self, insight_id: str) -> InsightRevision | None:
         with self._Session() as session:
             row = session.get(IntelligenceInsightRow, insight_id)
+            return InsightRevision.model_validate_json(row.payload_json) if row else None
+
+    def get_insight_for_prepared_context(self, prepared_context_id: str) -> InsightRevision | None:
+        with self._Session() as session:
+            row = session.execute(
+                select(IntelligenceInsightRow).where(
+                    IntelligenceInsightRow.prepared_context_id == prepared_context_id
+                )
+            ).scalar_one_or_none()
             return InsightRevision.model_validate_json(row.payload_json) if row else None
 
     def create_idempotent_backfill(
@@ -729,6 +739,7 @@ class InsightStore:
                     select(IntelligenceJobRow).where(
                         IntelligenceJobRow.state == "running",
                         IntelligenceJobRow.lease_expires_at <= current,
+                        IntelligenceJobRow.scoped_candidate_id.is_(None),
                     )
                 )
                 .scalars()
@@ -748,6 +759,7 @@ class InsightStore:
                     select(IntelligenceJobRow)
                     .where(
                         IntelligenceJobRow.state.in_(["queued", "retryable_failed"]),
+                        IntelligenceJobRow.scoped_candidate_id.is_(None),
                         (IntelligenceJobRow.next_attempt_at.is_(None))
                         | (IntelligenceJobRow.next_attempt_at <= current),
                     )
@@ -805,6 +817,102 @@ class InsightStore:
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(job_row, job)
+            return job
+
+    def ensure_scoped_candidate_job(self, candidate_id: str) -> InsightJob:
+        """Create one evidence job from only the Candidate's persisted source rows.
+
+        This is deliberately separate from acquisition and the generic learning
+        queue: a caller must name its Candidate and the resulting job carries a
+        durable marker used by the scoped lease method below.
+        """
+        with self._Session.begin() as session:
+            candidate_row = session.get(IntelligenceCandidateRow, candidate_id)
+            if candidate_row is None:
+                raise MissingInsightRecord(f"candidate {candidate_id} was not found")
+            candidate = Candidate.model_validate_json(candidate_row.payload_json)
+            existing_row = session.execute(
+                select(IntelligenceJobRow).where(
+                    IntelligenceJobRow.scoped_candidate_id == candidate_id
+                )
+            ).scalar_one_or_none()
+            if existing_row is not None:
+                return InsightJob.model_validate_json(existing_row.payload_json)
+            source_rows = session.execute(
+                select(IntelligenceSourceRow).where(
+                    IntelligenceSourceRow.candidate_id == candidate_id
+                ).order_by(IntelligenceSourceRow.source_id)
+            ).scalars().all()
+            sources = [SourceRecord.model_validate_json(row.payload_json) for row in source_rows]
+            bundle = prepare_evidence(
+                candidate, sources, context_revision="controlled-candidate-v1"
+            )
+            job = InsightJob(
+                candidate_id=candidate_id,
+                bundle_id=bundle.bundle_id,
+                context_revision=bundle.context_revision,
+                purpose="learning",
+                scoped_candidate_runner=True,
+            )
+            try:
+                with session.begin_nested():
+                    self._save_bundle(session, bundle)
+                    session.add(
+                        IntelligenceJobRow(
+                            job_id=job.job_id,
+                            candidate_id=job.candidate_id,
+                            scoped_candidate_id=candidate_id,
+                            state=job.state,
+                            next_attempt_at=job.next_attempt_at,
+                            lease_token=job.lease_token,
+                            lease_expires_at=job.lease_expires_at,
+                            payload_json=_json(job),
+                        )
+                    )
+                    session.flush()
+            except IntegrityError:
+                existing_row = session.execute(
+                    select(IntelligenceJobRow).where(
+                        IntelligenceJobRow.scoped_candidate_id == candidate_id
+                    )
+                ).scalar_one()
+                return InsightJob.model_validate_json(existing_row.payload_json)
+            return job
+
+    def claim_scoped_candidate_job(
+        self, candidate_id: str, now: datetime | None = None
+    ) -> InsightJob | None:
+        """Lease only the named Candidate's marked job, never generic work."""
+        current = _now(now)
+        with self._Session.begin() as session:
+            rows = session.execute(
+                select(IntelligenceJobRow).where(
+                    IntelligenceJobRow.scoped_candidate_id == candidate_id
+                )
+            ).scalars().all()
+            scoped_row = rows[0] if rows else None
+            if scoped_row is None:
+                raise MissingInsightRecord(f"scoped job for candidate {candidate_id} was not found")
+            job = InsightJob.model_validate_json(scoped_row.payload_json)
+            if job.state == "running" and job.lease_expires_at and job.lease_expires_at <= current:
+                job.state = "queued"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.error = "Scoped candidate worker lease expired before completion"
+                job.next_attempt_at = current
+                job.updated_at = current
+                self._write_job(scoped_row, job)
+            if job.state not in {"queued", "retryable_failed"} or (
+                job.next_attempt_at is not None and job.next_attempt_at > current
+            ):
+                return None
+            job.state = "running"
+            job.attempt_count += 1
+            job.lease_token = str(uuid.uuid4())
+            job.lease_expires_at = current + timedelta(seconds=120)
+            job.next_attempt_at = None
+            job.updated_at = current
+            self._write_job(scoped_row, job)
             return job
 
     def create_research_request(

@@ -18,7 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
 from app.factory import PMEngine
-from app.insight_worker import run_oauth_backfill_worker_tick
+from app.insight_worker import (
+    run_oauth_backfill_worker_tick,
+    run_oauth_scoped_candidate_worker_tick,
+)
 from app.models.decision_case import InsightRevisionReference
 from app.models.insights import (
     Candidate,
@@ -99,6 +102,14 @@ class JobCreate(_Request):
 class JobAccepted(BaseModel):
     job_id: str
     state: Literal["queued"]
+
+
+class ScopedCandidateWorkerStatus(BaseModel):
+    candidate_id: str
+    job_id: str
+    state: str
+    completion_disposition: str | None
+    insight_id: str | None = None
 
 
 class EvidenceBackfillCreate(_Request):
@@ -597,6 +608,37 @@ async def tick_evidence_backfill_worker(
     if request is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="backfill was not found")
     return request
+
+
+@router.post(
+    "/insight-candidates/{candidate_id}/worker-tick",
+    response_model=ScopedCandidateWorkerStatus,
+)
+async def tick_scoped_candidate_worker(
+    candidate_id: str,
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> ScopedCandidateWorkerStatus:
+    """Advance only the named Candidate using its persisted evidence."""
+    store = _processing_store(engine)
+    if store.get_candidate(candidate_id) is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="candidate was not found")
+    try:
+        insight = await run_oauth_scoped_candidate_worker_tick(store, candidate_id)
+        job = store.ensure_scoped_candidate_job(candidate_id)
+    except (InvalidInsightReference, MissingInsightRecord) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    if insight is None and job.prepared_context_id is not None:
+        insight = store.get_insight_for_prepared_context(job.prepared_context_id)
+    return ScopedCandidateWorkerStatus(
+        candidate_id=candidate_id,
+        job_id=job.job_id,
+        state=job.state,
+        completion_disposition=job.completion_disposition,
+        insight_id=insight.insight_id if insight else None,
+    )
 
 
 @router.post("/insight-jobs", response_model=JobAccepted, status_code=status.HTTP_202_ACCEPTED)
