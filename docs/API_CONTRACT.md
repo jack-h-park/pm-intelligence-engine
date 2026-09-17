@@ -582,6 +582,10 @@ consumer must not keep a second ledger of Insight IDs.
   in a later incremental read.
 - `after` is an Engine-issued cursor. It retains the original `since` boundary
   plus the final tuple of the prior page; use it unchanged for the next page.
+- Every non-empty page includes `next_cursor`, including the final non-empty
+  page. A consumer keeps that cursor as its durable checkpoint; a subsequent
+  request with it returns an empty page and `next_cursor: null` until a later
+  Insight is created.
 - A malformed cursor, or a cursor combined with a different `since`, returns
   422. `next_cursor` is null when no matching row remains.
 

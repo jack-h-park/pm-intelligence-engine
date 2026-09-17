@@ -607,6 +607,11 @@ def test_list_insights_cursor_pages_without_a_second_consumer_ledger(
 
     second_page = client.get(f"/insights?after={cursor}&limit=1", headers=auth_headers)
     assert second_page.status_code == 200
+    terminal_cursor = second_page.json()["next_cursor"]
+    assert terminal_cursor is not None
+    empty_page = client.get(f"/insights?after={terminal_cursor}&limit=1", headers=auth_headers)
+    assert empty_page.status_code == 200
+    assert empty_page.json() == {"items": [], "next_cursor": None}
     returned_ids = {
         item["insight_id"]
         for item in first_page.json()["items"] + second_page.json()["items"]
