@@ -503,6 +503,7 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
     assert store.get_job(job.job_id).state == "complete"
     assert store.get_prepared_context(completed.prepared_context_id)
     assert store.get_insight(completed.insight_id) == completed
+    assert completed.question_ids == candidate.question_ids[:1]
 
 
 @pytest.mark.asyncio

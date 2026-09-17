@@ -192,6 +192,7 @@ class PreparedContext(_Record):
     candidate_id: str
     bundle_id: str
     question: str = Field(min_length=1)
+    question_ids: list[str] = Field(default_factory=list)
     facts: list[PreparedFact] = Field(default_factory=list)
     hypotheses: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)

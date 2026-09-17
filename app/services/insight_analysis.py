@@ -16,7 +16,8 @@ async def analyze_bundle(
     if context.bundle_id != bundle.bundle_id:
         raise ValueError("prepared context must reference the supplied bundle")
     evidence = [
-        {"passage_id": passage.passage_id, "text": passage.text, "locator": passage.locator}
+        {"passage_id": passage.passage_id, "source_id": passage.source_id,
+         "text": passage.text, "locator": passage.locator}
         for passage in bundle.passages
     ]
     payload = await complete_json(
@@ -30,13 +31,20 @@ async def analyze_bundle(
                     "headline, explanation, actual_change, why_now, personal_relevance, and "
                     "takeaway; a non-empty claims array whose items each contain text and one "
                     "or more provided passage_ids; and an uncertainties array of strings. "
-                    "Every claim must cite one or more provided passage_ids."
+                    "Every claim must cite one or more provided passage_ids. "
+                    "Preserve measurement windows, geography, units, and attribution. "
+                    "A multi-day daily average is not a measured launch-day count. "
+                    "Co-occurrence does not establish causation. Distinguish supplied sources "
+                    "from sources actually cited; multiple publications do not establish "
+                    "independent confirmation. Apply these rules to every narrative field, "
+                    "including headline, actual_change, takeaway, and uncertainties."
                 ),
             },
             {
                 "role": "user",
                 "content": json.dumps({
                     "question": context.question,
+                    "source_ids": bundle.source_ids,
                     "evidence": evidence,
                     "coverage_gaps": bundle.coverage_gaps,
                 }),
@@ -59,7 +67,7 @@ async def analyze_bundle(
         takeaway=payload["takeaway"],
         claims=claims,
         uncertainties=payload.get("uncertainties", []),
-        question_ids=[],
+        question_ids=list(context.question_ids),
         note_connections=[],
         context_revision=context.context_revision,
     )

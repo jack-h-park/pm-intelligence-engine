@@ -85,6 +85,7 @@ async def _process_claimed_job(
         candidate_id=candidate.candidate_id,
         bundle_id=bundle.bundle_id,
         question=candidate.question_ids[0] if candidate.question_ids else candidate.subject,
+        question_ids=candidate.question_ids[:1],
         facts=[],
         unresolved_questions=bundle.coverage_gaps,
         validation_status=status,

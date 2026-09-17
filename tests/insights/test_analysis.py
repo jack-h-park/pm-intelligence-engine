@@ -83,6 +83,10 @@ async def test_analysis_prompt_requires_the_complete_insight_json_contract(
     llm = CapturingLLM()
     await analyze_bundle(learning_bundle, context, llm)
 
+    supplied = json.loads(llm.captured_messages[1]["content"])
+    assert supplied["source_ids"] == learning_bundle.source_ids
+    assert supplied["evidence"][0]["source_id"] == learning_bundle.passages[0].source_id
+
     instruction = llm.captured_messages[0]["content"]
     for field in (
         "headline",
@@ -137,6 +141,29 @@ def test_context_loader_hashes_selected_assets_and_keeps_missing_notes_empty(
     prepared = load_prepared_context(candidate, learning_bundle, tmp_path)
 
     assert prepared.question == "What should I test?"
+    assert prepared.question_ids == ["learning-loop"]
     assert prepared.context_paths == ["core/00-pm-identity.md"]
     assert len(prepared.context_hashes["core/00-pm-identity.md"]) == 64
     assert prepared.note_connections == []
+
+
+@pytest.mark.asyncio
+async def test_analysis_preserves_engine_selected_questions_not_model_labels(
+    learning_bundle, context
+):
+    selected = context.model_copy(update={"question_ids": ["learning-loop"]})
+
+    class MislabelledLLM(FixtureLLM):
+        async def complete(self, messages, **kwargs):
+            payload = json.loads(await super().complete(messages, **kwargs))
+            payload["question_ids"] = ["unrelated-model-label"]
+            return json.dumps(payload)
+
+    result = await analyze_bundle(learning_bundle, selected, MislabelledLLM())
+    assert result.question_ids == ["learning-loop"]
+
+
+def test_historical_prepared_context_without_question_ids_still_loads(context):
+    payload = context.model_dump(mode="json")
+    payload.pop("question_ids")
+    assert PreparedContext.model_validate(payload).question_ids == []

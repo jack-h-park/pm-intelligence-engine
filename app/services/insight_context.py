@@ -38,6 +38,7 @@ def load_prepared_context(
         candidate_id=candidate.candidate_id,
         bundle_id=bundle.bundle_id,
         question=question,
+        question_ids=[interest["id"]] if interest is not None else [],
         constraints=constraints,
         unresolved_questions=bundle.coverage_gaps,
         validation_status="valid" if bundle.passages else "needs_evidence",
