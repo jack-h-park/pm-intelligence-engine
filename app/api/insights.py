@@ -724,13 +724,13 @@ async def list_insights(
         if since is not None
         else cursor.since if cursor is not None else None
     )
-    items, has_more = engine.insight_store.list_insights_since(
+    items, _has_more = engine.insight_store.list_insights_since(
         normalized_since,
         (cursor.created_at, cursor.insight_id) if cursor is not None else None,
         limit,
     )
     next_cursor = None
-    if has_more and items:
+    if items:
         final = items[-1]
         next_cursor = encode_cursor(
             InsightListCursor(
