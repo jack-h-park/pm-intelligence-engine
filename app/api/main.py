@@ -28,7 +28,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.agents.strategist import StrategistAgent
     from app.factory import build_engine
     from app.services.template_service import TemplateService
+
+    # Tracing, if an exporter is configured. Deliberately before the preflight
+    # below: a boot that fails the preflight is exactly the kind someone wants a
+    # trace of, and this call cannot itself fail a boot — it returns False and
+    # logs when keys or optional dependencies are absent.
+    from app.telemetry import setup_tracing
     from config import settings
+
+    setup_tracing()
 
     # Preflight: persona prompts live in decision-context (US-37). Fail fast at
     # boot if that checkout is stale rather than crashing mid-run at S4.
