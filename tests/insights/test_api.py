@@ -496,7 +496,7 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
     assert response.json()["detail"] == "budget_denied"
 
 
-def test_insight_evidence_returns_only_cited_passages_and_source_metadata(
+def test_insight_evidence_response_shape_is_fixed_and_excludes_uncited_passages(
     client, auth_headers, candidate_payload, source_payload, bundle_payload
 ):
     def bundle_with_uncited_passage(candidate_id, source_id):
