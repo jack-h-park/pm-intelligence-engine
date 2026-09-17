@@ -250,3 +250,10 @@ git commit -m "docs: record insight sync verification"
 - Spec coverage: Task 1 fixes the evidence response gate; Tasks 2-3 implement `since`, replacement semantics, keyset pagination, and error handling; Task 4 verifies the public API and no-control-plane change.
 - Placeholder scan: every task names exact files, interfaces, test commands, expected results, and failure cases.
 - Type consistency: `InsightListCursor`, `encode_cursor`, `decode_cursor`, and `InsightStore.list_insights_since` are defined in Task 2 and consumed with those names in Task 3.
+
+## Execution Record
+
+- 2026-09-16: Task 1 completed. The fixed evidence response exact-object test was renamed to state its contract and passed.
+- 2026-09-16: Tasks 2 and 3 completed. Store keyset pagination, opaque cursor encode/decode, strict `since`, cursor boundary validation, and cursor-only continuation passed focused API/store tests.
+- 2026-09-16: Full bounded verification passed: `python -m pytest tests/insights tests/decision -q` (94 passed), `make lint`, and `python -m mypy app`.
+- 2026-09-16: `make docs-check` is not an Engine Make target; no substitute target exists in this repository. Documentation was checked with `git diff --check` and the tested API contract.
