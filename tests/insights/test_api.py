@@ -451,6 +451,81 @@ def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers,
     assert engine.llm.calls == 1
 
 
+def _write_interest_triage_context(tmp_path):
+    context = tmp_path / "decision-context" / "core"
+    context.mkdir(exist_ok=True)
+    (context / "signal-interest-context.yaml").write_text(
+        "revision: fixture-v1\n"
+        "interests:\n"
+        "  - id: learning-loop\n"
+        "    question: What should I test?\n"
+        "    constraints:\n"
+        "      - Keep claims attributed.\n",
+        encoding="utf-8",
+    )
+
+
+def _interest_triage_payload(interest_id: str, operation_id: str = "interest-triage"):
+    return {
+        "interest_id": interest_id,
+        "title": "Change",
+        "content": "Evidence.",
+        "operation_id": operation_id,
+        "policy_revision": "fixture-v1",
+        "provider": "oauth",
+        "rate_revision": "fixture-rates",
+        "maximum_micros": 10,
+        "actual_micros": 1,
+    }
+
+
+def test_interest_triage_resolves_question_inside_engine(
+    client, auth_headers, monkeypatch, tmp_path
+):
+    _write_interest_triage_context(tmp_path)
+    captured = {}
+
+    async def capture_triage(**kwargs):
+        captured.update(kwargs)
+        return insights_api.TriageDecision(
+            disposition="admit",
+            relevance="relevant",
+            novelty="meaningful_delta",
+            reason="New evidence.",
+        )
+
+    monkeypatch.setattr(insights_api, "triage_with_reservation", capture_triage)
+
+    response = client.post(
+        "/insight-triage/interest",
+        json=_interest_triage_payload("learning-loop"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 200
+    assert captured["question"] == "What should I test?"
+
+
+def test_interest_triage_rejects_unknown_id_before_model(
+    client, auth_headers, monkeypatch, tmp_path
+):
+    _write_interest_triage_context(tmp_path)
+
+    async def must_not_run(**kwargs):
+        raise AssertionError("semantic triage must not run for an unknown interest")
+
+    monkeypatch.setattr(insights_api, "triage_with_reservation", must_not_run)
+
+    response = client.post(
+        "/insight-triage/interest",
+        json=_interest_triage_payload("unknown"),
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "unknown_interest_id"
+
+
 def test_job_intake_is_idempotent_and_requires_an_existing_candidate(
     client, auth_headers, candidate_payload
 ):
