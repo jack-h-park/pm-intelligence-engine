@@ -5,7 +5,7 @@ import pytest
 
 from app.models.insights import Candidate, EvidenceBundle, Passage
 from app.services.insight_analysis import analyze_bundle
-from app.services.insight_context import PreparedContext, load_prepared_context
+from app.services.insight_context import PreparedContext, load_prepared_context, resolve_interest
 
 
 class FixtureLLM:
@@ -27,6 +27,45 @@ class FixtureLLM:
                 "uncertainties": ["No independent replication was supplied."],
             }
         )
+
+
+def _write_interest_context(tmp_path: Path, interests: list[dict[str, object]]) -> None:
+    (tmp_path / "core").mkdir(exist_ok=True)
+    entries = "\n".join(
+        "  - id: {id}\n    question: {question}\n".format(**interest)
+        + "".join(
+            f"    constraints:\n      - {constraint}\n"
+            for constraint in interest.get("constraints", [])
+        )
+        for interest in interests
+    )
+    (tmp_path / "core" / "signal-interest-context.yaml").write_text(
+        f"revision: fixture-v1\ninterests:\n{entries}", encoding="utf-8"
+    )
+
+
+def test_resolve_interest_returns_first_registered_candidate_interest(tmp_path: Path):
+    _write_interest_context(
+        tmp_path,
+        [
+            {"id": "first", "question": "First?", "constraints": ["Bound scope."]},
+            {"id": "second", "question": "Second?", "constraints": []},
+        ],
+    )
+
+    resolved = resolve_interest(["unknown", "second", "first"], tmp_path)
+
+    assert resolved is not None
+    assert resolved.id == "second"
+    assert resolved.question == "Second?"
+    assert resolved.constraints == []
+    assert resolved.context_revision == "fixture-v1"
+
+
+def test_resolve_interest_returns_none_for_unknown_id(tmp_path: Path):
+    _write_interest_context(tmp_path, [])
+
+    assert resolve_interest(["unknown"], tmp_path) is None
 
 
 @pytest.fixture()
