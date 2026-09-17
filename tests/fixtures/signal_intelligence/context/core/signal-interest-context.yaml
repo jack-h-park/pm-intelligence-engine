@@ -1,0 +1,14 @@
+revision: fixture-context-v1
+interests:
+  - id: android-enterprise-isolation
+    question: What changed in managed profile isolation?
+    constraints: [Preserve attribution.]
+  - id: platform-learning
+    question: What platform practice is worth testing?
+    constraints: [Keep conclusions bounded by evidence.]
+  - id: mobile-security
+    question: What mobile security behavior changed?
+    constraints: [Separate observed behavior from hypotheses.]
+  - id: historical-context
+    question: What historical context remains useful?
+    constraints: [Do not present historical evidence as a new change.]

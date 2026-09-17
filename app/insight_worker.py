@@ -1,21 +1,25 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
-from typing import Literal
-
 from app.factory import build_insight_llm_provider
 from app.llm.protocol import LLMProvider
-from app.models.insights import InsightJob, InsightRevision, PreparedContext
+from app.models.insights import InsightJob, InsightRevision
 from app.services.insight_analysis import analyze_bundle
+from app.services.insight_context import load_prepared_context
 from app.storage.insight_store import InsightStore
+from config import settings
 
 
-async def process_one(store: InsightStore, llm: LLMProvider) -> InsightRevision | None:
+async def process_one(
+    store: InsightStore, llm: LLMProvider, *, decision_context_root: str | None = None
+) -> InsightRevision | None:
     """Claim one job and atomically save its prepared context, insight, and completion.
 
     Acquisition requests are handled by the control-plane adapter. This worker
     only processes a job after a bundle has been persisted by the engine.
     """
-    return await _process_claimed_job(store, store.claim_job(), llm)
+    return await _process_claimed_job(
+        store, store.claim_job(), llm, decision_context_root=decision_context_root
+    )
 
 
 async def process_backfill_one(
@@ -34,7 +38,8 @@ async def process_scoped_candidate_one(
 
 
 async def _process_claimed_job(
-    store: InsightStore, job: InsightJob | None, llm: LLMProvider
+    store: InsightStore, job: InsightJob | None, llm: LLMProvider,
+    *, decision_context_root: str | None = None,
 ) -> InsightRevision | None:
     if job is None:
         return None
@@ -80,18 +85,12 @@ async def _process_claimed_job(
             job.job_id, job.lease_token or "", "Evidence bundle has no material delta"
         )
         return None
-    status: Literal["valid", "needs_evidence"] = "valid" if bundle.passages else "needs_evidence"
-    prepared = PreparedContext(
-        candidate_id=candidate.candidate_id,
-        bundle_id=bundle.bundle_id,
-        question=candidate.question_ids[0] if candidate.question_ids else candidate.subject,
-        question_ids=candidate.question_ids[:1],
-        facts=[],
-        unresolved_questions=bundle.coverage_gaps,
-        validation_status=status,
-        context_revision=job.context_revision,
-    )
     try:
+        prepared = load_prepared_context(
+            candidate, bundle,
+            decision_context_root if decision_context_root is not None
+            else settings.DECISION_CONTEXT_ROOT,
+        )
         insight = await analyze_bundle(bundle, prepared, llm)
     except Exception as exc:
         store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))

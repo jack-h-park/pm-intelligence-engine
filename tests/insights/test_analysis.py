@@ -147,6 +147,32 @@ def test_context_loader_hashes_selected_assets_and_keeps_missing_notes_empty(
     assert prepared.note_connections == []
 
 
+@pytest.mark.parametrize(
+    ("question_ids", "expected_question", "expected_ids"),
+    [
+        ([], "A learning lead", []),
+        (["unknown", "learning-loop", "another"], "What should I test?", ["learning-loop"]),
+    ],
+)
+def test_context_selects_only_a_resolved_interest_or_unlabelled_subject(
+    tmp_path, learning_bundle, question_ids, expected_question, expected_ids
+):
+    (tmp_path / "core").mkdir()
+    (tmp_path / "core/signal-interest-context.yaml").write_text(
+        "interests:\n  - id: learning-loop\n    question: What should I test?\n"
+        "  - id: another\n    question: What else changed?\n"
+    )
+    candidate = Candidate(
+        candidate_id=learning_bundle.candidate_id, origin="user_supplied",
+        subject="A learning lead", question_ids=question_ids, policy_revision="fixture-v1",
+    )
+
+    prepared = load_prepared_context(candidate, learning_bundle, tmp_path)
+
+    assert prepared.question == expected_question
+    assert prepared.question_ids == expected_ids
+
+
 @pytest.mark.asyncio
 async def test_analysis_preserves_engine_selected_questions_not_model_labels(
     learning_bundle, context

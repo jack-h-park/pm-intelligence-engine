@@ -114,7 +114,10 @@ async def run_fixture_replay() -> FixtureReplayReport:
                 "purpose": "learning",
             }
         )
-        insight = await process_one(store, _FixtureLLM())
+        insight = await process_one(
+            store, _FixtureLLM(),
+            decision_context_root=str(_calibration_fixture_path().parent / "context"),
+        )
         if insight is None:
             raise RuntimeError("fixture replay did not produce an insight")
         prepared = store.get_prepared_context(insight.prepared_context_id)
@@ -193,7 +196,10 @@ async def run_calibration_corpus() -> CalibrationCorpusReport:
                     "purpose": "learning",
                 }
             )
-            insight = await process_one(store, _FixtureLLM(f"{case_id}:0"))
+            insight = await process_one(
+                store, _FixtureLLM(f"{case_id}:0"),
+                decision_context_root=str(_calibration_fixture_path().parent / "context"),
+            )
             completed = store.get_job(job.job_id)
             if completed is None:
                 raise RuntimeError(f"{case_id}: worker did not retain its completed job")

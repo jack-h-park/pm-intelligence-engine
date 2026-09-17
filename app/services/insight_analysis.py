@@ -44,6 +44,7 @@ async def analyze_bundle(
                 "role": "user",
                 "content": json.dumps({
                     "question": context.question,
+                    "constraints": context.constraints,
                     "source_ids": bundle.source_ids,
                     "evidence": evidence,
                     "coverage_gaps": bundle.coverage_gaps,

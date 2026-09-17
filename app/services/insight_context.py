@@ -17,6 +17,8 @@ def load_prepared_context(
     config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
     interests = {item["id"]: item for item in config.get("interests", [])}
     interest = next((interests[key] for key in candidate.question_ids if key in interests), None)
+    if candidate.question_ids and interest is None:
+        raise ValueError("No configured interest matched the candidate question IDs")
     if interest is None:
         question = candidate.subject
         constraints: list[str] = []
