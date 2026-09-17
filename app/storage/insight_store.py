@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
-from sqlalchemy import Engine, create_engine, select
+from sqlalchemy import Engine, and_, create_engine, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -441,6 +441,36 @@ class InsightStore:
                 select(IntelligenceInsightRow).order_by(IntelligenceInsightRow.created_at.desc())
             ).scalars()
             return [InsightRevision.model_validate_json(row.payload_json) for row in rows]
+
+    def list_insights_since(
+        self,
+        since: datetime | None,
+        after: tuple[datetime, str] | None,
+        limit: int,
+    ) -> tuple[list[InsightRevision], bool]:
+        """Read immutable Insight records through one stable keyset boundary."""
+        with self._Session() as session:
+            statement = select(IntelligenceInsightRow).order_by(
+                IntelligenceInsightRow.created_at.asc(), IntelligenceInsightRow.insight_id.asc()
+            )
+            if since is not None:
+                statement = statement.where(IntelligenceInsightRow.created_at > since)
+            if after is not None:
+                created_at, insight_id = after
+                statement = statement.where(
+                    or_(
+                        IntelligenceInsightRow.created_at > created_at,
+                        and_(
+                            IntelligenceInsightRow.created_at == created_at,
+                            IntelligenceInsightRow.insight_id > insight_id,
+                        ),
+                    )
+                )
+            rows = session.execute(statement.limit(limit + 1)).scalars().all()
+        return (
+            [InsightRevision.model_validate_json(row.payload_json) for row in rows[:limit]],
+            len(rows) > limit,
+        )
 
     def list_current_insights(self) -> list[InsightRevision]:
         insights = self.list_insights()
