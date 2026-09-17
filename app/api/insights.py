@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from fastapi import (
@@ -45,6 +46,7 @@ from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
+from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.services.product_connections import ProductConnectionAssessment, ProductConnectionService
 from app.storage.insight_store import (
@@ -160,7 +162,7 @@ class ResearchResults(BaseModel):
 
 class InsightSearchResults(BaseModel):
     items: list[InsightRevision]
-    next_cursor: None = None
+    next_cursor: str | None = None
 
 
 class NoveltyLookup(_Request):
@@ -696,6 +698,8 @@ async def search(
 
 @router.get("/insights", response_model=InsightSearchResults)
 async def list_insights(
+    since: datetime | None = Query(default=None),
+    after: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     engine: PMEngine = Depends(get_engine),
 ) -> InsightSearchResults:
@@ -704,7 +708,38 @@ async def list_insights(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
         )
-    return InsightSearchResults(items=engine.insight_store.list_insights()[:limit])
+    cursor = None
+    if after is not None:
+        try:
+            cursor = decode_cursor(after)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="invalid insight cursor") from exc
+        requested_since = since.astimezone(UTC) if since is not None else None
+        if since is not None and cursor.since != requested_since:
+            raise HTTPException(
+                status_code=422, detail="cursor since boundary does not match request"
+            )
+    normalized_since = (
+        since.astimezone(UTC)
+        if since is not None
+        else cursor.since if cursor is not None else None
+    )
+    items, has_more = engine.insight_store.list_insights_since(
+        normalized_since,
+        (cursor.created_at, cursor.insight_id) if cursor is not None else None,
+        limit,
+    )
+    next_cursor = None
+    if has_more and items:
+        final = items[-1]
+        next_cursor = encode_cursor(
+            InsightListCursor(
+                since=normalized_since,
+                created_at=final.created_at,
+                insight_id=final.insight_id,
+            )
+        )
+    return InsightSearchResults(items=items, next_cursor=next_cursor)
 
 
 @router.post("/insight-triage/novelty", response_model=NoveltyLookupResult)

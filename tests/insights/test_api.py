@@ -496,7 +496,7 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
     assert response.json()["detail"] == "budget_denied"
 
 
-def test_insight_evidence_returns_only_cited_passages_and_source_metadata(
+def test_insight_evidence_response_shape_is_fixed_and_excludes_uncited_passages(
     client, auth_headers, candidate_payload, source_payload, bundle_payload
 ):
     def bundle_with_uncited_passage(candidate_id, source_id):
@@ -562,6 +562,121 @@ def test_insight_evidence_rejects_a_stale_revision(
     )
 
     assert response.status_code == 409
+
+
+def test_list_insights_since_excludes_an_older_insight(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+
+    response = client.get(
+        "/insights?since=2999-01-01T00:00:00Z", headers=auth_headers
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"items": [], "next_cursor": None}
+    assert insight.insight_id not in {item["insight_id"] for item in response.json()["items"]}
+
+
+def test_list_insights_cursor_pages_without_a_second_consumer_ledger(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    first, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    changed_source = "A distinct second source fixture."
+    second, _ = _seed_insight_with_evidence(
+        engine,
+        {**candidate_payload, "subject": "Second incremental fixture"},
+        {
+            **source_payload,
+            "content": changed_source,
+            "content_hash": hashlib.sha256(changed_source.encode()).hexdigest(),
+        },
+        bundle_payload,
+    )
+
+    first_page = client.get("/insights?limit=1", headers=auth_headers)
+    assert first_page.status_code == 200
+    cursor = first_page.json()["next_cursor"]
+    assert cursor is not None
+
+    second_page = client.get(f"/insights?after={cursor}&limit=1", headers=auth_headers)
+    assert second_page.status_code == 200
+    returned_ids = {
+        item["insight_id"]
+        for item in first_page.json()["items"] + second_page.json()["items"]
+    }
+    assert returned_ids == {
+        first.insight_id,
+        second.insight_id,
+    }
+
+
+def test_list_insights_cursor_keeps_its_since_boundary_when_omitted_on_next_page(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    first, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    changed_source = "A distinct since cursor fixture."
+    second, _ = _seed_insight_with_evidence(
+        engine,
+        {**candidate_payload, "subject": "Second since cursor fixture"},
+        {
+            **source_payload,
+            "content": changed_source,
+            "content_hash": hashlib.sha256(changed_source.encode()).hexdigest(),
+        },
+        bundle_payload,
+    )
+
+    first_page = client.get(
+        "/insights?since=2020-01-01T00:00:00Z&limit=1", headers=auth_headers
+    )
+    cursor = first_page.json()["next_cursor"]
+    second_page = client.get(f"/insights?after={cursor}&limit=1", headers=auth_headers)
+
+    assert second_page.status_code == 200
+    returned_ids = {
+        item["insight_id"]
+        for item in first_page.json()["items"] + second_page.json()["items"]
+    }
+    assert returned_ids == {
+        first.insight_id,
+        second.insight_id,
+    }
+
+
+def test_list_insights_cursor_rejects_a_different_since_boundary(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundle_payload)
+    changed_source = "A distinct cursor-boundary fixture."
+    _seed_insight_with_evidence(
+        engine,
+        {**candidate_payload, "subject": "Second cursor boundary fixture"},
+        {
+            **source_payload,
+            "content": changed_source,
+            "content_hash": hashlib.sha256(changed_source.encode()).hexdigest(),
+        },
+        bundle_payload,
+    )
+
+    first_page = client.get("/insights?limit=1", headers=auth_headers)
+    cursor = first_page.json()["next_cursor"]
+    response = client.get(
+        f"/insights?since=2026-09-16T00:00:00Z&after={cursor}", headers=auth_headers
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"] == "cursor since boundary does not match request"
 
 
 def test_authenticated_insight_search_returns_stored_revision(

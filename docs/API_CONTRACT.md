@@ -564,6 +564,55 @@ point the operations client / dashboard move to `/decision`.
 
 ---
 
+## Insight Retrieval
+
+### `GET /insights`
+
+Returns Engine-owned immutable learning Insights. It is the only incremental
+read boundary for a consumer that needs newly created learning records; the
+consumer must not keep a second ledger of Insight IDs.
+
+**Query:** `since=<UTC ISO-8601>?`, `after=<opaque cursor>?`, and
+`limit=<1..100>` (default 20).
+
+- `since` is strict: only Insights with `created_at` later than the supplied
+  instant are returned.
+- Results are oldest-first by `(created_at, insight_id)`. A correction is a new
+  immutable Insight linked by `supersedes_insight_id`, so it naturally appears
+  in a later incremental read.
+- `after` is an Engine-issued cursor. It retains the original `since` boundary
+  plus the final tuple of the prior page; use it unchanged for the next page.
+- A malformed cursor, or a cursor combined with a different `since`, returns
+  422. `next_cursor` is null when no matching row remains.
+
+**Response (200):**
+
+```json
+{ "items": [{ "insight_id": "uuid", "revision": 1 }], "next_cursor": "opaque-or-null" }
+```
+
+The full item is an `InsightRevision`. No Product Decision, delivery, source
+acquisition, or workflow state is included or changed by this read endpoint.
+
+### `GET /insights/{id}/evidence?revision=<n>`
+
+The revision-pinned evidence response shape is fixed:
+
+```json
+{
+  "insight_id": "uuid",
+  "revision": 1,
+  "sources": [],
+  "passages": [],
+  "claim_passage_links": [],
+  "coarse_evidence": false
+}
+```
+
+Only cited source metadata and cited passages are public in this response.
+
+---
+
 ## Operations Client Polling Pattern
 
 The operations client owns all production message composition and delivery —
