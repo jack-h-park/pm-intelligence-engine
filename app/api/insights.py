@@ -44,6 +44,7 @@ from app.models.insights import (
 )
 from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_context import resolve_interest
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_search import search_insights
 from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
@@ -200,6 +201,18 @@ class MigrationManifestResults(BaseModel):
 
 class SemanticTriageRequest(_Request):
     question: str = Field(min_length=1)
+    title: str = Field(min_length=1)
+    content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
+    operation_id: str = Field(min_length=1)
+    policy_revision: str = Field(min_length=1)
+    provider: str = Field(min_length=1)
+    rate_revision: str = Field(min_length=1)
+    maximum_micros: int = Field(gt=0)
+    actual_micros: int | Literal["unknown"] = "unknown"
+
+
+class InterestTriageRequest(_Request):
+    interest_id: str = Field(min_length=1)
     title: str = Field(min_length=1)
     content: str = Field(min_length=1, max_length=2 * 1024 * 1024)
     operation_id: str = Field(min_length=1)
@@ -756,9 +769,8 @@ async def novelty_lookup(
     )
 
 
-@router.post("/insight-triage", response_model=TriageDecision)
-async def semantic_triage(
-    body: SemanticTriageRequest, engine: PMEngine = Depends(get_engine)
+async def _semantic_triage(
+    body: SemanticTriageRequest | InterestTriageRequest, engine: PMEngine, *, question: str
 ) -> TriageDecision:
     store = _processing_store(engine)
     claim_state, cached = store.claim_triage(body.operation_id)
@@ -768,7 +780,7 @@ async def semantic_triage(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress")
     try:
         decision = await triage_with_reservation(
-            question=body.question,
+            question=question,
             title=body.title,
             content=body.content,
             llm=engine.llm,
@@ -789,6 +801,28 @@ async def semantic_triage(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
     store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
     return decision
+
+
+@router.post("/insight-triage", response_model=TriageDecision)
+async def semantic_triage(
+    body: SemanticTriageRequest, engine: PMEngine = Depends(get_engine)
+) -> TriageDecision:
+    return await _semantic_triage(body, engine, question=body.question)
+
+
+@router.post("/insight-triage/interest", response_model=TriageDecision)
+async def interest_semantic_triage(
+    body: InterestTriageRequest, engine: PMEngine = Depends(get_engine)
+) -> TriageDecision:
+    from config import settings
+
+    resolved = resolve_interest([body.interest_id], settings.DECISION_CONTEXT_ROOT)
+    if resolved is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="unknown_interest_id",
+        )
+    return await _semantic_triage(body, engine, question=resolved.question)
 
 
 @router.get("/insight-operations")
@@ -836,7 +870,7 @@ async def get_insight_evidence(
     evidence = engine.insight_store.get_insight_evidence(insight_id)
     if evidence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
-    insight, _, bundle, sources = evidence
+    insight, prepared_context, bundle, sources = evidence
     if insight.revision != revision:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Insight revision is stale"
@@ -862,6 +896,8 @@ async def get_insight_evidence(
     return InsightEvidenceView(
         insight_id=insight.insight_id,
         revision=insight.revision,
+        question=prepared_context.question,
+        constraints=prepared_context.constraints,
         sources=[
             InsightEvidenceSource(
                 source_id=source.source_id,
