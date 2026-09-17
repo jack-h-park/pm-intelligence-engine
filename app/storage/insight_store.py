@@ -354,7 +354,7 @@ class InsightStore:
         record, status_code = self.create_idempotent(
             "evidence_backfill", actor, key, request_hash, EvidenceBackfillRequest, save
         )
-        return cast(EvidenceBackfillRequest, record), status_code
+        return record, status_code
 
     def get_backfill(self, backfill_id: str) -> EvidenceBackfillRequest | None:
         with self._Session() as session:
