@@ -1,10 +1,15 @@
 import json
-from typing import Any
+from typing import Any, get_args
 
 import pytest
 
 from app.services.insight_budget import BudgetPolicy, BudgetService
-from app.services.insight_triage import TriageBudgetDenied, triage_source, triage_with_reservation
+from app.services.insight_triage import (
+    TriageBudgetDenied,
+    TriageDecision,
+    triage_source,
+    triage_with_reservation,
+)
 
 
 class FixtureLLM:
@@ -13,6 +18,41 @@ class FixtureLLM:
 
     async def complete(self, messages, **kwargs):
         return json.dumps(self.payload)
+
+
+class RecordingLLM:
+    """Captures the prompt and returns a valid payload, so the prompt can be inspected."""
+
+    def __init__(self) -> None:
+        self.messages: list[dict[str, str]] = []
+
+    async def complete(self, messages, **kwargs):
+        self.messages = list(messages)
+        return json.dumps({
+            "disposition": "quiet_reference", "relevance": "adjacent",
+            "novelty": "unknown", "reason": "Recorded.",
+        })
+
+
+@pytest.mark.asyncio
+async def test_triage_prompt_names_every_field_and_value_the_schema_requires():
+    """The prompt must state the schema it is validated against.
+
+    Every other test here hands back a correct payload from a fixture, so none of them
+    exercises the prompt. Run against three real models (27B, 120B and a 106B MoE) on
+    2026-09-17, all three returned valid JSON with invented keys — `question_relevance`,
+    `result`, `classification` — because the prompt only said "classify question
+    relevance and evidence novelty". Every call failed validation, 0 of 20 each, and the
+    repair retries could not help: the JSON parsed, it was the wrong JSON.
+    """
+    llm = RecordingLLM()
+    await triage_source(question="Q?", title="T", content="C", llm=llm)
+    prompt = " ".join(m["content"] for m in llm.messages)
+
+    for field, annotation in TriageDecision.model_fields.items():
+        assert field in prompt, f"prompt never names required field {field!r}"
+        for value in get_args(annotation.annotation):
+            assert value in prompt, f"prompt never names allowed {field} value {value!r}"
 
 
 @pytest.mark.asyncio
