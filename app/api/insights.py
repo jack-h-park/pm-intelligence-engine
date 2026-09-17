@@ -870,7 +870,7 @@ async def get_insight_evidence(
     evidence = engine.insight_store.get_insight_evidence(insight_id)
     if evidence is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
-    insight, _, bundle, sources = evidence
+    insight, prepared_context, bundle, sources = evidence
     if insight.revision != revision:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Insight revision is stale"
@@ -896,6 +896,8 @@ async def get_insight_evidence(
     return InsightEvidenceView(
         insight_id=insight.insight_id,
         revision=insight.revision,
+        question=prepared_context.question,
+        constraints=prepared_context.constraints,
         sources=[
             InsightEvidenceSource(
                 source_id=source.source_id,

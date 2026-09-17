@@ -327,6 +327,8 @@ class InsightEvidenceView(BaseModel):
 
     insight_id: str
     revision: int = Field(ge=1)
+    question: str = Field(min_length=1)
+    constraints: list[str] = Field(default_factory=list)
     sources: list[InsightEvidenceSource]
     passages: list[InsightEvidencePassage]
     claim_passage_links: list[InsightClaimPassageLink]

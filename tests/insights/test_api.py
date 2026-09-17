@@ -21,7 +21,8 @@ def _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundl
         PreparedContext(
             candidate_id=candidate.candidate_id,
             bundle_id=bundle.bundle_id,
-            question="What changed?",
+            question="What should I test?",
+            constraints=["Keep claims attributed."],
             validation_status="valid",
             context_revision="fixture-v1",
         ).model_dump(mode="json")
@@ -571,7 +572,7 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
     assert response.json()["detail"] == "budget_denied"
 
 
-def test_insight_evidence_response_shape_is_fixed_and_excludes_uncited_passages(
+def test_insight_evidence_response_shape_includes_stored_context_and_excludes_uncited_passages(
     client, auth_headers, candidate_payload, source_payload, bundle_payload
 ):
     def bundle_with_uncited_passage(candidate_id, source_id):
@@ -600,6 +601,8 @@ def test_insight_evidence_response_shape_is_fixed_and_excludes_uncited_passages(
     assert response.json() == {
         "insight_id": insight.insight_id,
         "revision": 1,
+        "question": "What should I test?",
+        "constraints": ["Keep claims attributed."],
         "sources": [
             {
                 "source_id": source.source_id,
