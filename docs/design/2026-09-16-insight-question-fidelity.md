@@ -1,14 +1,14 @@
 # Insight question provenance and evidence fidelity
 
 Status: Question-ID preservation deployed in #127. Configured-question resolution
-is in implementation; model-output evaluation remains pending.
+is verified locally; deployment and model-output evaluation remain pending.
 
 ## Findings
 
 Production Candidate records retained their question IDs, but analysis constructed
 every Insight with an empty question list. PreparedContext lacked an explicit
-selected-question field. The worker currently selects only the first Candidate
-question in #127; tagging every Candidate question would overstate analysis coverage.
+selected-question field. The #127 worker selected only the first Candidate
+question; tagging every Candidate question would overstate analysis coverage.
 
 The Instinct bundle contained two supplied sources and one cited source. Its
 reference to omitted material from both sources was therefore not disproved by
@@ -33,6 +33,10 @@ that future model outputs are faithful.
 Verify stored worker output retains the selected question, model labels cannot
 override it, old context payloads load, and supplied passages expose their source
 identity. Run Insight/Decision tests, lint, and strict typing.
+
+Local validation: 684 tests passed with the companion decision-context configured
+(`pytest -q -m 'not slow'`); Ruff and strict mypy passed. A run without companion
+configuration failed the existing persona startup preflight, not Insight analysis.
 
 ## Remaining work
 
