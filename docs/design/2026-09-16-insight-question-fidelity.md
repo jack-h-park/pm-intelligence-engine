@@ -1,13 +1,14 @@
 # Insight question provenance and evidence fidelity
 
-Status: Implementation verified locally; deployment and model-output evaluation pending.
+Status: Question-ID preservation deployed in #127. Configured-question resolution
+is in implementation; model-output evaluation remains pending.
 
 ## Findings
 
 Production Candidate records retained their question IDs, but analysis constructed
 every Insight with an empty question list. PreparedContext lacked an explicit
 selected-question field. The worker currently selects only the first Candidate
-question; tagging every Candidate question would overstate analysis coverage.
+question in #127; tagging every Candidate question would overstate analysis coverage.
 
 The Instinct bundle contained two supplied sources and one cited source. Its
 reference to omitted material from both sources was therefore not disproved by
@@ -17,9 +18,10 @@ not establish independent reporting.
 
 ## Implementation and acceptance
 
-Add a default-empty selected question list to PreparedContext. The worker copies
-only its first selected Candidate question; the context loader records only its
-matched configured interest. Analysis copies these Engine-owned IDs rather than
+Add a default-empty selected question list to PreparedContext. The worker now uses
+the context loader to select the first configured interest in Candidate order,
+record its actual question text and constraints, and retain only its matched ID.
+Analysis receives the constraints and copies these Engine-owned IDs rather than
 model-generated labels. Historical payloads still load without rewriting records.
 
 Expose source IDs alongside passages in analysis input. Strengthen generation
@@ -34,9 +36,22 @@ identity. Run Insight/Decision tests, lint, and strict typing.
 
 ## Remaining work
 
-The worker still passes a question ID as question text rather than resolving the
-configured natural-language interest. Wire configuration and context selection in
-a follow-up with explicit missing-interest behavior. Evaluate model output on
+Configuration is required at analysis time. If a Candidate names interests but
+none are registered, analysis fails before any model call and releases the lease
+into the existing retryable-failure state. Missing configuration follows the same
+path. Candidates with no question IDs use their subject without claiming an
+interest match. Quiet evidence/no-new-learning terminal paths remain unchanged.
+Fixture replay explicitly uses a checked-in fixture context, never operator assets.
+
+The production configuration inspection found only `learning-loop` and
+`decision-quality`. Historical sample IDs `enterprise-mobile-security` and
+`personal-ai-agent-market` are not registered. Agree on the intended question text
+and constraints in the decision-context repository before running those Candidates
+again. Do not silently substitute a generic interest or mutate historical records.
+This implementation does not activate acquisition, scheduling, delivery, or product
+mapping. Rollback is the prior Engine revision; no schema migration is involved.
+
+Evaluate model output on
 measurement-window and causal-attribution cases before claiming fidelity solved.
 Historical Muse content needs an approved immutable successor; this change does
 not edit reviews or reprocess historical Insights. Instinct's pending human review

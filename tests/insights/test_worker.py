@@ -13,6 +13,21 @@ from app.storage.insight_store import StaleLease
 GIGABUD_BACKFILL_FIXTURE = Path(__file__).parent / "fixtures" / "gigabud-backfill.json"
 
 
+@pytest.fixture(autouse=True)
+def configured_worker_interest(tmp_path, monkeypatch):
+    from config import settings
+
+    root = tmp_path / "worker-context"
+    (root / "core").mkdir(parents=True)
+    (root / "core/signal-interest-context.yaml").write_text(
+        "revision: fixture-context-v1\ninterests:\n"
+        "  - id: android-enterprise-isolation\n"
+        "    question: What changed in managed profile isolation?\n"
+        "    constraints: [Preserve attribution.]\n"
+    )
+    monkeypatch.setattr(settings, "DECISION_CONTEXT_ROOT", str(root))
+
+
 def test_gigabud_backfill_fixture_locks_review_scope_without_a_product():
     """The non-live pilot fixture must not silently widen its review scope."""
     fixture = json.loads(GIGABUD_BACKFILL_FIXTURE.read_text())
@@ -480,6 +495,9 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
 ):
     class FixtureLLM:
         async def complete(self, messages, **kwargs):
+            supplied = json.loads(messages[1]["content"])
+            assert supplied["question"] == "What changed in managed profile isolation?"
+            assert supplied["constraints"] == ["Preserve attribution."]
             return """{
               "headline": "A fixture insight", "explanation": "Bounded evidence.",
               "actual_change": "A source was supplied.", "why_now": "The job is queued.",
@@ -504,6 +522,38 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
     assert store.get_prepared_context(completed.prepared_context_id)
     assert store.get_insight(completed.insight_id) == completed
     assert completed.question_ids == candidate.question_ids[:1]
+    prepared = store.get_prepared_context(completed.prepared_context_id)
+    assert prepared.question == "What changed in managed profile isolation?"
+    assert prepared.constraints == ["Preserve attribution."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing_config", [False, True])
+async def test_worker_releases_lease_without_analysis_when_interest_is_unavailable(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch,
+    tmp_path, missing_config,
+):
+    from config import settings
+
+    class ForbiddenLLM:
+        async def complete(self, messages, **kwargs):
+            pytest.fail("Configuration failure must not invoke the model")
+
+    if missing_config:
+        monkeypatch.setattr(settings, "DECISION_CONTEXT_ROOT", str(tmp_path / "absent"))
+    store = store_factory()
+    candidate = store.save_candidate({**candidate_payload, "question_ids": ["unregistered"]})
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    with pytest.raises((FileNotFoundError, ValueError)):
+        await process_one(store, ForbiddenLLM())
+
+    saved = store.get_job(job.job_id)
+    assert saved.state == "retryable_failed"
+    assert saved.lease_token is None
+    assert saved.next_attempt_at is not None
 
 
 @pytest.mark.asyncio
