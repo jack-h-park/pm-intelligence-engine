@@ -1,7 +1,8 @@
 # Insight question provenance and evidence fidelity
 
 Status: Question-ID preservation deployed in #127. Configured-question resolution
-is verified locally; deployment and model-output evaluation remain pending.
+is verified locally with the approved interest definitions; deployment and
+model-output evaluation remain pending.
 
 ## Findings
 
@@ -47,11 +48,13 @@ path. Candidates with no question IDs use their subject without claiming an
 interest match. Quiet evidence/no-new-learning terminal paths remain unchanged.
 Fixture replay explicitly uses a checked-in fixture context, never operator assets.
 
-The production configuration inspection found only `learning-loop` and
-`decision-quality`. Historical sample IDs `enterprise-mobile-security` and
-`personal-ai-agent-market` are not registered. Agree on the intended question text
-and constraints in the decision-context repository before running those Candidates
-again. Do not silently substitute a generic interest or mutate historical records.
+The initial production configuration inspection found only `learning-loop` and
+`decision-quality`. On 2026-09-17, the decision-context repository added approved
+definitions for the historical IDs `enterprise-mobile-security` and
+`personal-ai-agent-market`, including their evidence constraints. Do not silently
+substitute a generic interest or mutate historical records. The definitions apply
+to new analysis only; historical Candidates and Insights are not rerun by this
+change.
 This implementation does not activate acquisition, scheduling, delivery, or product
 mapping. Rollback is the prior Engine revision; no schema migration is involved.
 
