@@ -12,7 +12,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.workflow import Base
@@ -646,3 +646,48 @@ class IntelligenceInsightReviewRow(Base):
         DateTime(timezone=True), nullable=False, default=_utc_now
     )
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class IntelligenceMigrationInventoryRow(Base):
+    """One dry-run snapshot of the whole immutable record set, keyed by its hash.
+
+    Distinct from IntelligenceMigrationManifestRow, which is the per-record
+    review overlay: an inventory is the deterministic plan a migration is
+    reconciled against, so its hash has to cover every record at once.
+    """
+
+    __tablename__ = "intelligence_migration_inventories"
+
+    inventory_id: Mapped[str] = mapped_column(String, primary_key=True, default=_new_uuid)
+    inventory_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True, index=True)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+
+class IntelligenceMigrationAliasRow(Base):
+    """Migration metadata for one original record; the record itself is never touched."""
+
+    __tablename__ = "intelligence_migration_aliases"
+    __table_args__ = (
+        UniqueConstraint("inventory_id", "original_id", name="uq_intelligence_migration_alias"),
+    )
+
+    alias_id: Mapped[str] = mapped_column(String, primary_key=True)
+    inventory_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    original_id: Mapped[str] = mapped_column(String, nullable=False)
+    disposition: Mapped[str] = mapped_column(String, nullable=False)
+    payload_json: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class IntelligenceMigrationOverlayRow(Base):
+    """Whether one fully imported inventory may be read through. Off until activated."""
+
+    __tablename__ = "intelligence_migration_overlays"
+
+    inventory_id: Mapped[str] = mapped_column(String, primary_key=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now, onupdate=_utc_now
+    )

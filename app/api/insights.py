@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import uuid
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -46,6 +47,7 @@ from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService
 from app.services.insight_context import resolve_interest
 from app.services.insight_delivery import confirm_delivery, queue_delivery
+from app.services.insight_migration import build_dry_run_inventory
 from app.services.insight_search import search_insights
 from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
@@ -199,6 +201,34 @@ class MigrationManifestCreate(_Request):
 
 class MigrationManifestResults(BaseModel):
     items: list[MigrationManifestCreate]
+
+
+class MigrationInventoryAccepted(BaseModel):
+    inventory_id: str
+    inventory_hash: str
+    high_water_candidate_id: str | None
+    records: list[dict[str, Any]]
+
+
+class MigrationImportRequest(_Request):
+    inventory_hash: str = Field(min_length=64, max_length=64)
+    batch_size: int = Field(default=100, ge=1, le=100)
+
+
+class MigrationImportAccepted(BaseModel):
+    inventory_id: str
+    imported_count: int
+    complete: bool
+
+
+class MigrationOverlayRequest(_Request):
+    inventory_hash: str = Field(min_length=64, max_length=64)
+    enabled: bool
+
+
+class MigrationOverlayAccepted(BaseModel):
+    inventory_id: str
+    enabled: bool
 
 
 class SemanticTriageRequest(_Request):
@@ -523,6 +553,97 @@ async def list_migration_manifests(
     return MigrationManifestResults(
         items=[MigrationManifestCreate.model_validate(item) for item in manifests[:limit]]
     )
+
+
+@router.post(
+    "/insight-migration-inventories",
+    response_model=MigrationInventoryAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_migration_inventory(
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationInventoryAccepted:
+    """Create a durable, read-only migration plan; no import or delivery work occurs."""
+    store = _store(engine)
+    inventory = build_dry_run_inventory(store)
+    inventory_id = str(uuid.uuid4())
+    payload: dict[str, Any] = {
+        "inventory_id": inventory_id,
+        "inventory_hash": inventory.inventory_hash,
+        "high_water_candidate_id": inventory.high_water_candidate_id,
+        "records": inventory.records,
+    }
+    stored = store.save_migration_inventory(inventory_id, inventory.inventory_hash, payload)
+    return MigrationInventoryAccepted(**stored)
+
+
+@router.get(
+    "/insight-migration-inventories/{inventory_id}",
+    response_model=MigrationInventoryAccepted,
+)
+async def get_migration_inventory(
+    inventory_id: str, engine: PMEngine = Depends(get_engine)
+) -> MigrationInventoryAccepted:
+    inventory = _read_store(engine).get_migration_inventory(inventory_id)
+    if inventory is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Migration inventory not found"
+        )
+    return MigrationInventoryAccepted(**inventory)
+
+
+@router.post(
+    "/insight-migration-inventories/{inventory_id}/import",
+    response_model=MigrationImportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def import_migration_inventory(
+    inventory_id: str,
+    body: MigrationImportRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationImportAccepted:
+    """Import only reconciled migration metadata; no source or delivery data changes."""
+    try:
+        result = _store(engine).import_migration_inventory(
+            inventory_id, body.inventory_hash, batch_size=body.batch_size
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return MigrationImportAccepted(
+        inventory_id=inventory_id,
+        imported_count=int(result["imported_count"]),
+        complete=bool(result["complete"]),
+    )
+
+
+@router.post(
+    "/insight-migration-inventories/{inventory_id}/overlay",
+    response_model=MigrationOverlayAccepted,
+)
+async def set_migration_overlay(
+    inventory_id: str,
+    body: MigrationOverlayRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationOverlayAccepted:
+    """Activate an imported read overlay only when the operator release flag permits it."""
+    from config import settings
+
+    if body.enabled and not settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Migration overlay activation is disabled by the release flag",
+        )
+    try:
+        result = _store(engine).set_migration_overlay(
+            inventory_id, body.inventory_hash, enabled=body.enabled
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return MigrationOverlayAccepted(inventory_id=inventory_id, **result)
 
 
 @router.post("/insight-sources", response_model=SourceRecord, status_code=status.HTTP_201_CREATED)

@@ -8,7 +8,7 @@ from sqlalchemy import Engine, Table, inspect, select, text
 from app.models.insights import IntelligenceSchemaVersionRow
 from app.models.workflow import Base
 
-INSIGHT_SCHEMA_VERSION = 8
+INSIGHT_SCHEMA_VERSION = 9
 
 
 def initialize_insight_schema(engine: Engine) -> None:

@@ -309,6 +309,107 @@ def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_
     assert changed.status_code == 409
 
 
+def test_migration_import_requires_the_saved_inventory_hash(
+    client, auth_headers, candidate_payload
+):
+    candidate = client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-key"},
+    )
+    assert candidate.status_code == 201
+
+    inventory = client.post("/insight-migration-inventories", headers=auth_headers)
+    assert inventory.status_code == 201
+    body = inventory.json()
+
+    rejected = client.post(
+        f"/insight-migration-inventories/{body['inventory_id']}/import",
+        json={"inventory_hash": "0" * 64, "batch_size": 100},
+        headers=auth_headers,
+    )
+    accepted = client.post(
+        f"/insight-migration-inventories/{body['inventory_id']}/import",
+        json={"inventory_hash": body["inventory_hash"], "batch_size": 100},
+        headers=auth_headers,
+    )
+
+    assert rejected.status_code == 409
+    assert accepted.status_code == 202
+    assert accepted.json() == {
+        "inventory_id": body["inventory_id"],
+        "imported_count": 1,
+        "complete": True,
+    }
+
+
+def test_missing_inventory_is_a_404_not_a_conflict(client, auth_headers):
+    response = client.post(
+        "/insight-migration-inventories/inventory-absent/import",
+        json={"inventory_hash": "0" * 64},
+        headers=auth_headers,
+    )
+
+    assert response.status_code == 404
+
+
+def test_saved_inventory_is_readable_back(client, auth_headers, candidate_payload):
+    client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-key"},
+    )
+    created = client.post("/insight-migration-inventories", headers=auth_headers).json()
+
+    fetched = client.get(
+        f"/insight-migration-inventories/{created['inventory_id']}", headers=auth_headers
+    )
+
+    assert fetched.status_code == 200
+    assert fetched.json() == created
+
+
+def test_migration_overlay_requires_release_flag(
+    client, auth_headers, candidate_payload, monkeypatch
+):
+    from config import settings
+
+    candidate = client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "candidate-key"},
+    )
+    assert candidate.status_code == 201
+    inventory = client.post("/insight-migration-inventories", headers=auth_headers).json()
+    imported = client.post(
+        f"/insight-migration-inventories/{inventory['inventory_id']}/import",
+        json={"inventory_hash": inventory["inventory_hash"]},
+        headers=auth_headers,
+    )
+    assert imported.status_code == 202
+
+    blocked = client.post(
+        f"/insight-migration-inventories/{inventory['inventory_id']}/overlay",
+        json={"inventory_hash": inventory["inventory_hash"], "enabled": True},
+        headers=auth_headers,
+    )
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", True)
+    enabled = client.post(
+        f"/insight-migration-inventories/{inventory['inventory_id']}/overlay",
+        json={"inventory_hash": inventory["inventory_hash"], "enabled": True},
+        headers=auth_headers,
+    )
+    disabled = client.post(
+        f"/insight-migration-inventories/{inventory['inventory_id']}/overlay",
+        json={"inventory_hash": inventory["inventory_hash"], "enabled": False},
+        headers=auth_headers,
+    )
+
+    assert blocked.status_code == 409
+    assert enabled.json() == {"inventory_id": inventory["inventory_id"], "enabled": True}
+    assert disabled.json() == {"inventory_id": inventory["inventory_id"], "enabled": False}
+
+
 def test_intake_routes_require_bearer_authentication(client, candidate_payload):
     response = client.post(
         "/insight-candidates",
