@@ -158,3 +158,28 @@ async def test_budget_denial_is_not_judged_without_a_model_call(tmp_path, store_
     assert result.decision == "not_judged"
     assert result.rubric_revision == hashlib.sha256(rubric.read_bytes()).hexdigest()
     assert "budget" in result.reason
+
+
+@pytest.mark.asyncio
+async def test_model_failure_emits_only_its_exception_type(tmp_path, capsys):
+    class FailingLLM:
+        async def complete(self, messages, **kwargs):
+            raise RuntimeError("provider stderr must not reach the event log")
+
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDurability and abstraction.", encoding="utf-8")
+
+    result = await judge_knowledge(
+        insight={"headline": "A release detail", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=FailingLLM(),
+        model="fixture-model",
+    )
+
+    event = json.loads(capsys.readouterr().out)
+    assert result.decision == "not_judged"
+    assert event["stage"] == "insight_knowledge_verdict"
+    assert event["action"] == "model_output_unavailable"
+    assert event["detail"] == {"exception_type": "RuntimeError"}
+    assert "provider stderr" not in json.dumps(event)
