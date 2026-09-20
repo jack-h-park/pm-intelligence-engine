@@ -2,6 +2,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import yaml
+
 
 @dataclass
 class FullContext:
@@ -28,6 +30,32 @@ class ProductProfile:
 # Pseudo-products that are not real fan-out targets: the scaffold template and
 # the 'general' catch-all (special-cased to archive/note only).
 _NON_PRODUCT_DIRS = frozenset({"_template", "general"})
+
+
+def _read_manifest(product_dir: Path) -> dict:
+    """products/<dir>/product.yaml, or {} when absent or unreadable.
+
+    The decision-context companion repo declares product identity there — id,
+    display_name, aliases — so that a product can be renamed without breaking
+    every reference already written down; its product-identity doc carries the
+    contract. Resolving by that id rather than by the directory name is what
+    keeps a signal captured before a rename pointing at the same product
+    afterwards.
+
+    Never raises: a malformed manifest must cost the alias, not the run.
+    """
+    try:
+        data = yaml.safe_load((product_dir / "product.yaml").read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(data, dict) or not data.get("id"):
+        return {}
+    aliases = data.get("aliases") or []
+    return {
+        "id": str(data["id"]),
+        "display_name": str(data.get("display_name") or data["id"]),
+        "aliases": [str(a) for a in aliases if a],
+    }
 
 
 def _extract_overview(context_md: str) -> tuple[str, str]:
@@ -100,18 +128,52 @@ class ContextLoader:
     def load_company_context(self) -> str:
         return (self._root / "company-context.md").read_text(encoding="utf-8")
 
+    def resolve_product(self, product_id: str) -> tuple[str, Path] | None:
+        """(canonical id, directory) for an id, or None if nothing claims it.
+
+        Matches the directory name first, which is the common case and costs one
+        stat. Only when that misses does it read the manifests looking for a
+        product that used to carry this id — an unrecognised id is more often a
+        typo than a rename, and the cheap path should stay cheap.
+        """
+        products = self._root / "products"
+        direct = products / product_id
+        if direct.is_dir():
+            manifest = _read_manifest(direct)
+            return (manifest.get("id") or product_id), direct
+        if not products.is_dir():
+            return None
+        for product_dir in sorted(products.iterdir()):
+            if not product_dir.is_dir():
+                continue
+            manifest = _read_manifest(product_dir)
+            if manifest and product_id in manifest["aliases"]:
+                return manifest["id"], product_dir
+        return None
+
     def load_product_context(self, product_id: str) -> str:
-        path = self._root / "products" / product_id / "context.md"
+        resolved = self.resolve_product(product_id)
+        if resolved is None:
+            raise FileNotFoundError(
+                f"Product context not found: {self._root / 'products' / product_id}"
+            )
+        path = resolved[1] / "context.md"
         if not path.exists():
             raise FileNotFoundError(f"Product context not found: {path}")
         return path.read_text(encoding="utf-8")
 
     def load_full_context(self, product_id: str) -> FullContext:
+        resolved = self.resolve_product(product_id)
+        # The canonical id, not the one we were handed. A run started from a
+        # retired id should be stored and reported under the name the product
+        # goes by now, or the rename leaves two ids in the database for one
+        # product and every later group-by splits.
+        canonical = resolved[0] if resolved else product_id
         return FullContext(
             pm_identity=self.load_pm_identity(),
             company_context=self.load_company_context(),
             product_context=self.load_product_context(product_id),
-            product_id=product_id,
+            product_id=canonical,
         )
 
     def load_portfolio_profiles(
@@ -141,10 +203,14 @@ class ContextLoader:
             title, overview = _extract_overview(content)
             if not overview:
                 continue
+            manifest = _read_manifest(product_dir)
+            product_id = manifest.get("id") or product_dir.name
+            if product_id in skip:
+                continue
             profiles.append(
                 ProductProfile(
-                    product_id=product_dir.name,
-                    title=title or product_dir.name,
+                    product_id=product_id,
+                    title=title or manifest.get("display_name") or product_dir.name,
                     overview=overview,
                     connection_anchors=_extract_connection_anchors(content),
                 )
