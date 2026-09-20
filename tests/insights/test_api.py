@@ -698,6 +698,9 @@ def test_list_insights_cursor_pages_without_a_second_consumer_ledger(
         first.insight_id,
         second.insight_id,
     }
+    for item in first_page.json()["items"] + second_page.json()["items"]:
+        assert "knowledge_verdict" in item
+        assert item["knowledge_verdict"] is None
 
 
 def test_list_insights_cursor_keeps_its_since_boundary_when_omitted_on_next_page(
@@ -734,6 +737,9 @@ def test_list_insights_cursor_keeps_its_since_boundary_when_omitted_on_next_page
         first.insight_id,
         second.insight_id,
     }
+    for item in first_page.json()["items"] + second_page.json()["items"]:
+        assert "knowledge_verdict" in item
+        assert item["knowledge_verdict"] is None
 
 
 def test_list_insights_cursor_rejects_a_different_since_boundary(

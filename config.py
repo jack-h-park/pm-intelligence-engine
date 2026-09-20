@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     INTELLIGENCE_RATE_REVISION: str = ""
     INTELLIGENCE_SENSING_ALLOWANCE_MICROS: int | None = None
     INTELLIGENCE_DECISION_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS: int | None = None
+    KNOWLEDGE_RUBRIC_PATH: str | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires
     # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is

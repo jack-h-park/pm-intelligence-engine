@@ -528,6 +528,105 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
 
 
 @pytest.mark.asyncio
+async def test_verdict_failure_persists_the_insight_as_not_judged(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    """A failed knowledge judgment must not make the completed analysis retry or disappear."""
+    from config import settings
+
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# The four tests\nDurability and abstraction.", encoding="utf-8")
+    monkeypatch.setattr(settings, "KNOWLEDGE_RUBRIC_PATH", str(rubric))
+    monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+
+    class VerdictFailureLLM:
+        async def complete(self, messages, **kwargs):
+            if '"evidence"' in messages[-1]["content"]:
+                return json.dumps({
+                    "headline": "A fixture insight", "explanation": "Bounded evidence.",
+                    "actual_change": "A source was supplied.", "why_now": "The job is queued.",
+                    "personal_relevance": "It answers the question.", "takeaway": "Test it.",
+                    "claims": [{
+                        "text": "The source was supplied.",
+                        "passage_ids": ["passage-fixture-1"],
+                    }],
+                    "uncertainties": [],
+                })
+            return "not JSON"
+
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    completed = await process_one(store, VerdictFailureLLM())
+
+    assert completed is not None
+    assert completed.knowledge_verdict is not None
+    assert completed.knowledge_verdict.decision == "not_judged"
+    assert store.get_insight(completed.insight_id) == completed
+    assert store.get_job(job.job_id).state == "complete"
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_a_successful_knowledge_verdict(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    from config import settings
+
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# The four tests\nDurability and abstraction.", encoding="utf-8")
+    monkeypatch.setattr(settings, "KNOWLEDGE_RUBRIC_PATH", str(rubric))
+    monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+
+    class FixtureLLM:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, messages, **kwargs):
+            del messages, kwargs
+            self.calls += 1
+            if self.calls == 1:
+                return json.dumps({
+                    "headline": "A fixture insight", "explanation": "Bounded evidence.",
+                    "actual_change": "A source was supplied.", "why_now": "The job is queued.",
+                    "personal_relevance": "It answers the question.", "takeaway": "Test it.",
+                    "claims": [{
+                        "text": "The source was supplied.",
+                        "passage_ids": ["passage-fixture-1"],
+                    }],
+                    "uncertainties": [],
+                })
+            return json.dumps({
+                "decision": "distill",
+                "deciding_test": "abstraction",
+                "reason": "The control pattern remains reusable beyond this release.",
+                "target_kind": "framework",
+                "proposed_title": "Durable control evaluation framework",
+            })
+
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    completed = await process_one(store, FixtureLLM())
+
+    assert completed is not None
+    assert completed.knowledge_verdict is not None
+    assert completed.knowledge_verdict.decision == "distill"
+    assert completed.knowledge_verdict.target_kind == "framework"
+    assert completed.knowledge_verdict.proposed_title == "Durable control evaluation framework"
+    assert store.get_insight(completed.insight_id) == completed
+    assert store.get_job(job.job_id).state == "complete"
+    assert store.operational_summary()["cost_micros"]["unknown"] == 10
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("missing_config", [False, True])
 async def test_worker_releases_lease_without_analysis_when_interest_is_unavailable(
     store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch,

@@ -18,7 +18,6 @@ import pytest
 
 from app.services.context_loader import ContextLoader
 
-
 CONTEXT = """# Product Context — Widget Tracker
 
 **Product name:** Widget Tracker

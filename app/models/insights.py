@@ -211,6 +211,32 @@ class InsightClaim(_Record):
     passage_ids: list[str] = Field(min_length=1)
 
 
+class KnowledgeVerdict(BaseModel):
+    """An immutable knowledge-reuse judgment attached to one Insight revision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["distill", "leave_as_evidence", "not_judged"]
+    deciding_test: Literal["durability", "abstraction", "reuse_surface", "dedup"] | None
+    reason: str = Field(min_length=1, max_length=200)
+    target_kind: Literal["concept", "framework"] | None = None
+    proposed_title: str | None = Field(default=None, min_length=1)
+    rubric_revision: str | None = Field(default=None, min_length=64, max_length=64)
+    model: str | None = None
+
+    @model_validator(mode="after")
+    def _decision_has_the_required_interpretation(self) -> "KnowledgeVerdict":
+        if self.decision in {"distill", "leave_as_evidence"} and self.deciding_test is None:
+            raise ValueError("distill and leave_as_evidence require deciding_test")
+        if self.decision == "distill" and (
+            self.target_kind is None or self.proposed_title is None
+        ):
+            raise ValueError("distill requires target_kind and proposed_title")
+        if self.decision == "not_judged" and self.deciding_test is not None:
+            raise ValueError("not_judged requires deciding_test to be null")
+        return self
+
+
 class InsightRevision(_Record):
     insight_id: str = Field(default_factory=_new_uuid)
     revision: int = Field(default=1, ge=1)
@@ -229,6 +255,7 @@ class InsightRevision(_Record):
     note_connections: list[str] = Field(default_factory=list)
     event_cluster_id: str | None = None
     generation_model: str | None = None
+    knowledge_verdict: KnowledgeVerdict | None = None
     context_revision: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=_utc_now)
 
