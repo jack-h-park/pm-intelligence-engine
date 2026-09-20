@@ -191,3 +191,29 @@ def test_stage_span_lets_the_stage_error_through(tracing_on):
 
     (span,) = exporter.get_finished_spans()
     assert span.name == "stage s2"
+
+
+def test_stage_span_carries_the_origin_as_the_langfuse_session(tracing_on):
+    """`langfuse.session.id` is what groups the engine's run trace with the ops
+    turn that started it. The key is the vendor's documented OTel attribute, so
+    it is pinned here rather than left to whichever name reads nicely."""
+    telemetry, exporter = tracing_on
+
+    with telemetry.stage_span("s4", "run-42", origin_trace_id="20260920_143001_abc123"):
+        pass
+
+    (span,) = exporter.get_finished_spans()
+    assert span.attributes["langfuse.session.id"] == "20260920_143001_abc123"
+
+
+def test_stage_span_omits_the_session_when_there_is_no_origin(tracing_on):
+    """An untraced start must leave the attribute ABSENT. Writing "" would put
+    every such run in one shared Langfuse session -- a grouping that looks real
+    and joins unrelated runs."""
+    telemetry, exporter = tracing_on
+
+    with telemetry.stage_span("s4", "run-42", origin_trace_id=None):
+        pass
+
+    (span,) = exporter.get_finished_spans()
+    assert "langfuse.session.id" not in span.attributes

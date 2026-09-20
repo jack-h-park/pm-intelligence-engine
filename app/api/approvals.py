@@ -211,6 +211,11 @@ async def _execute_s4_retry(run_id: str, feedback: str, engine: PMEngine) -> Non
             pm_identity=full_context.pm_identity,
             company_context=full_context.company_context,
             product_context=full_context.product_context,
+            # Kept in step with services/run_context.load_run_context, which
+            # builds the same object for the other entry points. A run resumed
+            # through this path would otherwise emit spans with no session and
+            # drop out of its own trace group halfway through.
+            origin_trace_id=run.get("origin_trace_id"),
         )
 
         # Load latest S3 output

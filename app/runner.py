@@ -140,7 +140,12 @@ async def run_stage(position: str, run_id: str, engine: PMEngine, context: RunCo
     if position in ("s3", "s4") and engine.store.get_stage_output(run_id, position) is not None:
         return  # already computed — deepen reuse
 
-    with stage_span(position, run_id, product_id=context.product_id):
+    with stage_span(
+        position,
+        run_id,
+        product_id=context.product_id,
+        origin_trace_id=context.origin_trace_id,
+    ):
         await _execute_stage(position, run_id, engine, context)
 
 

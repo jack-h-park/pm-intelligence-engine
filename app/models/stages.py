@@ -24,6 +24,10 @@ class RunContext(BaseModel):
     # New decision-request runs pin this separately from legacy S1/S2 summaries.
     # Historical runs omit it and retain their exact former context shape.
     decision_case: DecisionCase | None = Field(default=None)
+    # The telemetry session of whoever started the run, carried here so every
+    # stage span can name it without re-reading the run (telemetry plan P3).
+    # None whenever the caller was not traced.
+    origin_trace_id: str | None = Field(default=None)
 
 
 class StageMetadata(BaseModel):

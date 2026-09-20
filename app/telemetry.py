@@ -95,8 +95,24 @@ def setup_tracing() -> bool:
 
 
 @contextmanager
-def stage_span(position: str, run_id: str, product_id: str | None = None) -> Iterator[None]:
-    """Wrap one pipeline stage. A no-op when tracing is off."""
+def stage_span(
+    position: str,
+    run_id: str,
+    product_id: str | None = None,
+    origin_trace_id: str | None = None,
+) -> Iterator[None]:
+    """Wrap one pipeline stage. A no-op when tracing is off.
+
+    ``origin_trace_id`` is the telemetry session of whoever started the run. It
+    is set as ``langfuse.session.id`` -- the backend's documented OTel attribute
+    for session grouping -- so the run's spans and the agent turn that asked for
+    the run land under one session. Vendor-named, but still a plain OTel
+    attribute: a backend that does not know the key ignores it.
+
+    It is set per span rather than once per run because each stage span is its
+    own root; a session recorded only on the first one would leave every later
+    stage ungrouped.
+    """
     if _TRACER is None:
         yield
         return
@@ -105,6 +121,11 @@ def stage_span(position: str, run_id: str, product_id: str | None = None) -> Ite
         span.set_attribute("pm.run_id", run_id)
         if product_id:
             span.set_attribute("pm.product_id", product_id)
+        # Left ABSENT rather than "" when there is no origin: an empty session id
+        # is a real grouping key, and would collect every untraced run into one
+        # session that looks meaningful and is not.
+        if origin_trace_id:
+            span.set_attribute("langfuse.session.id", origin_trace_id)
         yield
 
 

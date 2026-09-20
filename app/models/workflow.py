@@ -282,6 +282,14 @@ class WorkflowRun(Base):
     # re-ingest, not as "attempt N of N" of a failure-retry lineage. create_run
     # scopes attempt counting to runs at/after the latest refresh boundary.
     origin: Mapped[str] = mapped_column(String, nullable=False, default="start")
+    # The caller's telemetry session, supplied by whoever POSTed /runs/start
+    # (telemetry plan P3). The engine never generates it and never interprets it
+    # — it is an opaque key that the run's own spans carry as
+    # `langfuse.session.id`, so the run's trace and the agent turn that asked for
+    # it land under one session instead of being two unrelated traces.
+    # NULL = the caller was not being traced, which must stay distinguishable
+    # from "" (see SQLiteStore.create_run).
+    origin_trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # The legacy failed_stage / error / ended_by diagnostic columns were dropped in
     # US-55 step 7d-3 — their information lives in the canonical columns below: a
     # failed run's stage → position, its error → reason; a killed run's stop-kind →
