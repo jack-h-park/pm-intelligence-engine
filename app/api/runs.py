@@ -40,6 +40,11 @@ class RunStartRequest(BaseModel):
     # by the ops plane when the PM starts a run interactively; defaults False so the
     # autonomous/auto-triage path is unchanged. No effect when depth is provided.
     force_gate1: bool = False
+    # The caller's telemetry session id, so this run's trace joins the agent turn
+    # that started it (telemetry plan P3). Opaque to the engine, which stores it
+    # and puts it on the run's spans as `langfuse.session.id`. Absent or blank =
+    # the caller was not traced; the run simply has no origin.
+    origin_trace_id: str | None = None
 
 
 class PromoteRequest(BaseModel):
@@ -79,6 +84,10 @@ class RunResponse(BaseModel):
     # after the signal's content was re-ingested. Lets the observatory render a
     # re-ingest distinctly instead of as "attempt N of N" of a retry lineage.
     origin: str | None = None
+    # The telemetry session of whoever started this run (telemetry plan P3), or
+    # null when the caller was not traced. Surfaced so a reader — and P4's
+    # deep-link — can get from a run to the turn that asked for it.
+    origin_trace_id: str | None = None
     # (failed_stage / error / ended_by were dropped in US-55 step 7d-3 — a failed
     # run's stage → position, its error → reason; a killed run's stop-kind → reason.)
     stage_outputs: list[dict[str, Any]] | None = None
@@ -274,6 +283,7 @@ async def start_run(
         force_gate1=body.force_gate1,
         background_tasks=background_tasks,
         engine=engine,
+        origin_trace_id=body.origin_trace_id,
     )
 
 
@@ -286,6 +296,7 @@ async def dispatch_start(
     background_tasks: BackgroundTasks,
     engine: PMEngine,
     origin: str = "start",
+    origin_trace_id: str | None = None,
 ) -> RunResponse | BatchStartResponse:
     """Start a run for a signal — manual (product_id given) or fan-out (omitted).
 
@@ -308,6 +319,7 @@ async def dispatch_start(
             background_tasks,
             engine,
             origin=origin,
+            origin_trace_id=origin_trace_id,
         )
     return await _start_fanout_runs(
         signal_id,
@@ -317,6 +329,7 @@ async def dispatch_start(
         background_tasks,
         engine,
         origin=origin,
+        origin_trace_id=origin_trace_id,
     )
 
 
@@ -328,12 +341,18 @@ def _start_manual_run(
     background_tasks: BackgroundTasks,
     engine: PMEngine,
     origin: str = "start",
+    origin_trace_id: str | None = None,
 ) -> RunResponse:
     _validate_product_exists(product_id, engine)
     if requested_mode is not None:
         validate_mode_for_product(requested_mode, product_id)
 
-    run_id = engine.store.create_run(product_id=product_id, signal_id=signal_id, origin=origin)
+    run_id = engine.store.create_run(
+        product_id=product_id,
+        signal_id=signal_id,
+        origin=origin,
+        origin_trace_id=origin_trace_id,
+    )
     engine.store.advance(run_id, "s1")
     engine.store.update_signal_status(signal_id, "in_run")
     background_tasks.add_task(
@@ -356,6 +375,7 @@ async def _start_fanout_runs(
     background_tasks: BackgroundTasks,
     engine: PMEngine,
     origin: str = "start",
+    origin_trace_id: str | None = None,
 ) -> BatchStartResponse:
     from app.logging import emit_event
     from app.stages import portfolio_triage
@@ -394,6 +414,7 @@ async def _start_fanout_runs(
         background_tasks,
         engine,
         origin=origin,
+        origin_trace_id=origin_trace_id,
     )
     if runs:
         engine.store.update_signal_status(signal_id, "in_run")
@@ -462,12 +483,17 @@ def _spawn_runs_in_batch(
     background_tasks: BackgroundTasks,
     engine: PMEngine,
     origin: str = "start",
+    origin_trace_id: str | None = None,
 ) -> list[RunResponse]:
     """Create one run per product in the batch and start each pipeline."""
     runs: list[RunResponse] = []
     for product_id in product_ids:
         run_id = engine.store.create_run(
-            product_id=product_id, signal_id=signal_id, batch_id=batch_id, origin=origin
+            product_id=product_id,
+            signal_id=signal_id,
+            batch_id=batch_id,
+            origin=origin,
+            origin_trace_id=origin_trace_id,
         )
         engine.store.advance(run_id, "s1")
         background_tasks.add_task(

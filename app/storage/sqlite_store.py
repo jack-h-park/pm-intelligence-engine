@@ -194,6 +194,13 @@ class SQLiteStore:
         # ADD COLUMNs. These are now the authoritative run-state columns (US-55
         # step 7d-1); the store writes them directly via advance/pause/finish.
         # Guarded → idempotent. Rows in prod were backfilled in step 7c.
+        # The caller's telemetry session (telemetry plan P3). Nullable ADD COLUMN,
+        # guarded -> idempotent. Existing rows keep NULL, which reads correctly as
+        # "started before the link existed".
+        if "origin_trace_id" not in {c["name"] for c in inspector.get_columns("workflow_runs")}:
+            with self._engine.begin() as conn:
+                conn.execute(text("ALTER TABLE workflow_runs ADD COLUMN origin_trace_id VARCHAR"))
+
         run_cols = {c["name"] for c in inspector.get_columns("workflow_runs")}
         for col in ("lifecycle", "position", "outcome", "reason"):
             if col not in run_cols:
@@ -566,6 +573,7 @@ class SQLiteStore:
         signal_id: str,
         batch_id: str | None = None,
         origin: str = "start",
+        origin_trace_id: str | None = None,
     ) -> str:
         with self._Session() as session:
             # Derive retry lineage from prior runs of the same (signal_id,
@@ -608,6 +616,12 @@ class SQLiteStore:
                 attempt_no=attempt_no,
                 root_run_id=root_run_id,
                 origin=origin,
+                # Normalized at the one write site rather than trusted from the
+                # caller: the sending half reads an env var that may be unset, so
+                # "" arrives on the wire meaning "no origin". Stored as-is it would
+                # become a real Langfuse session key and silently group every
+                # untraced run together.
+                origin_trace_id=(origin_trace_id or "").strip() or None,
                 # Authoritative initial state (US-55 step 7d-1): a fresh run is live
                 # with no position yet. advance("s1") sets the first position.
                 lifecycle="running",
@@ -1003,6 +1017,7 @@ class SQLiteStore:
             "attempt_no": r.attempt_no,
             "root_run_id": r.root_run_id,
             "origin": r.origin,
+            "origin_trace_id": r.origin_trace_id,
             # Canonical (position, lifecycle) run-state columns.
             "lifecycle": r.lifecycle,
             "position": r.position,
