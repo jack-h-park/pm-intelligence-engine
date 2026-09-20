@@ -13,15 +13,28 @@ a second call site gets wrong.
 """
 
 import importlib
+import os
 
 import pytest
 
 
 @pytest.fixture
-def cfg(monkeypatch):
-    """Reload `config` per test so Settings picks the patched environment up."""
+def cfg(monkeypatch, tmp_path):
+    """Reload `config` per test so Settings picks the patched environment up.
+
+    Runs from an empty directory. ``Settings`` declares ``env_file=".env"``,
+    which pydantic resolves against the *current working directory*, so
+    clearing a variable from the process environment does not stop a real
+    ``.env`` from supplying it. These tests passed on a machine whose checkout
+    had no ``.env`` and failed on the host that runs the service, where the live
+    one sets REVIEW_UI_BASE_URL — the test was reading deployment config instead
+    of its own fixture.
+    """
+
+    original_cwd = os.getcwd()
 
     def _load(**env):
+        monkeypatch.chdir(tmp_path)
         for key in ("BASE_URL", "REVIEW_UI_BASE_URL"):
             monkeypatch.delenv(key, raising=False)
         for key, value in env.items():
@@ -31,6 +44,16 @@ def cfg(monkeypatch):
         return importlib.reload(config)
 
     yield _load
+
+    # Undo the patches BEFORE the final reload, and restore the directory too.
+    # That reload is what every later test in the session inherits as
+    # `config.settings`, and pytest tears `monkeypatch` down *after* this
+    # fixture — so reloading first would rebuild settings from this test's own
+    # patched values (the last case sets both bases to "") and hand the empty
+    # result to everything that runs next. Reproduced as `assert None == ''` in
+    # an integration test two files away.
+    monkeypatch.undo()
+    os.chdir(original_cwd)
     import config
 
     importlib.reload(config)

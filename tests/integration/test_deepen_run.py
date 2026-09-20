@@ -302,6 +302,10 @@ def test_run_response_includes_review_url(client, engine):
     run_id, _ = _seed_completed_run(engine, "note", stages=["s2"])
     resp = client.get(f"/runs/{run_id}")
     assert resp.status_code == 200
-    from config import settings
 
-    assert resp.json()["review_url"] == f"{settings.BASE_URL}/runs/{run_id}/review"
+    # Against the builder, not a re-spelled copy of it: the link's shape depends
+    # on whether REVIEW_UI_BASE_URL is set, so a hardcoded BASE_URL form asserts
+    # one deployment's configuration rather than the behaviour.
+    from config import review_url_for
+
+    assert resp.json()["review_url"] == review_url_for(run_id)
