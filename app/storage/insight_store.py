@@ -31,7 +31,10 @@ from app.models.insights import (
     IntelligenceInsightReviewRow,
     IntelligenceInsightRow,
     IntelligenceJobRow,
+    IntelligenceMigrationAliasRow,
+    IntelligenceMigrationInventoryRow,
     IntelligenceMigrationManifestRow,
+    IntelligenceMigrationOverlayRow,
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
@@ -168,6 +171,165 @@ class InsightStore:
         with self._Session() as session:
             row = session.get(IntelligenceCandidateRow, candidate_id)
             return Candidate.model_validate_json(row.payload_json) if row else None
+
+    def list_candidates(self) -> list[Candidate]:
+        """Read-only inventory for migration planning; never schedules analysis."""
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceCandidateRow).order_by(IntelligenceCandidateRow.created_at)
+            ).all()
+            return [Candidate.model_validate_json(row.payload_json) for row in rows]
+
+    def list_sources_for_candidate(self, candidate_id: str) -> list[SourceRecord]:
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceSourceRow)
+                .where(IntelligenceSourceRow.candidate_id == candidate_id)
+                .order_by(IntelligenceSourceRow.retrieved_at)
+            ).all()
+            return [SourceRecord.model_validate_json(row.payload_json) for row in rows]
+
+    # --- Migration inventories (E07) ---
+    #
+    # An inventory is the whole-record-set dry run an import is reconciled
+    # against. It is deliberately separate from save_migration_manifest above,
+    # which is the per-origin review overlay.
+
+    def save_migration_inventory(
+        self, inventory_id: str, inventory_hash: str, payload: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Persist one dry run; an identical hash replays the stored plan."""
+        with self._Session.begin() as session:
+            existing = session.scalar(
+                select(IntelligenceMigrationInventoryRow).where(
+                    IntelligenceMigrationInventoryRow.inventory_hash == inventory_hash
+                )
+            )
+            if existing is not None:
+                stored = json.loads(existing.payload_json)
+                if not isinstance(stored, dict):
+                    raise ValueError("stored migration inventory is invalid")
+                return cast(dict[str, Any], stored)
+            session.add(
+                IntelligenceMigrationInventoryRow(
+                    inventory_id=inventory_id,
+                    inventory_hash=inventory_hash,
+                    payload_json=json.dumps(payload, sort_keys=True, separators=(",", ":")),
+                )
+            )
+            return payload
+
+    def get_migration_inventory(self, inventory_id: str) -> dict[str, Any] | None:
+        with self._Session() as session:
+            row = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+            if row is None:
+                return None
+            stored = json.loads(row.payload_json)
+            if not isinstance(stored, dict):
+                raise ValueError("stored migration inventory is invalid")
+            return cast(dict[str, Any], stored)
+
+    def _inventory_records(
+        self, session: Session, inventory_id: str, inventory_hash: str
+    ) -> list[dict[str, Any]]:
+        """Load one inventory's records, refusing a plan that has since changed."""
+        inventory = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+        if inventory is None:
+            raise MissingInsightRecord(f"migration inventory {inventory_id} was not found")
+        if inventory.inventory_hash != inventory_hash:
+            raise ValueError("migration inventory changed; create and reconcile a new dry run")
+        stored = json.loads(inventory.payload_json)
+        if not isinstance(stored, dict):
+            raise ValueError("stored migration inventory is invalid")
+        return cast(list[dict[str, Any]], stored.get("records", []))
+
+    def import_migration_inventory(
+        self, inventory_id: str, inventory_hash: str, *, batch_size: int
+    ) -> dict[str, int | bool]:
+        """Add bounded migration aliases without modifying the original insight records."""
+        if not 1 <= batch_size <= 100:
+            raise ValueError("migration import batch size must be between 1 and 100")
+        with self._Session.begin() as session:
+            records = self._inventory_records(session, inventory_id, inventory_hash)
+            existing_ids = set(
+                session.scalars(
+                    select(IntelligenceMigrationAliasRow.original_id).where(
+                        IntelligenceMigrationAliasRow.inventory_id == inventory_id
+                    )
+                ).all()
+            )
+            pending = [record for record in records if record["original_id"] not in existing_ids]
+            for record in pending[:batch_size]:
+                original_id = record["original_id"]
+                alias_payload = {
+                    "original_id": original_id,
+                    "disposition": record["disposition"],
+                    "notification_handling": "none",
+                    "llm_handling": "none",
+                }
+                session.add(
+                    IntelligenceMigrationAliasRow(
+                        # Derived from (inventory, original) so a retried batch
+                        # re-adds the same row instead of a duplicate alias.
+                        alias_id=str(
+                            uuid.uuid5(uuid.NAMESPACE_URL, f"{inventory_id}:{original_id}")
+                        ),
+                        inventory_id=inventory_id,
+                        original_id=original_id,
+                        disposition=record["disposition"],
+                        payload_json=json.dumps(
+                            alias_payload, sort_keys=True, separators=(",", ":")
+                        ),
+                    )
+                )
+            imported_count = min(len(pending), batch_size)
+            return {"imported_count": imported_count, "complete": imported_count == len(pending)}
+
+    def list_migration_aliases(self, inventory_id: str) -> list[dict[str, Any]]:
+        """Read migration metadata only; never joins or rewrites original records."""
+        with self._Session() as session:
+            rows = session.scalars(
+                select(IntelligenceMigrationAliasRow)
+                .where(IntelligenceMigrationAliasRow.inventory_id == inventory_id)
+                .order_by(IntelligenceMigrationAliasRow.original_id)
+            ).all()
+            aliases: list[dict[str, Any]] = []
+            for row in rows:
+                alias = json.loads(row.payload_json)
+                if not isinstance(alias, dict):
+                    raise ValueError("stored migration alias is invalid")
+                aliases.append(cast(dict[str, Any], alias))
+            return aliases
+
+    def set_migration_overlay(
+        self, inventory_id: str, inventory_hash: str, *, enabled: bool
+    ) -> dict[str, bool]:
+        """Toggle the read overlay only after the saved inventory is fully imported."""
+        with self._Session.begin() as session:
+            records = self._inventory_records(session, inventory_id, inventory_hash)
+            if enabled:
+                imported_ids = set(
+                    session.scalars(
+                        select(IntelligenceMigrationAliasRow.original_id).where(
+                            IntelligenceMigrationAliasRow.inventory_id == inventory_id
+                        )
+                    ).all()
+                )
+                if any(record["original_id"] not in imported_ids for record in records):
+                    raise ValueError("migration batch is not reconciled")
+            overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
+            if overlay is None:
+                session.add(
+                    IntelligenceMigrationOverlayRow(inventory_id=inventory_id, enabled=enabled)
+                )
+            else:
+                overlay.enabled = enabled
+            return {"enabled": enabled}
+
+    def get_migration_overlay(self, inventory_id: str) -> dict[str, bool] | None:
+        with self._Session() as session:
+            overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
+            return {"enabled": overlay.enabled} if overlay is not None else None
 
     def known_source_hashes(self, content_hashes: list[str]) -> list[str]:
         """Find prior immutable source bodies without exposing their content."""
