@@ -9,6 +9,7 @@ from typing import Any, get_args
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
+from app.logging import emit_event
 from app.models.insights import KnowledgeVerdict
 from app.services.insight_budget import BudgetService
 
@@ -81,6 +82,7 @@ async def judge_knowledge(
     """Judge one newly analyzed Insight without allowing a verdict failure to escape."""
     if not rubric_path:
         return not_judged("knowledge rubric path is not configured")
+    run_id = str(uuid.uuid4())
     try:
         rubric_text = Path(rubric_path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError, ValueError):
@@ -130,12 +132,18 @@ async def judge_knowledge(
                 },
             ],
             stage="insight_knowledge_verdict",
-            run_id=str(uuid.uuid4()),
+            run_id=run_id,
         )
         payload["rubric_revision"] = rubric_revision
         payload["model"] = model
         verdict = KnowledgeVerdict.model_validate(payload)
-    except Exception:
+    except Exception as exc:
+        emit_event(
+            "insight_knowledge_verdict",
+            "model_output_unavailable",
+            run_id,
+            {"exception_type": type(exc).__name__},
+        )
         if reservation_id is not None:
             assert budget is not None
             _finalize_unknown(budget, reservation_id)
