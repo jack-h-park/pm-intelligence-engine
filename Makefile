@@ -16,7 +16,7 @@
 #   make dev      — start server in foreground with --reload
 #   make test     — run unit + integration test suite
 #   make eval     — run eval harness
-#   make lint     — run ruff linter
+#   make lint     — run ruff linter and the mypy strict type check
 #
 # See docs/ARCHITECTURE.md Section 11 for the full hosting and Tailscale setup.
 
@@ -138,5 +138,9 @@ test:
 eval:
 	python eval/runner.py
 
+# mypy runs here because the repo is configured strict and was driven to zero
+# once; without a target that enforces it, that zero only holds for as long as
+# someone remembers to check by hand — which it did not.
 lint:
-	ruff check app/ tests/
+	ruff check app/ tests/ eval/
+	mypy app/

@@ -156,7 +156,7 @@ def build_evaluation_brief(
 
     positions_md = ""
     if disagreement_matrix is not None:
-        rows = "\n".join(
+        position_rows = "\n".join(
             "| {option} | {status} | {positions} |".format(
                 option=row.option,
                 status=row.status,
@@ -169,7 +169,9 @@ def build_evaluation_brief(
         positions_md = (
             "\n\n## Option Positions\n| Option | State | Independent positions |\n|---|---|---|\n"
         )
-        positions_md += rows or "| No option positions supplied | insufficient_assessment | — |"
+        positions_md += (
+            position_rows or "| No option positions supplied | insufficient_assessment | — |"
+        )
 
     return f"""# Evaluation Brief
 

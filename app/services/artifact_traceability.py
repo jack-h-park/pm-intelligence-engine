@@ -1,10 +1,12 @@
 """Construct additive evidence_v1 artifact provenance without changing legacy artifacts."""
 
+from typing import Any
+
 from app.models.decision_case import DecisionCase
 from app.models.stages import ArtifactTraceability, DecisionReadiness, RequirementEvidenceLink
 
 
-def selected_option_from_approvals(events: list[dict]) -> tuple[str | None, str | None]:
+def selected_option_from_approvals(events: list[dict[str, Any]]) -> tuple[str | None, str | None]:
     """Read the durable Gate 3 selection without changing legacy approval rows."""
     for event in reversed(events):
         if event.get("stage") != "s5" or event.get("action") not in {"confirm", "override"}:

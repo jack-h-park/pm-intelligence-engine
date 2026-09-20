@@ -5,10 +5,11 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal, cast
 
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider, Usage
+from app.logging import emit_event
 from app.models.stages import PersonaOutput, RunContext, S3OutputData
 from app.services.decision_case import render_decision_case
 
@@ -27,6 +28,39 @@ _EVIDENCE_V1_JSON_SCHEMA = """{
   "option_positions": {"<case option>": "support | oppose | uncertain"},
   "uncertainties": ["<what would change this judgment>"]
 }"""
+
+_OPTION_POSITIONS = frozenset({"support", "oppose", "uncertain"})
+
+
+def _coerce_option_positions(
+    raw: Any, run_id: str
+) -> dict[str, Literal["support", "oppose", "uncertain"]]:
+    """Keep only the three positions a DisagreementMatrix can compare.
+
+    The prompt constrains option_positions to support/oppose/uncertain, but what
+    reaches PersonaOutput is whatever the model wrote. Anything else — a
+    capitalised "Support", a hedged "lean support" — failed pydantic validation
+    on construction, and since S4 gathers the four personas without
+    return_exceptions, one casing difference took down the whole evaluation
+    stage. So case and surrounding whitespace are normalised here.
+
+    A value that is still not one of the three is dropped rather than mapped
+    onto the nearest neighbour: inventing a position is precisely what
+    DisagreementMatrix promises not to do, and a missing position leaves that
+    option at insufficient_assessment, which is the honest reading. The model's
+    own wording survives in option_assessments either way.
+    """
+    positions: dict[str, Literal["support", "oppose", "uncertain"]] = {}
+    dropped: dict[str, str] = {}
+    for option, position in (raw or {}).items():
+        candidate = str(position).strip().lower()
+        if candidate in _OPTION_POSITIONS:
+            positions[str(option)] = cast(Literal["support", "oppose", "uncertain"], candidate)
+        else:
+            dropped[str(option)] = str(position)
+    if dropped:
+        emit_event("s4", "option_position_dropped", run_id, {"positions": dropped})
+    return positions
 
 
 class PersonaAgent:
@@ -123,9 +157,8 @@ Rules:
                 str(option): str(assessment)
                 for option, assessment in data.get("option_assessments", {}).items()
             },
-            option_positions={
-                str(option): str(position)
-                for option, position in data.get("option_positions", {}).items()
-            },
+            option_positions=_coerce_option_positions(
+                data.get("option_positions", {}), context.run_id
+            ),
             uncertainties=[str(item) for item in data.get("uncertainties", [])],
         )
