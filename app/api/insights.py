@@ -129,6 +129,7 @@ class DecisionRequestCreate(_Request):
     question: str = Field(min_length=1)
     depth: Literal["archive", "note", "structure", "evaluate", "decide"] | None = None
     options: list[str] = Field(default_factory=list)
+    decision_pipeline_version: Literal["legacy", "evidence_v1"] = "legacy"
 
 
 class InsightDecisionRequestCreate(_Request):
@@ -347,7 +348,10 @@ async def create_decision_request(
     from app.api.runs import _execute_s1_s2, _validate_product_exists, validate_mode_for_product
     from config import settings
 
-    if body.decision_pipeline_version == "evidence_v1" and not settings.DECISION_PIPELINE_V2_ENABLED:
+    if (
+        body.decision_pipeline_version == "evidence_v1"
+        and not settings.DECISION_PIPELINE_V2_ENABLED
+    ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="evidence_v1 decision pipeline is disabled",
@@ -463,6 +467,7 @@ async def create_insight_decision_request(
             question=body.question,
             depth=body.depth,
             options=body.options,
+            decision_pipeline_version=body.decision_pipeline_version,
         ),
         background_tasks,
         response,

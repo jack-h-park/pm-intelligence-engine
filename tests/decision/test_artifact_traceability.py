@@ -1,8 +1,10 @@
 from app.models.decision_case import DecisionCase
 from app.models.insights import PreparedFact
 from app.models.stages import ArtifactTraceability, RequirementEvidenceLink
-from app.services.artifact_traceability import build_artifact_traceability
-from app.services.artifact_traceability import selected_option_from_approvals
+from app.services.artifact_traceability import (
+    build_artifact_traceability,
+    selected_option_from_approvals,
+)
 
 
 def test_evidence_v1_artifact_traceability_preserves_case_and_unknown_baseline():
@@ -43,7 +45,13 @@ def test_traceability_rejects_evidence_outside_the_pinned_case():
         build_artifact_traceability(
             case,
             None,
-            [RequirementEvidenceLink(requirement="Requirement", evidence_passage_ids=["invented"], decision_rationale="No")],
+            [
+                RequirementEvidenceLink(
+                    requirement="Requirement",
+                    evidence_passage_ids=["invented"],
+                    decision_rationale="No",
+                )
+            ],
             [],
         )
     except ValueError as exc:
@@ -57,16 +65,34 @@ def test_prd_renders_traceability_as_provisional_evidence():
     from app.stages.s6b_prd import build_prd
 
     traceability = ArtifactTraceability(
-        decision_case_id="case-1", decision_case_revision=1, provisional=True,
-        requirement_links=[RequirementEvidenceLink(requirement="Status", evidence_passage_ids=["p1"], decision_rationale="Reason")],
+        decision_case_id="case-1",
+        decision_case_revision=1,
+        provisional=True,
+        requirement_links=[
+            RequirementEvidenceLink(
+                requirement="Status", evidence_passage_ids=["p1"], decision_rationale="Reason"
+            )
+        ],
         proposed_metrics=["Proposed: adoption; baseline unknown; target requires validation."],
     )
-    completeness = PRDCompletenessCheck(**{name: True for name in PRDCompletenessCheck.model_fields})
-    prd = build_prd(S6BOutputData(
-        problem_statement="Problem", target_user="User", success_metrics=[], user_stories=[], in_scope=[],
-        out_of_scope=[], technical_dependencies=[], open_questions=[], risks=[], completeness=completeness,
-        traceability=traceability,
-    ))
+    completeness = PRDCompletenessCheck(
+        **{name: True for name in PRDCompletenessCheck.model_fields}
+    )
+    prd = build_prd(
+        S6BOutputData(
+            problem_statement="Problem",
+            target_user="User",
+            success_metrics=[],
+            user_stories=[],
+            in_scope=[],
+            out_of_scope=[],
+            technical_dependencies=[],
+            open_questions=[],
+            risks=[],
+            completeness=completeness,
+            traceability=traceability,
+        )
+    )
 
     assert "## Decision Traceability" in prd
     assert "baseline unknown" in prd
@@ -77,22 +103,40 @@ def test_poc_renders_proposed_resource_estimate_as_traceability():
     from app.stages.s6a_poc_plan import build_poc_plan
 
     traceability = ArtifactTraceability(
-        decision_case_id="case-1", decision_case_revision=1, provisional=True,
+        decision_case_id="case-1",
+        decision_case_revision=1,
+        provisional=True,
         proposed_metrics=["Proposed resource estimate: PM 10h; baseline unknown."],
     )
-    poc = build_poc_plan(S6AOutputData(
-        experiment_goal="Test uncertainty", blocking_assumptions_addressed=[], experiment_design="Interview.",
-        success_criteria="One customer confirms.", timeline_weeks=2, resources_needed="PM 10h", traceability=traceability,
-    ))
+    poc = build_poc_plan(
+        S6AOutputData(
+            experiment_goal="Test uncertainty",
+            blocking_assumptions_addressed=[],
+            experiment_design="Interview.",
+            success_criteria="One customer confirms.",
+            timeline_weeks=2,
+            resources_needed="PM 10h",
+            traceability=traceability,
+        )
+    )
 
     assert "## Decision Traceability" in poc
     assert "Proposed resource estimate" in poc
 
 
 def test_traceability_reads_selected_option_and_override_reason_from_gate_three():
-    selected, rationale = selected_option_from_approvals([
-        {"stage": "s5", "action": "override", "feedback_text": "chose=prd; recommended=poc; reason=validated exception; selected_option=Pilot policy"}
-    ])
+    selected, rationale = selected_option_from_approvals(
+        [
+            {
+                "stage": "s5",
+                "action": "override",
+                "feedback_text": (
+                    "chose=prd; recommended=poc; reason=validated exception; "
+                    "selected_option=Pilot policy"
+                ),
+            }
+        ]
+    )
 
     assert selected == "Pilot policy"
     assert rationale == "validated exception"

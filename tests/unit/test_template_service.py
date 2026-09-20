@@ -83,7 +83,10 @@ def test_persona_prompt_preserves_base_lens_and_adds_evidence_v1_contract(servic
     loaded = service.load_persona_prompt(persona)
     assert loaded["lens"] == _EXPECTED[persona]["lens"]
     assert loaded["question"].startswith(_EXPECTED[persona]["question"])
-    assert "For evidence_v1, independently state a position for every DecisionCase option" in loaded["question"]
+    assert (
+        "For evidence_v1, independently state a position for every DecisionCase option"
+        in loaded["question"]
+    )
     assert "pinned passage IDs" in loaded["question"]
 
 

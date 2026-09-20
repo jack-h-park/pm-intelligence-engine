@@ -1,6 +1,6 @@
 from app.models.stages import Assumption, PersonaOutput, S4OutputData, S4RubricResult
-from app.services.disagreement_matrix import build_disagreement_matrix
 from app.services.decision_readiness import assess_readiness
+from app.services.disagreement_matrix import build_disagreement_matrix
 
 
 def _s4(*, missing_evidence: bool = False, disagreement: bool = False) -> S4OutputData:
@@ -14,7 +14,9 @@ def _s4(*, missing_evidence: bool = False, disagreement: bool = False) -> S4Outp
                 score=4,
                 key_argument=f"{name} reasoning.",
                 open_question="What customer interview would resolve this?",
-                evidence_passage_ids=[] if missing_evidence and name == "skeptic" else ["passage-1"],
+                evidence_passage_ids=[]
+                if missing_evidence and name == "skeptic"
+                else ["passage-1"],
                 uncertainties=["A customer interview could change this judgment."],
                 option_positions={"Pilot": position},
             )

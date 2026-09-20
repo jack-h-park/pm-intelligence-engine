@@ -149,9 +149,15 @@ def test_rubric_skeptic_data_gap_penalty():
 def test_rubric_all_same_scores_can_still_show_independent_lenses():
     product_context = "Strategy Pillar: **Reduce Attack Surface**: Minimize."
     personas = [
-        _make_persona("explorer", 3, "attack surface affects administrator impact", "interview", "Impact"),
-        _make_persona("strategist", 3, "attack surface aligns with strategy", "legal review", "Strategic Fit"),
-        _make_persona("builder", 3, "attack surface can be implemented", "engineering spike", "Feasibility"),
+        _make_persona(
+            "explorer", 3, "attack surface affects administrator impact", "interview", "Impact"
+        ),
+        _make_persona(
+            "strategist", 3, "attack surface aligns with strategy", "legal review", "Strategic Fit"
+        ),
+        _make_persona(
+            "builder", 3, "attack surface can be implemented", "engineering spike", "Feasibility"
+        ),
         _make_persona("skeptic", 3, "attack surface identical score", "survey", "Confidence"),
     ]
     result = check_rubric(personas, product_context)
@@ -165,7 +171,12 @@ def test_evidence_rubric_flags_missing_evidence_and_uncertainty():
         _make_persona("explorer", 3, "attack surface", "customer interview"),
         _make_persona("strategist", 3, "attack surface strategy", "legal review"),
         _make_persona("builder", 3, "attack surface feasibility", "engineering spike"),
-        _make_persona("skeptic", 3, "attack surface counterargument with enough detail to avoid the data gap penalty.", "customer survey"),
+        _make_persona(
+            "skeptic",
+            3,
+            "attack surface counterargument with enough detail to avoid the data gap penalty.",
+            "customer survey",
+        ),
     ]
     for persona in personas[:3]:
         persona.evidence_passage_ids = ["passage-1"]
@@ -302,10 +313,38 @@ async def test_evidence_v1_s4_attaches_a_deterministic_disagreement_matrix():
     from app.stages import s4_evaluation
 
     responses = [
-        json.dumps({"score": 3, "key_argument": "attack surface impact.", "open_question": "Customer interview?", "option_positions": {"Pilot": "support"}}),
-        json.dumps({"score": 3, "key_argument": "attack surface fit.", "open_question": "Legal review?", "option_positions": {"Pilot": "support"}}),
-        json.dumps({"score": 3, "key_argument": "attack surface feasibility.", "open_question": "Engineering spike?", "option_positions": {"Pilot": "oppose"}}),
-        json.dumps({"score": 3, "key_argument": "attack surface concern.", "open_question": "Customer survey?", "option_positions": {"Pilot": "oppose"}}),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface impact.",
+                "open_question": "Customer interview?",
+                "option_positions": {"Pilot": "support"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface fit.",
+                "open_question": "Legal review?",
+                "option_positions": {"Pilot": "support"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface feasibility.",
+                "open_question": "Engineering spike?",
+                "option_positions": {"Pilot": "oppose"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface concern.",
+                "open_question": "Customer survey?",
+                "option_positions": {"Pilot": "oppose"},
+            }
+        ),
     ]
     llm = AsyncMock()
     llm.complete = AsyncMock(side_effect=responses)

@@ -25,7 +25,8 @@ def assess_readiness(
             ReadinessFinding(
                 category="uncertainty",
                 severity="Blocking",
-                message="Missing uncertainty disclosure for: " + ", ".join(sorted(missing_uncertainty)),
+                message="Missing uncertainty disclosure for: "
+                + ", ".join(sorted(missing_uncertainty)),
             )
         )
     matrix = s4_output.disagreement_matrix

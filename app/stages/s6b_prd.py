@@ -13,14 +13,17 @@ from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
     PRDCompletenessCheck,
+    RequirementEvidenceLink,
     RunContext,
     S6BInput,
     S6BOutput,
     S6BOutputData,
     StageMetadata,
-    RequirementEvidenceLink,
 )
-from app.services.artifact_traceability import build_artifact_traceability, selected_option_from_approvals
+from app.services.artifact_traceability import (
+    build_artifact_traceability,
+    selected_option_from_approvals,
+)
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore

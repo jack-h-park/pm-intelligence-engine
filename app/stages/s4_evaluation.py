@@ -14,8 +14,8 @@ from app.agents.strategist import StrategistAgent
 from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import (
-    PersonaOutput,
     DisagreementMatrix,
+    PersonaOutput,
     RunContext,
     S4Input,
     S4Output,
@@ -23,8 +23,8 @@ from app.models.stages import (
     S4RubricResult,
     StageMetadata,
 )
-from app.services.template_service import TemplateService
 from app.services.disagreement_matrix import build_disagreement_matrix
+from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 from eval.rubrics.s4_rubric import check as check_s4_rubric
 
@@ -166,7 +166,9 @@ def build_evaluation_brief(
             )
             for row in disagreement_matrix.options
         )
-        positions_md = "\n\n## Option Positions\n| Option | State | Independent positions |\n|---|---|---|\n"
+        positions_md = (
+            "\n\n## Option Positions\n| Option | State | Independent positions |\n|---|---|---|\n"
+        )
         positions_md += rows or "| No option positions supplied | insufficient_assessment | — |"
 
     return f"""# Evaluation Brief

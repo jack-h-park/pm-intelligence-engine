@@ -3,8 +3,7 @@ import json
 import pytest
 
 from app.agents.explorer import ExplorerAgent
-from app.models.stages import RunContext, S3OutputData
-from app.models.stages import PersonaOutput
+from app.models.stages import PersonaOutput, RunContext, S3OutputData
 
 
 def test_persona_output_keeps_evidence_options_and_uncertainty_separate():
