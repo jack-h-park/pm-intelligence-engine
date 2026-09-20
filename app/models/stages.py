@@ -28,6 +28,7 @@ class RunContext(BaseModel):
     # stage span can name it without re-reading the run (telemetry plan P3).
     # None whenever the caller was not traced.
     origin_trace_id: str | None = Field(default=None)
+    decision_pipeline_version: Literal["legacy", "evidence_v1"] = "legacy"
 
 
 class StageMetadata(BaseModel):
@@ -390,6 +391,13 @@ class PersonaOutput(BaseModel):
     score: int = Field(ge=1, le=5, description="Score 1–5 for the owned dimension")
     key_argument: str = Field(description="2–4 sentence evaluation from this persona's lens")
     open_question: str = Field(description="Single most important open question")
+    # E06 evidence_v1 fields. Defaults preserve immutable legacy S4 records.
+    evidence_passage_ids: list[str] = Field(default_factory=list)
+    option_assessments: dict[str, str] = Field(default_factory=dict)
+    option_positions: dict[str, Literal["support", "oppose", "uncertain"]] = Field(
+        default_factory=dict
+    )
+    uncertainties: list[str] = Field(default_factory=list)
 
 
 class S4RubricResult(BaseModel):
@@ -398,8 +406,26 @@ class S4RubricResult(BaseModel):
     skeptic_quality: int = Field(ge=1, le=3)
     open_question_quality: int = Field(ge=1, le=3)
     persona_independence: int = Field(ge=1, le=3)
+    evidence_linkage_quality: int = Field(default=0, ge=0, le=3)
+    uncertainty_quality: int = Field(default=0, ge=0, le=3)
     passed: bool = Field(description="True if total_score >= 9")
     issues: list[str] = Field(default_factory=list)
+
+
+class OptionDisagreement(BaseModel):
+    """Independent persona positions for one proposed option."""
+
+    option: str
+    positions: dict[str, Literal["support", "oppose", "uncertain"]]
+    evidence_passage_ids: dict[str, list[str]]
+    status: Literal["consensus", "disagreement", "insufficient_assessment"]
+
+
+class DisagreementMatrix(BaseModel):
+    """A deterministic summary; it never infers a disagreement from missing data."""
+
+    options: list[OptionDisagreement] = Field(default_factory=list)
+    material_disagreement_options: list[str] = Field(default_factory=list)
 
 
 class S4OutputData(BaseModel):
@@ -407,6 +433,7 @@ class S4OutputData(BaseModel):
         description="All 4 persona outputs, order: explorer/strategist/builder/skeptic"
     )
     rubric: S4RubricResult
+    disagreement_matrix: DisagreementMatrix | None = None
 
 
 class S4Output(BaseModel):
@@ -450,6 +477,40 @@ class Assumption(BaseModel):
         return v
 
 
+class ReadinessFinding(BaseModel):
+    category: Literal["evidence", "uncertainty", "disagreement", "blocking_assumption"]
+    severity: Literal["Blocking", "Advisory"]
+    message: str
+
+
+class DecisionReadiness(BaseModel):
+    """Decision-support status; this records gaps and never changes S5 routing."""
+
+    ready_for_prd: bool
+    provisional: bool
+    findings: list[ReadinessFinding] = Field(default_factory=list)
+
+
+class RequirementEvidenceLink(BaseModel):
+    """A generated requirement's explicit grounding in pinned case evidence."""
+
+    requirement: str
+    evidence_passage_ids: list[str] = Field(default_factory=list)
+    decision_rationale: str
+
+
+class ArtifactTraceability(BaseModel):
+    """Evidence_v1 provenance attached additively to generated decision artifacts."""
+
+    decision_case_id: str
+    decision_case_revision: int = Field(ge=1)
+    approved_option: str | None = None
+    human_override_rationale: str | None = None
+    provisional: bool
+    requirement_links: list[RequirementEvidenceLink] = Field(default_factory=list)
+    proposed_metrics: list[str] = Field(default_factory=list)
+
+
 class S5OutputData(BaseModel):
     impact_score: int = Field(ge=1, le=5)
     strategic_fit_score: int = Field(ge=1, le=5)
@@ -477,6 +538,7 @@ class S5OutputData(BaseModel):
             "NOT change routing. See core/04-scoring.md 'Value Horizon'."
         ),
     )
+    readiness: DecisionReadiness | None = None
 
 
 class S5Output(BaseModel):
@@ -505,6 +567,7 @@ class S6AOutputData(BaseModel):
     success_criteria: str
     timeline_weeks: int
     resources_needed: str
+    traceability: ArtifactTraceability | None = None
 
 
 class S6AOutput(BaseModel):
@@ -554,6 +617,7 @@ class S6BOutputData(BaseModel):
     open_questions: list[str]
     risks: list[str]
     completeness: PRDCompletenessCheck
+    traceability: ArtifactTraceability | None = None
 
 
 class S6BOutput(BaseModel):

@@ -79,10 +79,15 @@ def service() -> TemplateService:
 
 
 @pytest.mark.parametrize("persona", sorted(_EXPECTED))
-def test_persona_prompt_matches_pre_migration_text(service, persona):
+def test_persona_prompt_preserves_base_lens_and_adds_evidence_v1_contract(service, persona):
     loaded = service.load_persona_prompt(persona)
     assert loaded["lens"] == _EXPECTED[persona]["lens"]
-    assert loaded["question"] == _EXPECTED[persona]["question"]
+    assert loaded["question"].startswith(_EXPECTED[persona]["question"])
+    assert (
+        "For evidence_v1, independently state a position for every DecisionCase option"
+        in loaded["question"]
+    )
+    assert "pinned passage IDs" in loaded["question"]
 
 
 def test_load_persona_prompt_unknown_persona_raises(service):

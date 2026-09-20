@@ -165,7 +165,7 @@ def _render_s4(s4: S4OutputData, date_str: str) -> str:
     return _archive_doc(
         "Stage 4: Persona Evaluation",
         [f"**Date:** {date_str}"],
-        build_evaluation_brief(s4.personas, s4.rubric),
+        build_evaluation_brief(s4.personas, s4.rubric, getattr(s4, "disagreement_matrix", None)),
     )
 
 

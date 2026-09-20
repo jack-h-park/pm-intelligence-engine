@@ -87,27 +87,37 @@ def check(personas: list[PersonaOutput], product_context: str) -> S4RubricResult
         )
 
     # --- 4. Persona Independence (3 pts) ---
-    scores = [p.score for p in personas]
-    skeptic_score = next((p.score for p in personas if p.persona == "skeptic"), None)
-    non_skeptic_scores = [p.score for p in personas if p.persona != "skeptic"]
-    score_variance = max(scores) - min(scores)
-
-    skeptic_differs = skeptic_score is not None and skeptic_score != sum(non_skeptic_scores) / len(
-        non_skeptic_scores
-    )
-    if score_variance >= 2 and skeptic_differs:
+    # Score variance is not evidence of independent thought: a well-supported
+    # consensus is valid. Instead require the intended lenses and distinct reasoning.
+    expected_personas = {"explorer", "strategist", "builder", "skeptic"}
+    present_personas = {p.persona for p in personas}
+    normalized_arguments = {" ".join(p.key_argument.lower().split()) for p in personas}
+    if present_personas == expected_personas and len(normalized_arguments) == len(personas):
         persona_independence = 3
-    elif score_variance >= 1:
+    elif len(present_personas) >= 3 and len(normalized_arguments) >= 3:
         persona_independence = 2
-        if not skeptic_differs:
-            issues.append(
-                "Persona Independence: Skeptic score matches the average of other personas"
-            )
+        issues.append("Persona Independence: one persona lens or argument is not distinct")
     else:
         persona_independence = 1
         issues.append(
             "Persona Independence: all personas gave identical scores — evaluation lacks productive tension"  # noqa: E501
         )
+
+    # Evidence_v1 adds explicit provenance and uncertainty checks. Legacy outputs
+    # omit these fields and retain the historical four-dimension scoring behavior.
+    evidence_v1 = any(
+        p.evidence_passage_ids or p.option_assessments or p.option_positions or p.uncertainties
+        for p in personas
+    )
+    evidence_linkage_quality = 0
+    uncertainty_quality = 0
+    if evidence_v1:
+        evidence_linkage_quality = 3 if all(p.evidence_passage_ids for p in personas) else 1
+        uncertainty_quality = 3 if all(p.uncertainties for p in personas) else 1
+        if evidence_linkage_quality < 3:
+            issues.append("Evidence Linkage: every persona must cite pinned case evidence")
+        if uncertainty_quality < 3:
+            issues.append("Uncertainty: every persona must state what would change its judgment")
 
     total = score_grounding + skeptic_quality + open_question_quality + persona_independence
     return S4RubricResult(
@@ -116,6 +126,8 @@ def check(personas: list[PersonaOutput], product_context: str) -> S4RubricResult
         skeptic_quality=skeptic_quality,
         open_question_quality=open_question_quality,
         persona_independence=persona_independence,
+        evidence_linkage_quality=evidence_linkage_quality,
+        uncertainty_quality=uncertainty_quality,
         passed=total >= 9,
         issues=issues,
     )

@@ -152,6 +152,12 @@ Rules:
         max_tokens=2048,
     )
     output_data = S7OutputData(**data)
+    if context.decision_pipeline_version == "evidence_v1" and context.decision_case is not None:
+        output_data.markdown = output_data.markdown.rstrip() + _traceability_footer(
+            context.decision_case.case_id,
+            context.decision_case.revision,
+            s5.readiness.provisional if s5 and s5.readiness else True,
+        )
 
     output = S7Output(
         run_id=context.run_id,
@@ -209,6 +215,15 @@ def _summarize_s6(stage_input: S7Input) -> str:
         poc = stage_input.s6a_output
         return f"PoC track — {poc.timeline_weeks}-week experiment: {poc.experiment_goal}"
     return f"Not run — pipeline stopped at mode '{stage_input.mode}'"
+
+
+def _traceability_footer(case_id: str, revision: int, provisional: bool) -> str:
+    return (
+        "\n\n## Decision Traceability\n"
+        f"- Case: {case_id} revision {revision}\n"
+        f"- Status: {'Provisional' if provisional else 'Grounded'}\n"
+        "- Metrics and resource estimates are proposed unless explicitly measured.\n"
+    )
 
 
 def _mode_description(mode: str) -> str:

@@ -58,10 +58,17 @@ class PMWorkflowStore(Protocol):
     def remove_signal_tags(self, signal_id: str, tags: list[str]) -> list[str] | None: ...
 
     # --- WorkflowRun ---
-    def create_decision_request_run(self, case: DecisionCase) -> dict[str, Any]: ...
+    def create_decision_request_run(
+        self, case: DecisionCase, pipeline_version: str = "legacy"
+    ) -> dict[str, Any]: ...
 
     def create_idempotent_decision_request(
-        self, actor: str, idempotency_key: str, request_hash: str, case: DecisionCase
+        self,
+        actor: str,
+        idempotency_key: str,
+        request_hash: str,
+        case: DecisionCase,
+        pipeline_version: str = "legacy",
     ) -> tuple[dict[str, Any], int]: ...
 
     def save_decision_case(self, run_id: str, case: DecisionCase) -> None: ...
@@ -74,6 +81,7 @@ class PMWorkflowStore(Protocol):
         signal_id: str,
         batch_id: str | None = None,
         origin: str = "start",
+        decision_pipeline_version: str = "legacy",
     ) -> str: ...
 
     def get_run(self, run_id: str) -> dict[str, Any] | None: ...

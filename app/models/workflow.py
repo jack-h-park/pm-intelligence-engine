@@ -290,6 +290,11 @@ class WorkflowRun(Base):
     # NULL = the caller was not being traced, which must stay distinguishable
     # from "" (see SQLiteStore.create_run).
     origin_trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    # New evaluation behavior is versioned per run. Existing rows and callers
+    # remain on legacy until evidence_v1 is explicitly selected and validated.
+    decision_pipeline_version: Mapped[str] = mapped_column(
+        String, nullable=False, default="legacy"
+    )
     # The legacy failed_stage / error / ended_by diagnostic columns were dropped in
     # US-55 step 7d-3 — their information lives in the canonical columns below: a
     # failed run's stage → position, its error → reason; a killed run's stop-kind →

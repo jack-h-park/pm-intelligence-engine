@@ -151,12 +151,29 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
     try:
         with TestClient(app, raise_server_exceptions=True) as client:
             monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", False)
+            blocked = client.post(
+                "/decision-requests",
+                json={**payload, "decision_pipeline_version": "evidence_v1"},
+                headers={**headers, "Idempotency-Key": "request-evidence-disabled"},
+            )
+            assert blocked.status_code == 409
+            assert engine.store.list_runs(limit=10) == []
             disabled_insight_request = client.post(
                 f"/insights/{insight.insight_id}/decision-requests",
                 json=insight_payload,
                 headers={**headers, "Idempotency-Key": "insight-disabled"},
             )
             monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", True)
+            evidence = client.post(
+                "/decision-requests",
+                json={**payload, "decision_pipeline_version": "evidence_v1"},
+                headers={**headers, "Idempotency-Key": "request-evidence-enabled"},
+            )
+            assert evidence.status_code == 202
+            assert (
+                engine.store.get_run(evidence.json()["run_id"])["decision_pipeline_version"]
+                == "evidence_v1"
+            )
             first_insight_request = client.post(
                 f"/insights/{insight.insight_id}/decision-requests",
                 json=insight_payload,
@@ -211,4 +228,4 @@ def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkey
     assert first.status_code == 202
     assert repeated.status_code == 200
     assert repeated.json() == first.json()
-    assert len(engine.store.list_runs(limit=10)) == 2
+    assert len(engine.store.list_runs(limit=10)) == 3

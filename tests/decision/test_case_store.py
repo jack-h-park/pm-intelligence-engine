@@ -160,9 +160,9 @@ def test_concurrent_idempotency_retries_replay_the_single_created_run(tmp_path, 
     original = SQLiteStore._create_decision_request_run
     stores = [SQLiteStore(database_url), SQLiteStore(database_url)]
 
-    def synchronized_create(session, decision_case):
+    def synchronized_create(session, decision_case, pipeline_version="legacy"):
         barrier.wait(timeout=5)
-        return original(session, decision_case)
+        return original(session, decision_case, pipeline_version)
 
     monkeypatch.setattr(
         SQLiteStore, "_create_decision_request_run", staticmethod(synchronized_create)

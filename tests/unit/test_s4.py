@@ -15,7 +15,7 @@ from app.models.stages import (
 from eval.rubrics.s4_rubric import check as check_rubric
 
 
-def _make_context(product_context: str = "") -> RunContext:
+def _make_context(product_context: str = "", pipeline_version: str = "legacy") -> RunContext:
     return RunContext(
         run_id="test-run-s4",
         product_id="example-security-product",
@@ -23,6 +23,7 @@ def _make_context(product_context: str = "") -> RunContext:
         company_context="Company context",
         product_context=product_context
         or "Strategy Pillar: **Attack Surface Reduction**: Minimize exposed attack vectors.",
+        decision_pipeline_version=pipeline_version,  # type: ignore[arg-type]
     )
 
 
@@ -145,17 +146,48 @@ def test_rubric_skeptic_data_gap_penalty():
     )
 
 
-def test_rubric_all_same_scores_penalizes_independence():
+def test_rubric_all_same_scores_can_still_show_independent_lenses():
     product_context = "Strategy Pillar: **Reduce Attack Surface**: Minimize."
     personas = [
-        _make_persona("explorer", 3, "attack surface", "interview", "Impact"),
-        _make_persona("strategist", 3, "attack surface", "legal review", "Strategic Fit"),
-        _make_persona("builder", 3, "attack surface", "engineering spike", "Feasibility"),
+        _make_persona(
+            "explorer", 3, "attack surface affects administrator impact", "interview", "Impact"
+        ),
+        _make_persona(
+            "strategist", 3, "attack surface aligns with strategy", "legal review", "Strategic Fit"
+        ),
+        _make_persona(
+            "builder", 3, "attack surface can be implemented", "engineering spike", "Feasibility"
+        ),
         _make_persona("skeptic", 3, "attack surface identical score", "survey", "Confidence"),
     ]
     result = check_rubric(personas, product_context)
-    assert result.persona_independence == 1
-    assert any("identical" in issue.lower() for issue in result.issues)
+    assert result.persona_independence == 3
+    assert not any("identical" in issue.lower() for issue in result.issues)
+
+
+def test_evidence_rubric_flags_missing_evidence_and_uncertainty():
+    product_context = "Strategy Pillar: **Reduce Attack Surface**: Minimize."
+    personas = [
+        _make_persona("explorer", 3, "attack surface", "customer interview"),
+        _make_persona("strategist", 3, "attack surface strategy", "legal review"),
+        _make_persona("builder", 3, "attack surface feasibility", "engineering spike"),
+        _make_persona(
+            "skeptic",
+            3,
+            "attack surface counterargument with enough detail to avoid the data gap penalty.",
+            "customer survey",
+        ),
+    ]
+    for persona in personas[:3]:
+        persona.evidence_passage_ids = ["passage-1"]
+        persona.uncertainties = ["A customer interview could change this judgment."]
+
+    result = check_rubric(personas, product_context)
+
+    assert result.evidence_linkage_quality == 1
+    assert result.uncertainty_quality == 1
+    assert any("evidence" in issue.lower() for issue in result.issues)
+    assert any("uncertaint" in issue.lower() for issue in result.issues)
 
 
 def test_rubric_no_actionable_questions_penalizes():
@@ -274,6 +306,59 @@ async def test_s4_version_propagates():
             store,
         )
     assert output.version == 2
+
+
+@pytest.mark.asyncio
+async def test_evidence_v1_s4_attaches_a_deterministic_disagreement_matrix():
+    from app.stages import s4_evaluation
+
+    responses = [
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface impact.",
+                "open_question": "Customer interview?",
+                "option_positions": {"Pilot": "support"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface fit.",
+                "open_question": "Legal review?",
+                "option_positions": {"Pilot": "support"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface feasibility.",
+                "open_question": "Engineering spike?",
+                "option_positions": {"Pilot": "oppose"},
+            }
+        ),
+        json.dumps(
+            {
+                "score": 3,
+                "key_argument": "attack surface concern.",
+                "open_question": "Customer survey?",
+                "option_positions": {"Pilot": "oppose"},
+            }
+        ),
+    ]
+    llm = AsyncMock()
+    llm.complete = AsyncMock(side_effect=responses)
+
+    with _mock_persona_templates():
+        output = await s4_evaluation.run(
+            S4Input(s3_output=_make_s3_output()),
+            _make_context(pipeline_version="evidence_v1"),
+            llm,
+            _make_store(),
+        )
+
+    assert output.output.disagreement_matrix is not None
+    assert output.output.disagreement_matrix.material_disagreement_options == ["Pilot"]
 
 
 @pytest.mark.asyncio
