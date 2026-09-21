@@ -7,29 +7,54 @@ from pathlib import Path
 from types import NoneType
 from typing import Any, get_args
 
+from pydantic import ValidationError
+
 from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider
 from app.logging import emit_event
 from app.models.insights import KnowledgeVerdict
 from app.services.insight_budget import BudgetService
 
+_ENGINE_OWNED_FIELDS = frozenset({"rubric_revision", "model"})
+
 
 def _schema_instruction() -> str:
     """Name every validated verdict field so the model cannot invent a schema."""
     parts: list[str] = []
     for name, field in KnowledgeVerdict.model_fields.items():
+        if name in _ENGINE_OWNED_FIELDS:
+            continue
         allowed = _literal_values(field.annotation)
         nullable = _allows_none(field.annotation)
         if allowed:
             description = "one of " + ", ".join(f'"{value}"' for value in allowed)
             if nullable:
                 description += " or null"
-        elif nullable:
-            description = "a string or null"
         else:
-            description = "a non-empty string"
+            description = _string_description(field, nullable)
         parts.append(f'"{name}": {description}')
-    return "Respond with exactly one object with these keys: " + "; ".join(parts) + "."
+    instruction = "Respond with exactly one object with these keys: " + "; ".join(parts) + "."
+    if KnowledgeVerdict.model_config.get("extra") == "forbid":
+        instruction += " Add no other keys."
+    return instruction
+
+
+def _string_description(field: Any, nullable: bool) -> str:
+    """Render Pydantic string-length metadata without duplicating its constraints."""
+    minimum = next(
+        (item.min_length for item in field.metadata if hasattr(item, "min_length")), None
+    )
+    maximum = next(
+        (item.max_length for item in field.metadata if hasattr(item, "max_length")), None
+    )
+    description = "a non-empty string" if minimum else "a string"
+    if maximum is not None:
+        description += f" of at most {maximum} characters"
+    if nullable:
+        description += " or null"
+        if minimum:
+            description += " (use null, never an empty string)"
+    return description
 
 
 def _literal_values(annotation: object) -> tuple[str, ...]:
@@ -72,6 +97,14 @@ def _finalize_unknown(budget: BudgetService, reservation_id: str) -> None:
         budget.finalize(reservation_id, "unknown")
     except Exception:
         return
+
+
+def _safe_validation_error_details(exc: ValidationError) -> list[dict[str, Any]]:
+    """Expose validation coordinates, never model-supplied values or source material."""
+    return [
+        {"loc": [str(part) for part in error["loc"]], "type": str(error["type"])}
+        for error in exc.errors()
+    ]
 
 
 async def judge_knowledge(
@@ -141,15 +174,20 @@ async def judge_knowledge(
             stage="insight_knowledge_verdict",
             run_id=run_id,
         )
+        for field in _ENGINE_OWNED_FIELDS:
+            payload.pop(field, None)
         payload["rubric_revision"] = rubric_revision
         payload["model"] = model
         verdict = KnowledgeVerdict.model_validate(payload)
     except Exception as exc:
+        detail: dict[str, Any] = {"exception_type": type(exc).__name__}
+        if isinstance(exc, ValidationError):
+            detail["validation_errors"] = _safe_validation_error_details(exc)
         emit_event(
             "insight_knowledge_verdict",
             "model_output_unavailable",
             run_id,
-            {"exception_type": type(exc).__name__},
+            detail,
         )
         if reservation_id is not None:
             assert budget is not None
