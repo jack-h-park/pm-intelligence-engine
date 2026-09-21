@@ -48,6 +48,12 @@ def _allows_none(annotation: object) -> bool:
 
 _SCHEMA_INSTRUCTION = _schema_instruction()
 
+_DECISION_INVARIANTS = (
+    ' A "distill" decision requires a non-null deciding_test, target_kind, and proposed_title.'
+    ' A "leave_as_evidence" decision requires a non-null deciding_test.'
+    ' A "not_judged" decision requires deciding_test to be null.'
+)
+
 
 def not_judged(reason: str, *, rubric_revision: str | None = None) -> KnowledgeVerdict:
     """Return the terminal, non-blocking outcome for an unavailable judgment."""
@@ -118,6 +124,7 @@ async def judge_knowledge(
                         "requires "
                         "a reusable abstraction title, not a news headline. "
                         + _SCHEMA_INSTRUCTION
+                        + _DECISION_INVARIANTS
                     ),
                 },
                 {
