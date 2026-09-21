@@ -4,7 +4,7 @@ from app.factory import build_insight_llm_provider
 from app.llm.protocol import LLMProvider
 from app.models.insights import InsightJob, InsightRevision
 from app.services.insight_analysis import analyze_bundle
-from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import load_prepared_context
 from app.services.insight_knowledge_verdict import judge_knowledge
 from app.storage.insight_store import InsightStore
@@ -143,6 +143,7 @@ async def _attach_knowledge_verdict(
             "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
             "maximum_micros": settings.INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS or 0,
             "allowance_class": "knowledge_verdict",
+            "budget_window": utc_day_window(),
         },
     )
     return insight.model_copy(update={"knowledge_verdict": verdict})

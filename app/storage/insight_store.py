@@ -1497,15 +1497,21 @@ class InsightStore:
                 if existing is not None:
                     connection.commit()
                     return BudgetReservation.model_validate_json(existing.payload_json)
-                reserved = sum(
-                    row.maximum_micros
+                prior = [
+                    BudgetReservation.model_validate_json(row.payload_json)
                     for row in session.execute(
                         select(IntelligenceBudgetReservationRow).where(
                             IntelligenceBudgetReservationRow.allowance_class
                             == reservation.allowance_class,
-                            IntelligenceBudgetReservationRow.state.in_(["reserved", "unknown"]),
                         )
                     ).scalars()
+                ]
+                reserved = sum(
+                    item.maximum_micros
+                    if item.state in {"reserved", "unknown"}
+                    else item.actual_micros or 0
+                    for item in prior
+                    if item.budget_window == reservation.budget_window
                 )
                 if reserved + reservation.maximum_micros > allowance_micros:
                     connection.commit()

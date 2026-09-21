@@ -1,6 +1,7 @@
 """Reservation-first budget policy for fixture and future paid operations."""
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from app.models.insights import BudgetReservation
@@ -18,6 +19,11 @@ class BudgetDecision:
     granted: bool
     code: str
     reservation: BudgetReservation | None = None
+
+
+def utc_day_window(now: datetime | None = None) -> str:
+    """Return the stable UTC calendar-day key for a bounded operating allowance."""
+    return (now or datetime.now(UTC)).astimezone(UTC).date().isoformat()
 
 
 class BudgetService:
