@@ -1,5 +1,7 @@
 """Deterministic evidence_v1 comparison of independently generated personas."""
 
+from typing import Literal
+
 from app.models.stages import DisagreementMatrix, OptionDisagreement, PersonaOutput
 
 
@@ -22,6 +24,7 @@ def build_disagreement_matrix(personas: list[PersonaOutput]) -> DisagreementMatr
             persona: sorted(set(assessments[persona].evidence_passage_ids))
             for persona in sorted(assessments)
         }
+        status: Literal["consensus", "disagreement", "insufficient_assessment"]
         if len(positions) < 2:
             status = "insufficient_assessment"
         elif len(set(positions.values())) == 1:

@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -32,7 +33,7 @@ class ProductProfile:
 _NON_PRODUCT_DIRS = frozenset({"_template", "general"})
 
 
-def _read_manifest(product_dir: Path) -> dict:
+def _read_manifest(product_dir: Path) -> dict[str, Any]:
     """products/<dir>/product.yaml, or {} when absent or unreadable.
 
     The decision-context companion repo declares product identity there — id,

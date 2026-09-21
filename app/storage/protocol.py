@@ -81,6 +81,7 @@ class PMWorkflowStore(Protocol):
         signal_id: str,
         batch_id: str | None = None,
         origin: str = "start",
+        origin_trace_id: str | None = None,
         decision_pipeline_version: str = "legacy",
     ) -> str: ...
 
