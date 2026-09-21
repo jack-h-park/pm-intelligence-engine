@@ -12,26 +12,31 @@ two shapes differ by a path segment and that is exactly the kind of difference
 a second call site gets wrong.
 """
 
-import importlib
-import os
-
 import pytest
 
 
 @pytest.fixture
 def cfg(monkeypatch, tmp_path):
-    """Reload `config` per test so Settings picks the patched environment up.
+    """Rebuild ``Settings`` per test from the patched environment, in place.
 
     Runs from an empty directory. ``Settings`` declares ``env_file=".env"``,
     which pydantic resolves against the *current working directory*, so
     clearing a variable from the process environment does not stop a real
     ``.env`` from supplying it. These tests passed on a machine whose checkout
     had no ``.env`` and failed on the host that runs the service, where the live
-    one sets REVIEW_UI_BASE_URL — the test was reading deployment config instead
-    of its own fixture.
-    """
+    one sets REVIEW_UI_BASE_URL — the test was reading deployment config
+    instead of its own fixture.
 
-    original_cwd = os.getcwd()
+    The rebuilt values are written onto the existing ``config.settings``
+    singleton rather than reloading the module. ``importlib.reload(config)``
+    rebinds that attribute to a *new* object while every module that already
+    did ``from config import settings`` keeps the old one, which splits the
+    session's configuration in two: a later test patching
+    ``config.settings`` no longer reaches the object its code reads. That cost
+    six unrelated insight-worker tests, which failed only when this file ran
+    first. ``tests/conftest.py`` now asserts the singleton's identity so the
+    same mistake fails where it is made.
+    """
 
     def _load(**env):
         monkeypatch.chdir(tmp_path)
@@ -41,22 +46,12 @@ def cfg(monkeypatch, tmp_path):
             monkeypatch.setenv(key, value)
         import config
 
-        return importlib.reload(config)
+        rebuilt = config.Settings()
+        for field in ("BASE_URL", "REVIEW_UI_BASE_URL"):
+            monkeypatch.setattr(config.settings, field, getattr(rebuilt, field))
+        return config
 
-    yield _load
-
-    # Undo the patches BEFORE the final reload, and restore the directory too.
-    # That reload is what every later test in the session inherits as
-    # `config.settings`, and pytest tears `monkeypatch` down *after* this
-    # fixture — so reloading first would rebuild settings from this test's own
-    # patched values (the last case sets both bases to "") and hand the empty
-    # result to everything that runs next. Reproduced as `assert None == ''` in
-    # an integration test two files away.
-    monkeypatch.undo()
-    os.chdir(original_cwd)
-    import config
-
-    importlib.reload(config)
+    return _load
 
 
 RUN = "94f165f6-ad40-4a66-94ce-0ed5f363a970"
