@@ -779,3 +779,37 @@ async def test_worker_returns_oauth_failure_to_retryable_queue(
     assert saved.lease_expires_at is None
     assert saved.next_attempt_at is not None
     assert "malformed JSON" in saved.error
+
+
+@pytest.mark.asyncio
+async def test_successful_retry_clears_the_previous_job_error(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    """A completed retry must not retain an error that implies the Insight failed."""
+
+    class SuccessfulLLM:
+        async def complete(self, messages, **kwargs):
+            return (
+                '{"headline":"Recovered insight","explanation":"Evidence-backed.",'
+                '"actual_change":"A source changed.","why_now":"New evidence.",'
+                '"personal_relevance":"Relevant.","takeaway":"Review it.",'
+                '"claims":[{"text":"A source changed.",'
+                '"passage_ids":["passage-fixture-1"]}]}'
+            )
+
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    first_lease = store.claim_job()
+    assert first_lease is not None
+    store.fail_job_retryable(job.job_id, first_lease.lease_token or "", "stale failure")
+
+    completed = await process_one(store, SuccessfulLLM())
+
+    assert completed is not None
+    saved = store.get_job(job.job_id)
+    assert saved.state == "complete"
+    assert saved.error is None
