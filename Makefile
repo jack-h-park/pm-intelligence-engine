@@ -14,7 +14,7 @@
 #
 # Development:
 #   make dev      — start server in foreground with --reload
-#   make test     — run unit + integration test suite
+#   make test     — run unit + decision + insights + integration test suite
 #   make eval     — run eval harness
 #   make lint     — run ruff linter and the mypy strict type check
 #
@@ -23,7 +23,7 @@
 .PHONY: start stop restart status logs dev fixture-replay \
         service-start service-stop service-restart service-status service-logs \
         install-service uninstall-service \
-        test eval lint
+        test eval lint require-decision-context
 
 PID_FILE  := .pid
 LOG_FILE  := logs/server.log
@@ -131,8 +131,28 @@ uninstall-service:
 # Dev tooling
 # ---------------------------------------------------------------------------
 
-test:
+# The suite reads the operator-configured companion decision-context: the S4
+# persona-prompt preflight runs whenever the API app is constructed, so without
+# a root 13 tests fail on a missing prompts/s4-personas/ tree. Supplying the
+# path is not this target's job — embedding one would commit a host path — but
+# failing with the cause beats 13 failures that read as a code regression.
+require-decision-context:
+	@if [ -z "$$DECISION_CONTEXT_ROOT" ] && [ -z "$$DECISION_SYSTEM_ROOT" ] && [ ! -f .env ]; then \
+		echo "make test: DECISION_CONTEXT_ROOT is unset and there is no .env to supply it."; \
+		echo "  The tests read the companion decision-context checkout (prompts/s4-personas/)."; \
+		echo "  Either 'cp .env.example .env' and set the path there, or run:"; \
+		echo "    DECISION_CONTEXT_ROOT=/path/to/decision-context make test"; \
+		exit 1; \
+	fi
+
+# Every test directory is named explicitly. `tests/decision/` and
+# `tests/insights/` were absent, so this target passed without ever executing
+# them — a change to either could be merged green on a suite that had not run
+# it. Adding a directory under tests/ means adding a line here.
+test: require-decision-context
 	pytest tests/unit/ -q
+	pytest tests/decision/ -q
+	pytest tests/insights/ -q
 	pytest tests/integration/ -q -m "not slow"
 
 eval:
