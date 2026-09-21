@@ -260,9 +260,10 @@ async def test_validation_failure_emits_safe_field_and_constraint_details(
         return {
             "decision": "leave_as_evidence",
             "deciding_test": "durability",
-            "reason": "x" * 201,
+            "reason": "This is a dated release detail.",
             "target_kind": None,
             "proposed_title": None,
+            "confidence": "high",
         }
 
     monkeypatch.setattr(knowledge_verdict_service, "complete_json", invalid_verdict)
@@ -278,6 +279,41 @@ async def test_validation_failure_emits_safe_field_and_constraint_details(
     assert result.decision == "not_judged"
     assert event["detail"] == {
         "exception_type": "ValidationError",
-        "validation_errors": [{"loc": ["reason"], "type": "string_too_long"}],
+        "validation_errors": [{"loc": ["confidence"], "type": "extra_forbidden"}],
     }
-    assert "x" * 201 not in json.dumps(event)
+    assert "high" not in json.dumps(event)
+
+
+@pytest.mark.asyncio
+async def test_judgment_truncates_an_overlong_reason_without_a_second_model_call(
+    tmp_path, monkeypatch,
+):
+    """A bounded verdict call can retain its semantic outcome when only its explanation overruns."""
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDurability and abstraction.", encoding="utf-8")
+    calls = 0
+
+    async def overlong_reason(*args, **kwargs):
+        nonlocal calls
+        del args, kwargs
+        calls += 1
+        return {
+            "decision": "leave_as_evidence",
+            "deciding_test": "durability",
+            "reason": "x" * 201,
+            "target_kind": None,
+            "proposed_title": None,
+        }
+
+    monkeypatch.setattr(knowledge_verdict_service, "complete_json", overlong_reason)
+    result = await judge_knowledge(
+        insight={"headline": "A release detail", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=object(),
+        model="fixture-model",
+    )
+
+    assert calls == 1
+    assert result.decision == "leave_as_evidence"
+    assert result.reason == "x" * 200

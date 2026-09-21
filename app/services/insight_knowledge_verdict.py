@@ -107,6 +107,22 @@ def _safe_validation_error_details(exc: ValidationError) -> list[dict[str, Any]]
     ]
 
 
+def _bound_reason(payload: dict[str, Any]) -> dict[str, Any]:
+    """Keep a valid verdict decision when only its explanatory field exceeds its stored bound."""
+    reason = payload.get("reason")
+    maximum = next(
+        (
+            item.max_length
+            for item in KnowledgeVerdict.model_fields["reason"].metadata
+            if hasattr(item, "max_length") and item.max_length is not None
+        ),
+        None,
+    )
+    if isinstance(reason, str) and maximum is not None and len(reason) > maximum:
+        return {**payload, "reason": reason[:maximum]}
+    return payload
+
+
 async def judge_knowledge(
     *,
     insight: dict[str, Any],
@@ -174,6 +190,7 @@ async def judge_knowledge(
             stage="insight_knowledge_verdict",
             run_id=run_id,
         )
+        payload = _bound_reason(payload)
         for field in _ENGINE_OWNED_FIELDS:
             payload.pop(field, None)
         payload["rubric_revision"] = rubric_revision
