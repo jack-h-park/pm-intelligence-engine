@@ -152,6 +152,27 @@ async def test_analysis_rejects_claims_without_bundle_passages(learning_bundle, 
         await analyze_bundle(learning_bundle, context, BadCitationLLM())
 
 
+@pytest.mark.asyncio
+async def test_analysis_gives_the_model_a_closed_set_of_citable_passage_ids(
+    learning_bundle, context
+):
+    """A provider can choose only an ID the analysis bundle actually supplied."""
+
+    class CitationBoundLLM(FixtureLLM):
+        async def complete(self, messages, **kwargs):
+            response = json.loads(await super().complete(messages, **kwargs))
+            if (
+                'allowed passage_ids exactly: ["passage-learning-1"]'
+                not in messages[0]["content"]
+            ):
+                response["claims"][0]["passage_ids"] = ["invented-passage-id"]
+            return json.dumps(response)
+
+    result = await analyze_bundle(learning_bundle, context, CitationBoundLLM())
+
+    assert result.claims[0].passage_ids == ["passage-learning-1"]
+
+
 def test_context_loader_hashes_selected_assets_and_keeps_missing_notes_empty(
     tmp_path: Path, learning_bundle
 ):
