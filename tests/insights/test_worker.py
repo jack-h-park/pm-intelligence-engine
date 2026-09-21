@@ -538,6 +538,7 @@ async def test_verdict_failure_persists_the_insight_as_not_judged(
     rubric.write_text("# The four tests\nDurability and abstraction.", encoding="utf-8")
     monkeypatch.setattr(settings, "KNOWLEDGE_RUBRIC_PATH", str(rubric))
     monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS", 5)
     monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
 
     class VerdictFailureLLM:
@@ -580,6 +581,7 @@ async def test_worker_persists_a_successful_knowledge_verdict(
     rubric.write_text("# The four tests\nDurability and abstraction.", encoding="utf-8")
     monkeypatch.setattr(settings, "KNOWLEDGE_RUBRIC_PATH", str(rubric))
     monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS", 5)
     monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
 
     class FixtureLLM:
@@ -623,7 +625,7 @@ async def test_worker_persists_a_successful_knowledge_verdict(
     assert completed.knowledge_verdict.proposed_title == "Durable control evaluation framework"
     assert store.get_insight(completed.insight_id) == completed
     assert store.get_job(job.job_id).state == "complete"
-    assert store.operational_summary()["cost_micros"]["unknown"] == 10
+    assert store.operational_summary()["cost_micros"]["unknown"] == 5
 
 
 @pytest.mark.asyncio

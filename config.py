@@ -47,7 +47,11 @@ class Settings(BaseSettings):
     INTELLIGENCE_RATE_REVISION: str = ""
     INTELLIGENCE_SENSING_ALLOWANCE_MICROS: int | None = None
     INTELLIGENCE_DECISION_ALLOWANCE_MICROS: int | None = None
+    # The total allowance and a single-call ceiling are deliberately separate:
+    # reservations consume the former, while each verdict is bounded by the
+    # latter.  Leave either unset to deny the operation rather than spend.
     INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS: int | None = None
     KNOWLEDGE_RUBRIC_PATH: str | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires
