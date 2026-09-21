@@ -141,7 +141,7 @@ async def _attach_knowledge_verdict(
             "policy_revision": "knowledge-verdict-v1",
             "provider": "insight_oauth",
             "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
-            "maximum_micros": settings.INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS or 0,
+            "maximum_micros": settings.INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS or 0,
             "allowance_class": "knowledge_verdict",
         },
     )
