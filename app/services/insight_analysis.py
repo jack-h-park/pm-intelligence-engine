@@ -20,6 +20,7 @@ async def analyze_bundle(
          "text": passage.text, "locator": passage.locator}
         for passage in bundle.passages
     ]
+    allowed_passage_ids = json.dumps(sorted(bundle.passage_ids))
     payload = await complete_json(
         llm,
         [
@@ -31,7 +32,9 @@ async def analyze_bundle(
                     "headline, explanation, actual_change, why_now, personal_relevance, and "
                     "takeaway; a non-empty claims array whose items each contain text and one "
                     "or more provided passage_ids; and an uncertainties array of strings. "
-                    "Every claim must cite one or more provided passage_ids. "
+                    "Every claim must cite one or more provided passage_ids. Use allowed "
+                    f"passage_ids exactly: {allowed_passage_ids}. Do not invent, alter, or "
+                    "derive passage IDs. "
                     "Preserve measurement windows, geography, units, and attribution. "
                     "A multi-day daily average is not a measured launch-day count. "
                     "Co-occurrence does not establish causation. Distinguish supplied sources "
