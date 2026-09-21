@@ -773,6 +773,7 @@ class InsightStore:
             job.completion_disposition = "ready"
             job.lease_token = None
             job.lease_expires_at = None
+            job.error = None
             job.updated_at = current
             self._write_job(job_row, job)
             if job.backfill_id:
