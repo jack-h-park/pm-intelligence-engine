@@ -32,6 +32,59 @@ def test_distill_requires_a_target_kind_and_proposed_title():
         )
 
 
+def test_model_authored_schema_states_string_bounds_and_forbids_extra_keys():
+    instruction = knowledge_verdict_service._schema_instruction()
+
+    assert '"reason": a non-empty string of at most 200 characters' in instruction
+    assert (
+        '"proposed_title": a non-empty string or null (use null, never an empty string)'
+        in instruction
+    )
+    assert "Add no other keys." in instruction
+    assert "rubric_revision" not in instruction
+    assert "model" not in instruction
+
+
+@pytest.mark.parametrize(
+    ("payload", "error"),
+    [
+        (
+            {"reason": "x" * 201},
+            {"loc": ("reason",), "type": "string_too_long"},
+        ),
+        (
+            {"proposed_title": ""},
+            {"loc": ("proposed_title",), "type": "string_too_short"},
+        ),
+        (
+            {"confidence": "high"},
+            {"loc": ("confidence",), "type": "extra_forbidden"},
+        ),
+        ({}, None),
+    ],
+)
+def test_knowledge_verdict_validator_pins_model_output_shapes(payload, error):
+    value = {
+        "decision": "leave_as_evidence",
+        "deciding_test": "durability",
+        "reason": "This is a dated release detail.",
+        "target_kind": None,
+        "proposed_title": None,
+        **payload,
+    }
+
+    if error is None:
+        assert KnowledgeVerdict.model_validate(value).decision == "leave_as_evidence"
+        return
+
+    with pytest.raises(ValidationError) as caught:
+        KnowledgeVerdict.model_validate(value)
+    assert any(
+        item["loc"] == error["loc"] and item["type"] == error["type"]
+        for item in caught.value.errors()
+    )
+
+
 @pytest.mark.asyncio
 async def test_judgment_hashes_the_rubric_contents_each_time(tmp_path):
     rubric = tmp_path / "knowledge-rubric.md"
@@ -71,7 +124,11 @@ async def test_judgment_hashes_the_rubric_contents_each_time(tmp_path):
     assert first.rubric_revision != second.rubric_revision
     prompt = " ".join(message["content"] for message in llm.messages)
     for field in KnowledgeVerdict.model_fields:
+        if field in {"rubric_revision", "model"}:
+            continue
         assert field in prompt
+    assert "rubric_revision" not in prompt
+    assert '"model"' not in prompt
     for value in ("distill", "leave_as_evidence", "not_judged", "durability", "abstraction"):
         assert value in prompt
     assert (
@@ -189,3 +246,38 @@ async def test_model_failure_emits_only_its_exception_type(tmp_path, capsys):
     assert event["action"] == "model_output_unavailable"
     assert event["detail"] == {"exception_type": "RuntimeError"}
     assert "provider stderr" not in json.dumps(event)
+
+
+@pytest.mark.asyncio
+async def test_validation_failure_emits_safe_field_and_constraint_details(
+    tmp_path, monkeypatch, capsys,
+):
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDurability and abstraction.", encoding="utf-8")
+
+    async def invalid_verdict(*args, **kwargs):
+        del args, kwargs
+        return {
+            "decision": "leave_as_evidence",
+            "deciding_test": "durability",
+            "reason": "x" * 201,
+            "target_kind": None,
+            "proposed_title": None,
+        }
+
+    monkeypatch.setattr(knowledge_verdict_service, "complete_json", invalid_verdict)
+    result = await judge_knowledge(
+        insight={"headline": "A release detail", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=object(),
+        model="fixture-model",
+    )
+
+    event = json.loads(capsys.readouterr().out)
+    assert result.decision == "not_judged"
+    assert event["detail"] == {
+        "exception_type": "ValidationError",
+        "validation_errors": [{"loc": ["reason"], "type": "string_too_long"}],
+    }
+    assert "x" * 201 not in json.dumps(event)
