@@ -1,7 +1,8 @@
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 
 
 def _policy() -> BudgetPolicy:
@@ -49,6 +50,50 @@ def test_unknown_usage_stays_encumbered_across_restart(store_factory):
 
     assert finalized.state == "unknown"
     assert denied.code == "budget_denied"
+
+
+def test_unknown_usage_is_encumbered_only_inside_its_budget_window(store_factory):
+    store = store_factory()
+    budget = BudgetService(store, _policy())
+    first = budget.reserve({**_request("first"), "budget_window": "2026-09-21"})
+    assert first.granted is True
+    budget.finalize(first.reservation.reservation_id, "unknown")
+
+    same_window = budget.reserve(
+        {**_request("same-window", maximum_micros=1), "budget_window": "2026-09-21"}
+    )
+    next_window = budget.reserve(
+        {**_request("next-window"), "budget_window": "2026-09-22"}
+    )
+
+    assert same_window.code == "budget_denied"
+    assert next_window.granted is True
+
+
+def test_finalized_usage_counts_actual_cost_inside_its_budget_window(store_factory):
+    store = store_factory()
+    budget = BudgetService(store, _policy())
+    first = budget.reserve(
+        {**_request("actual-first"), "budget_window": "2026-09-21"}
+    )
+    assert first.granted is True
+    budget.finalize(first.reservation.reservation_id, 30)
+
+    second = budget.reserve(
+        {**_request("actual-second", maximum_micros=70), "budget_window": "2026-09-21"}
+    )
+    third = budget.reserve(
+        {**_request("actual-third", maximum_micros=1), "budget_window": "2026-09-21"}
+    )
+
+    assert second.granted is True
+    assert third.code == "budget_denied"
+
+
+def test_utc_day_window_uses_utc_at_a_local_day_boundary():
+    local_evening = datetime(2026, 9, 21, 20, tzinfo=timezone(timedelta(hours=-7)))
+
+    assert utc_day_window(local_evening) == "2026-09-22"
 
 
 def test_missing_or_changed_rate_revision_blocks_paid_reservation(store_factory):

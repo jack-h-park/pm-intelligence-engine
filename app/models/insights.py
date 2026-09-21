@@ -424,6 +424,7 @@ class BudgetReservation(_Record):
     rate_revision: str
     maximum_micros: int = Field(gt=0)
     allowance_class: str
+    budget_window: str | None = Field(default=None, min_length=1)
     state: Literal["reserved", "finalized", "unknown"] = "reserved"
     actual_micros: int | None = None
     created_at: datetime = Field(default_factory=_utc_now)
