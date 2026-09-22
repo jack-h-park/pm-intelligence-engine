@@ -13,6 +13,7 @@ class Usage(TypedDict):
     output_tokens: int
     model: NotRequired[str]
     provider: NotRequired[str]
+    tokens_available: NotRequired[bool]
 
 
 @runtime_checkable

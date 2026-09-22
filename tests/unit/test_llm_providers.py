@@ -155,3 +155,20 @@ async def test_provider_usage_records_the_effective_model():
         ("gpt-6-sol", "openai"),
         ("claude-sonnet-5", "anthropic"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_successful_fallback_model_is_recorded_when_usage_is_missing():
+    from app.models.stages import StageMetadata
+
+    provider = ClaudeProvider(api_key="test-key")
+    provider._client.messages.create = AsyncMock(
+        return_value=_anthropic_response([SimpleNamespace(type="text", text="ok")])
+    )
+    usage: list = []
+
+    assert await provider.complete(_MESSAGES, model="claude-sonnet-5", usage_sink=usage) == "ok"
+    metadata = StageMetadata.with_usage("gpt-6-sol", usage)
+    assert metadata.model_used == "claude-sonnet-5"
+    assert metadata.input_tokens is None
+    assert metadata.output_tokens is None

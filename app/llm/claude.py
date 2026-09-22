@@ -47,13 +47,16 @@ class ClaudeProvider:
 
         async def _call() -> str:
             response = await self._client.messages.create(**kwargs)
-            if usage_sink is not None and response.usage is not None:
+            if usage_sink is not None:
                 usage_sink.append(
                     {
-                        "input_tokens": response.usage.input_tokens or 0,
-                        "output_tokens": response.usage.output_tokens or 0,
+                        "input_tokens": (response.usage.input_tokens or 0) if response.usage else 0,
+                        "output_tokens": (response.usage.output_tokens or 0)
+                        if response.usage
+                        else 0,
                         "model": response.model if hasattr(response, "model") else kwargs["model"],
                         "provider": "anthropic",
+                        "tokens_available": response.usage is not None,
                     }
                 )
             # Adaptive thinking (on by default on current-generation models) puts

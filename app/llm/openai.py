@@ -57,13 +57,18 @@ class OpenAIProvider:
                 raise ValueError("OpenAI returned an empty response")
             if not isinstance(content, str):
                 raise TypeError(f"OpenAI returned a non-string content: {type(content)!r}")
-            if usage_sink is not None and response.usage is not None:
+            if usage_sink is not None:
                 usage_sink.append(
                     {
-                        "input_tokens": response.usage.prompt_tokens or 0,
-                        "output_tokens": response.usage.completion_tokens or 0,
+                        "input_tokens": (response.usage.prompt_tokens or 0)
+                        if response.usage
+                        else 0,
+                        "output_tokens": (response.usage.completion_tokens or 0)
+                        if response.usage
+                        else 0,
                         "model": response.model if hasattr(response, "model") else kwargs["model"],
                         "provider": "openai",
+                        "tokens_available": response.usage is not None,
                     }
                 )
             return content

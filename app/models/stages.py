@@ -63,9 +63,10 @@ class StageMetadata(BaseModel):
         """
         inp: int | None
         out: int | None
-        if usage_sink:
-            inp = sum(u.get("input_tokens", 0) for u in usage_sink)
-            out = sum(u.get("output_tokens", 0) for u in usage_sink)
+        metered_usage = [u for u in (usage_sink or []) if u.get("tokens_available", True)]
+        if metered_usage:
+            inp = sum(u.get("input_tokens", 0) for u in metered_usage)
+            out = sum(u.get("output_tokens", 0) for u in metered_usage)
         else:
             inp = out = None
         actual_models = list(
