@@ -364,13 +364,15 @@ class LLMProvider(Protocol):
     ) -> str: ...
 ```
 
-**Provider selection:** `LLM_PROVIDER` environment variable (`claude` | `openai`). Default: `claude`.
+**Provider selection:** `LLM_PROVIDER` environment variable (`claude` | `openai`). Default: `openai`. A retryable GPT-6 Sol failure routes to Claude Sonnet 5; a retryable GPT-6 Luna failure routes to Claude Haiku 4.5. The OpenAI chain requires both credentials at startup. Insight OAuth jobs use their separate Hermes provider.
 
 **Swap example:**
 ```bash
 # .env
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-6-sol
+ANTHROPIC_API_KEY=sk-ant-...
 ```
 
 ---

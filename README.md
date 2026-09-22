@@ -16,18 +16,27 @@ are included in this repository.
   systems.
 
 The engine supports Claude and OpenAI through the `LLMProvider` protocol,
-SQLite persistence, a FastAPI API, and a regression/evaluation harness.
+SQLite persistence, a FastAPI API, and a regression/evaluation harness. With
+`LLM_PROVIDER=openai`, retryable GPT-6 Sol failures fall back to Claude Sonnet 5;
+retryable GPT-6 Luna failures fall back to Claude Haiku 4.5. Other model IDs and
+non-retryable errors do not switch providers. Stage metadata records the model
+that actually returned the answer.
 
 ## Quick start
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install -e ".[dev,openai]"
 cp .env.example .env
-# Set LLM_PROVIDER and the matching provider API key in .env.
+# Set OPENAI_API_KEY and ANTHROPIC_API_KEY for the OpenAI fallback chain.
 uvicorn app.api.main:app --reload
 ```
+
+The `openai` extra installs both provider SDKs because the OpenAI provider uses
+the Anthropic SDK for its same-tier retryable-failure fallback. On a deployed
+service, install `.[openai]` into the same Python environment selected by its
+service definition before restarting it with `make service-restart`.
 
 All authenticated endpoints require `PM_PLATFORM_API_TOKEN`; `/health` is the
 only unauthenticated endpoint. The default context and wiki roots are local

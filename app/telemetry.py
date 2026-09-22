@@ -178,12 +178,22 @@ class TracingLLMProvider:
                 # those tokens, and a span that omits them understates cost
                 # exactly when someone is looking into a failure.
                 if local:
-                    span.set_attribute(
-                        "gen_ai.usage.input_tokens", sum(u["input_tokens"] for u in local)
+                    models = list(dict.fromkeys(u["model"] for u in local if u.get("model")))
+                    providers = list(
+                        dict.fromkeys(u["provider"] for u in local if u.get("provider"))
                     )
-                    span.set_attribute(
-                        "gen_ai.usage.output_tokens", sum(u["output_tokens"] for u in local)
-                    )
+                    if models:
+                        span.set_attribute("gen_ai.response.model", ",".join(models))
+                    if providers:
+                        span.set_attribute("gen_ai.response.provider", ",".join(providers))
+                    metered = [u for u in local if u.get("tokens_available", True)]
+                    if metered:
+                        span.set_attribute(
+                            "gen_ai.usage.input_tokens", sum(u["input_tokens"] for u in metered)
+                        )
+                        span.set_attribute(
+                            "gen_ai.usage.output_tokens", sum(u["output_tokens"] for u in metered)
+                        )
                     span.set_attribute("gen_ai.usage.calls", len(local))
                 if usage_sink is not None:
                     usage_sink.extend(local)

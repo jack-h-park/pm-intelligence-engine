@@ -65,12 +65,21 @@ def _build_raw_llm_provider() -> LLMProvider:
             default_model=settings.ANTHROPIC_MODEL,
         )
     elif provider == "openai":
+        from app.llm.claude import ClaudeProvider
         from app.llm.openai import OpenAIProvider
+        from app.llm.tiered_fallback import TieredFallbackProvider
 
-        return OpenAIProvider(
+        if not settings.ANTHROPIC_API_KEY:
+            raise ValueError("ANTHROPIC_API_KEY is required for the OpenAI fallback chain")
+        primary = OpenAIProvider(
             api_key=settings.OPENAI_API_KEY,
             default_model=settings.OPENAI_MODEL,
         )
+        fallback = ClaudeProvider(
+            api_key=settings.ANTHROPIC_API_KEY,
+            default_model=settings.ANTHROPIC_MODEL,
+        )
+        return TieredFallbackProvider(primary, fallback, default_model=settings.OPENAI_MODEL)
     else:
         raise ValueError(
             f"Unknown LLM_PROVIDER '{provider}'. Set LLM_PROVIDER=claude or LLM_PROVIDER=openai"
