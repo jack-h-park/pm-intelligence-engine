@@ -597,6 +597,7 @@ def test_interest_triage_resolves_question_inside_engine(
         )
 
     monkeypatch.setattr(insights_api, "triage_with_reservation", capture_triage)
+    monkeypatch.setattr(insights_api, "utc_day_window", lambda: "2026-09-21")
 
     response = client.post(
         "/insight-triage/interest",
@@ -606,6 +607,7 @@ def test_interest_triage_resolves_question_inside_engine(
 
     assert response.status_code == 200
     assert captured["question"] == "What should I test?"
+    assert captured["reservation_payload"]["budget_window"] == "2026-09-21"
 
 
 def test_interest_triage_rejects_unknown_id_before_model(
