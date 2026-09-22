@@ -44,7 +44,7 @@ from app.models.insights import (
     SourceRecord,
 )
 from app.services.decision_case import build_decision_case
-from app.services.insight_budget import BudgetPolicy, BudgetService
+from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import resolve_interest
 from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_migration import build_dry_run_inventory
@@ -928,6 +928,7 @@ async def _semantic_triage(
                 "rate_revision": body.rate_revision,
                 "maximum_micros": body.maximum_micros,
                 "allowance_class": "sensing",
+                "budget_window": utc_day_window(),
             },
             actual_micros=body.actual_micros,
         )
