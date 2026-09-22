@@ -156,6 +156,36 @@ async def test_on_records_model_and_token_counts(tracing_on):
 
 
 @pytest.mark.asyncio
+async def test_on_records_fallback_model_without_claiming_missing_tokens(tracing_on):
+    telemetry, exporter = tracing_on
+
+    class FallbackProvider:
+        async def complete(
+            self, messages, model=None, max_tokens=2048, temperature=None, usage_sink=None
+        ):
+            if usage_sink is not None:
+                usage_sink.append(
+                    {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "model": "claude-sonnet-5",
+                        "provider": "anthropic",
+                        "tokens_available": False,
+                    }
+                )
+            return "ok"
+
+    wrapped = telemetry.TracingLLMProvider(FallbackProvider())
+    await wrapped.complete([], model="gpt-6-sol")
+
+    (span,) = exporter.get_finished_spans()
+    assert span.attributes["gen_ai.request.model"] == "gpt-6-sol"
+    assert span.attributes["gen_ai.response.model"] == "claude-sonnet-5"
+    assert span.attributes["gen_ai.response.provider"] == "anthropic"
+    assert "gen_ai.usage.input_tokens" not in span.attributes
+
+
+@pytest.mark.asyncio
 async def test_a_failed_call_still_reports_what_it_spent(tracing_on):
     """Tokens are burned whether or not the call returns. A span that omits them
     understates cost exactly when someone is investigating a failure."""
