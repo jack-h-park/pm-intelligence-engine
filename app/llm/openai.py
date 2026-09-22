@@ -13,7 +13,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 class OpenAIProvider:
-    def __init__(self, api_key: str, default_model: str = "gpt-5.6-terra") -> None:
+    def __init__(self, api_key: str, default_model: str = "gpt-6-sol") -> None:
         try:
             from openai import AsyncOpenAI
         except ImportError as e:
@@ -34,7 +34,7 @@ class OpenAIProvider:
             "max_completion_tokens": max_tokens,
             "messages": messages,
         }
-        if temperature is not None:
+        if temperature is not None and kwargs["model"] not in {"gpt-6-sol", "gpt-6-luna"}:
             kwargs["temperature"] = temperature
 
         async def _call() -> str:
@@ -43,7 +43,7 @@ class OpenAIProvider:
             try:
                 response = await self._client.chat.completions.create(**kwargs)
             except BadRequestError as exc:
-                # Reasoning-tier GPT-5.x models (unlike the `-chat-latest`
+                # Some earlier reasoning models (unlike the `-chat-latest`
                 # variants) reject `temperature` outright. Drop it and retry
                 # once rather than losing the whole call to a param that was
                 # only ever a best-effort determinism hint.
@@ -62,6 +62,8 @@ class OpenAIProvider:
                     {
                         "input_tokens": response.usage.prompt_tokens or 0,
                         "output_tokens": response.usage.completion_tokens or 0,
+                        "model": response.model if hasattr(response, "model") else kwargs["model"],
+                        "provider": "openai",
                     }
                 )
             return content

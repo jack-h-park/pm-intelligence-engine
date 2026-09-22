@@ -54,9 +54,7 @@ class StageMetadata(BaseModel):
     )
 
     @classmethod
-    def with_usage(
-        cls, model: str | None, usage_sink: list[Usage] | None
-    ) -> StageMetadata:
+    def with_usage(cls, model: str | None, usage_sink: list[Usage] | None) -> StageMetadata:
         """Build metadata from a model id and a usage_sink (list of {input_tokens, output_tokens}).
 
         Sums the sink so multiple calls in one stage (e.g. JSON-repair retries, or
@@ -70,7 +68,11 @@ class StageMetadata(BaseModel):
             out = sum(u.get("output_tokens", 0) for u in usage_sink)
         else:
             inp = out = None
-        return cls(model_used=model, input_tokens=inp, output_tokens=out)
+        actual_models = list(
+            dict.fromkeys(u["model"] for u in (usage_sink or []) if u.get("model"))
+        )
+        effective_model = ",".join(actual_models) if actual_models else model
+        return cls(model_used=effective_model, input_tokens=inp, output_tokens=out)
 
 
 # ---------------------------------------------------------------------------

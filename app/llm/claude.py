@@ -52,6 +52,8 @@ class ClaudeProvider:
                     {
                         "input_tokens": response.usage.input_tokens or 0,
                         "output_tokens": response.usage.output_tokens or 0,
+                        "model": response.model if hasattr(response, "model") else kwargs["model"],
+                        "provider": "anthropic",
                     }
                 )
             # Adaptive thinking (on by default on current-generation models) puts

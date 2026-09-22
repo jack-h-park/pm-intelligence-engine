@@ -77,7 +77,16 @@ def isolate_run_archive(tmp_path, monkeypatch):
     from app.services import run_exporter
 
     archive_root = tmp_path / "archive" / "runs"
-    monkeypatch.setattr(
-        run_exporter, "_canonical_archive_root", lambda: archive_root
-    )
+    monkeypatch.setattr(run_exporter, "_canonical_archive_root", lambda: archive_root)
     return archive_root
+
+
+@pytest.fixture(autouse=True)
+def supply_test_fallback_key(monkeypatch):
+    """Supply inert credentials for application startup during local tests."""
+    from config import settings
+
+    if not settings.OPENAI_API_KEY:
+        monkeypatch.setattr(settings, "OPENAI_API_KEY", "test-openai-key")
+    if not settings.ANTHROPIC_API_KEY:
+        monkeypatch.setattr(settings, "ANTHROPIC_API_KEY", "test-anthropic-key")

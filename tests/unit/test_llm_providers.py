@@ -91,12 +91,28 @@ async def test_openai_provider_retries_without_temperature_on_unsupported_param(
     mock_create = AsyncMock(side_effect=[rejected, accepted])
     provider._client.chat.completions.create = mock_create
 
-    result = await provider.complete(_MESSAGES, temperature=0)
+    result = await provider.complete(_MESSAGES, model="gpt-5.6-terra", temperature=0)
 
     assert result == "ok"
     assert mock_create.call_count == 2
     assert "temperature" in mock_create.call_args_list[0].kwargs
     assert "temperature" not in mock_create.call_args_list[1].kwargs
+
+
+@pytest.mark.asyncio
+async def test_gpt6_provider_omits_unsupported_temperature_on_first_call():
+    provider = OpenAIProvider(api_key="test-key")
+    mock_create = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=None,
+        )
+    )
+    provider._client.chat.completions.create = mock_create
+
+    assert await provider.complete(_MESSAGES, model="gpt-6-sol", temperature=0) == "ok"
+    assert mock_create.call_count == 1
+    assert "temperature" not in mock_create.call_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -112,3 +128,30 @@ async def test_openai_provider_reraises_unrelated_bad_request():
 
     with pytest.raises(BadRequestError):
         await provider.complete(_MESSAGES, temperature=0)
+
+
+@pytest.mark.asyncio
+async def test_provider_usage_records_the_effective_model():
+    openai_provider = OpenAIProvider(api_key="test-key")
+    openai_provider._client.chat.completions.create = AsyncMock(
+        return_value=SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))],
+            usage=SimpleNamespace(prompt_tokens=3, completion_tokens=1),
+        )
+    )
+    claude_provider = ClaudeProvider(api_key="test-key")
+    claude_provider._client.messages.create = AsyncMock(
+        return_value=_anthropic_response(
+            [SimpleNamespace(type="text", text="ok")],
+            SimpleNamespace(input_tokens=4, output_tokens=2),
+        )
+    )
+    usage: list = []
+
+    await openai_provider.complete(_MESSAGES, model="gpt-6-sol", usage_sink=usage)
+    await claude_provider.complete(_MESSAGES, model="claude-sonnet-5", usage_sink=usage)
+
+    assert [(u["model"], u["provider"]) for u in usage] == [
+        ("gpt-6-sol", "openai"),
+        ("claude-sonnet-5", "anthropic"),
+    ]

@@ -1,4 +1,4 @@
-from typing import Literal, Protocol, TypedDict, runtime_checkable
+from typing import Literal, NotRequired, Protocol, TypedDict, runtime_checkable
 
 
 class Message(TypedDict):
@@ -11,6 +11,8 @@ class Usage(TypedDict):
 
     input_tokens: int
     output_tokens: int
+    model: NotRequired[str]
+    provider: NotRequired[str]
 
 
 @runtime_checkable
