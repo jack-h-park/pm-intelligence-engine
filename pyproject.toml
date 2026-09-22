@@ -24,7 +24,7 @@ dependencies = [
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=0.40.0"]
-openai = ["openai>=1.60.0"]
+openai = ["openai>=1.60.0", "anthropic>=0.40.0"]
 # Span export. `opentelemetry-sdk` is what app/telemetry.py imports; the
 # langfuse client is only used in setup_tracing() to attach its span processor,
 # so swapping the backend does not reach the stage or provider code.

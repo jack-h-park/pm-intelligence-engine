@@ -27,11 +27,16 @@ that actually returned the answer.
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev,openai,anthropic]"
+pip install -e ".[dev,openai]"
 cp .env.example .env
 # Set OPENAI_API_KEY and ANTHROPIC_API_KEY for the OpenAI fallback chain.
 uvicorn app.api.main:app --reload
 ```
+
+The `openai` extra installs both provider SDKs because the OpenAI provider uses
+the Anthropic SDK for its same-tier retryable-failure fallback. On a deployed
+service, install `.[openai]` into the same Python environment selected by its
+service definition before restarting it with `make service-restart`.
 
 All authenticated endpoints require `PM_PLATFORM_API_TOKEN`; `/health` is the
 only unauthenticated endpoint. The default context and wiki roots are local
