@@ -1,4 +1,3 @@
-import shlex
 from dataclasses import dataclass
 
 from app.llm.protocol import LLMProvider
@@ -86,12 +85,8 @@ def _build_raw_llm_provider() -> LLMProvider:
         )
 
 
-def build_insight_llm_provider() -> LLMProvider:
-    """Build the isolated OAuth provider used only by personal Insight jobs."""
-    from app.llm.hermes_oauth import HermesOAuthProvider
-    from config import settings
+def build_s2k_llm_provider() -> LLMProvider:
+    """Build the fixture-bounded S2K transport provider for scoped Insight work."""
+    from app.llm.s2k_bridge import build_s2k_llm_provider as build_provider
 
-    command = tuple(shlex.split(settings.INSIGHT_OAUTH_COMMAND))
-    if not command:
-        raise ValueError("INSIGHT_OAUTH_COMMAND is required for insight job execution")
-    return HermesOAuthProvider(command=command, profile=settings.INSIGHT_OAUTH_PROFILE)
+    return build_provider()
