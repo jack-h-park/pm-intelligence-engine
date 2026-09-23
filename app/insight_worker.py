@@ -1,6 +1,6 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
-from app.factory import build_insight_llm_provider
+from app.factory import build_s2k_llm_provider
 from app.llm.protocol import LLMProvider
 from app.models.insights import InsightJob, InsightRevision
 from app.services.insight_analysis import analyze_bundle
@@ -150,25 +150,25 @@ async def _attach_knowledge_verdict(
 
 
 async def process_one_oauth(store: InsightStore) -> InsightRevision | None:
-    """Claim at most one learning job with the isolated OAuth provider."""
-    return await process_one(store, build_insight_llm_provider())
+    """Claim at most one learning job with the isolated S2K completion bridge."""
+    return await process_one(store, build_s2k_llm_provider())
 
 
 async def run_oauth_backfill_worker_tick(
     store: InsightStore, backfill_id: str
 ) -> InsightRevision | None:
-    """Run one OAuth analysis step for exactly one explicitly named backfill."""
+    """Run one S2K analysis step for exactly one explicitly named backfill."""
     job = store.claim_backfill_job(backfill_id)
     if job is None:
         return None
-    return await _process_claimed_job(store, job, build_insight_llm_provider())
+    return await _process_claimed_job(store, job, build_s2k_llm_provider())
 
 
 async def run_oauth_scoped_candidate_worker_tick(
     store: InsightStore, candidate_id: str
 ) -> InsightRevision | None:
-    """Run OAuth analysis for only one explicitly named Candidate."""
-    return await process_scoped_candidate_one(store, candidate_id, build_insight_llm_provider())
+    """Run S2K analysis for only one explicitly named Candidate."""
+    return await process_scoped_candidate_one(store, candidate_id, build_s2k_llm_provider())
 
 
 async def run_oauth_worker_tick(store: InsightStore) -> InsightRevision | None:

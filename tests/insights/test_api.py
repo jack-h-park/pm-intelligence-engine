@@ -1,6 +1,8 @@
 import hashlib
 import json
 
+import pytest
+
 import app.api.insights as insights_api
 from app.api.deps import get_engine
 from app.api.main import app
@@ -539,6 +541,7 @@ def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers,
     assert response.status_code == 200
     assert response.json()["disposition"] == "admit"
     assert engine.insight_store.operational_summary()["cost_micros"]["finalized"] == 4
+    assert engine.llm.calls == 1
 
     repeated = client.post(
         "/insight-triage",
@@ -586,8 +589,16 @@ def test_interest_triage_resolves_question_inside_engine(
 ):
     _write_interest_triage_context(tmp_path)
     captured = {}
+    engine = app.dependency_overrides[get_engine]()
+    product_decision_llm = object()
+    s2k_llm = object()
+    engine.llm = product_decision_llm
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda: s2k_llm)
+    triage_calls = 0
 
     async def capture_triage(**kwargs):
+        nonlocal triage_calls
+        triage_calls += 1
         captured.update(kwargs)
         return insights_api.TriageDecision(
             disposition="admit",
@@ -599,21 +610,73 @@ def test_interest_triage_resolves_question_inside_engine(
     monkeypatch.setattr(insights_api, "triage_with_reservation", capture_triage)
     monkeypatch.setattr(insights_api, "utc_day_window", lambda: "2026-09-21")
 
+    payload = _interest_triage_payload("learning-loop")
     response = client.post(
         "/insight-triage/interest",
-        json=_interest_triage_payload("learning-loop"),
+        json=payload,
         headers=auth_headers,
     )
+    monkeypatch.setattr(
+        insights_api,
+        "build_s2k_llm_provider",
+        lambda: (_ for _ in ()).throw(ValueError("bridge unavailable after first call")),
+    )
+    repeated = client.post("/insight-triage/interest", json=payload, headers=auth_headers)
 
     assert response.status_code == 200
+    assert repeated.json() == response.json()
     assert captured["question"] == "What should I test?"
     assert captured["reservation_payload"]["budget_window"] == "2026-09-21"
+    assert captured["llm"] is s2k_llm
+    assert engine.llm is product_decision_llm
+    assert triage_calls == 1
+
+
+def test_interest_triage_transport_failure_keeps_unknown_reservation_and_prevents_duplicate_call(
+    client, auth_headers, monkeypatch, tmp_path
+):
+    from config import settings
+
+    _write_interest_triage_context(tmp_path)
+    monkeypatch.setattr(settings, "INTELLIGENCE_SENSING_ALLOWANCE_MICROS", 10)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+    engine = app.dependency_overrides[get_engine]()
+
+    class BrokenLLM:
+        calls = 0
+
+        async def complete(self, messages, **_kwargs):
+            self.calls += 1
+            raise RuntimeError("fixture transport failure")
+
+    provider = BrokenLLM()
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda: provider)
+    payload = _interest_triage_payload("learning-loop", "transport-failed-once")
+
+    with pytest.raises(RuntimeError, match="fixture transport failure"):
+        client.post("/insight-triage/interest", json=payload, headers=auth_headers)
+    first_summary = engine.insight_store.operational_summary()
+    assert first_summary["cost_micros"] == {"reserved": 10, "finalized": 0, "unknown": 10}
+    assert first_summary["candidates"] == 0
+    assert engine.insight_store.list_insights() == []
+
+    repeated = client.post("/insight-triage/interest", json=payload, headers=auth_headers)
+
+    assert repeated.status_code == 409
+    assert repeated.json()["detail"] == "triage_in_progress"
+    assert provider.calls == 1
+    assert engine.insight_store.operational_summary()["cost_micros"] == first_summary["cost_micros"]
 
 
 def test_interest_triage_rejects_unknown_id_before_model(
     client, auth_headers, monkeypatch, tmp_path
 ):
     _write_interest_triage_context(tmp_path)
+
+    def provider_must_not_be_built():
+        raise AssertionError("S2K provider must not build for an unknown interest")
+
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", provider_must_not_be_built)
 
     async def must_not_run(**kwargs):
         raise AssertionError("semantic triage must not run for an unknown interest")

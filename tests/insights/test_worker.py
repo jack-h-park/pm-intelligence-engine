@@ -178,7 +178,7 @@ async def test_terminal_or_waiting_scoped_tick_does_not_initialize_an_oauth_prov
     assert await process_backfill_one(store, backfill.backfill_id, object()) is None
     monkeypatch.setattr(
         insight_worker,
-        "build_insight_llm_provider",
+        "build_s2k_llm_provider",
         lambda: (_ for _ in ()).throw(AssertionError("provider must not initialize")),
     )
 
@@ -734,7 +734,7 @@ async def test_oauth_worker_tick_completes_one_learning_job(
         async def complete(self, messages, **kwargs):
             return """{"headline":"OAuth insight","explanation":"Evidence-backed.","actual_change":"A source changed.","why_now":"New evidence.","personal_relevance":"Relevant.","takeaway":"Review it.","claims":[{"text":"A source changed.","passage_ids":["passage-fixture-1"]}]}"""  # noqa: E501
 
-    monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", lambda: OAuthFixture())
+    monkeypatch.setattr("app.insight_worker.build_s2k_llm_provider", lambda: OAuthFixture())
     store = store_factory()
     candidate = store.save_candidate(candidate_payload)
     source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
@@ -751,9 +751,100 @@ async def test_oauth_worker_tick_completes_one_learning_job(
 async def test_oauth_worker_tick_returns_none_when_queue_is_empty(monkeypatch, store_factory):
     from app.insight_worker import run_oauth_worker_tick
 
-    monkeypatch.setattr("app.insight_worker.build_insight_llm_provider", object)
+    monkeypatch.setattr("app.insight_worker.build_s2k_llm_provider", object)
 
     assert await run_oauth_worker_tick(store_factory()) is None
+
+
+@pytest.mark.asyncio
+async def test_malformed_s2k_bridge_response_never_persists_an_insight(
+    monkeypatch, store_factory, candidate_payload, source_payload, bundle_payload
+):
+    from app.insight_worker import process_one_oauth
+    from app.llm.s2k_bridge import S2KBridgeError
+
+    class MalformedBridgeFixture:
+        async def complete(self, messages, **kwargs):
+            raise S2KBridgeError("invalid_bridge_json")
+
+    monkeypatch.setattr(
+        insight_worker, "build_s2k_llm_provider", lambda: MalformedBridgeFixture()
+    )
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+
+    with pytest.raises(S2KBridgeError, match="invalid_bridge_json"):
+        await process_one_oauth(store)
+
+    assert store.list_insights() == []
+    assert store.get_job(job.job_id).state == "retryable_failed"
+
+
+@pytest.mark.asyncio
+async def test_scoped_candidate_oauth_tick_uses_s2k_and_leaves_generic_job_queued(
+    monkeypatch, store_factory, candidate_payload, source_payload
+):
+    from app.insight_worker import run_oauth_scoped_candidate_worker_tick
+
+    class S2KFixture:
+        pass
+
+    s2k = S2KFixture()
+    seen = {}
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    store.ensure_scoped_candidate_job(candidate.candidate_id)
+    unrelated = store.create_job(_job_payload(candidate.candidate_id))
+    monkeypatch.setattr(insight_worker, "build_s2k_llm_provider", lambda: s2k)
+
+    async def capture_claimed(store_arg, job, llm, **_kwargs):
+        seen.update(store=store_arg, job=job, llm=llm)
+        return None
+
+    monkeypatch.setattr(insight_worker, "_process_claimed_job", capture_claimed)
+
+    result = await run_oauth_scoped_candidate_worker_tick(store, candidate.candidate_id)
+
+    assert result is None
+    assert seen["store"] is store
+    assert seen["job"].scoped_candidate_runner is True
+    assert seen["job"].candidate_id == candidate.candidate_id
+    assert seen["llm"] is s2k
+    assert store.get_job(unrelated.job_id).state == "queued"
+
+
+@pytest.mark.asyncio
+async def test_named_backfill_oauth_tick_uses_s2k_and_claims_only_that_backfill(monkeypatch):
+    from types import SimpleNamespace
+
+    backfill_id = "fixture-backfill-id"
+    job = SimpleNamespace(job_id="fixture-job", backfill_id=backfill_id)
+    s2k = object()
+    store = SimpleNamespace(claimed=[])
+
+    def claim_backfill_job(requested_id):
+        store.claimed.append(requested_id)
+        return job
+
+    store.claim_backfill_job = claim_backfill_job
+    captured = {}
+    monkeypatch.setattr(insight_worker, "build_s2k_llm_provider", lambda: s2k)
+
+    async def process(store_arg, job_arg, llm):
+        captured.update(store=store_arg, job=job_arg, llm=llm)
+        return "fixture-result"
+
+    monkeypatch.setattr(insight_worker, "_process_claimed_job", process)
+
+    result = await run_oauth_backfill_worker_tick(store, backfill_id)
+
+    assert result == "fixture-result"
+    assert store.claimed == [backfill_id]
+    assert captured == {"store": store, "job": job, "llm": s2k}
 
 
 @pytest.mark.asyncio

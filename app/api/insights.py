@@ -3,6 +3,7 @@
 import hashlib
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -19,11 +20,12 @@ from fastapi import (
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.api.deps import get_engine
-from app.factory import PMEngine
+from app.factory import PMEngine, build_s2k_llm_provider
 from app.insight_worker import (
     run_oauth_backfill_worker_tick,
     run_oauth_scoped_candidate_worker_tick,
 )
+from app.llm.protocol import LLMProvider
 from app.models.decision_case import InsightRevisionReference
 from app.models.insights import (
     Candidate,
@@ -905,7 +907,12 @@ async def novelty_lookup(
 
 
 async def _semantic_triage(
-    body: SemanticTriageRequest | InterestTriageRequest, engine: PMEngine, *, question: str
+    body: SemanticTriageRequest | InterestTriageRequest,
+    engine: PMEngine,
+    *,
+    question: str,
+    llm: LLMProvider | None = None,
+    llm_factory: Callable[[], LLMProvider] | None = None,
 ) -> TriageDecision:
     store = _processing_store(engine)
     claim_state, cached = store.claim_triage(body.operation_id)
@@ -913,12 +920,21 @@ async def _semantic_triage(
         return TriageDecision.model_validate(cached)
     if claim_state != "claimed":
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress")
+    if llm_factory is not None:
+        try:
+            llm = llm_factory()
+        except Exception:
+            store.abandon_triage_claim(body.operation_id)
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="S2K inference is unavailable",
+            ) from None
     try:
         decision = await triage_with_reservation(
             question=question,
             title=body.title,
             content=body.content,
-            llm=engine.llm,
+            llm=llm if llm is not None else engine.llm,
             budget=_triage_budget(engine),
             reservation_payload={
                 "operation_id": body.operation_id,
@@ -958,7 +974,12 @@ async def interest_semantic_triage(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="unknown_interest_id",
         )
-    return await _semantic_triage(body, engine, question=resolved.question)
+    return await _semantic_triage(
+        body,
+        engine,
+        question=resolved.question,
+        llm_factory=build_s2k_llm_provider,
+    )
 
 
 @router.get("/insight-operations")

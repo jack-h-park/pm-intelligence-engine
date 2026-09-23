@@ -1,48 +1,56 @@
+"""S2K bridge factory tests; full Hermes-agent CLI inference is retired."""
+
+from __future__ import annotations
+
+import shlex
 import sys
 from types import SimpleNamespace
 
-import pytest
+from app.factory import build_s2k_llm_provider
+from app.llm.s2k_bridge import S2KBridgeProvider
 
 
-@pytest.mark.asyncio
-async def test_hermes_oauth_provider_returns_cli_json_without_api_key_usage(tmp_path):
-    """The new insight provider must use the OAuth CLI, never an API-key SDK."""
-    from app.llm.hermes_oauth import HermesOAuthProvider
-
-    executable = tmp_path / "oauth_cli.py"
-    executable.write_text(
-        "import json, sys\n"
-        "assert '--profile' in sys.argv\n"
-        "assert 'ops' in sys.argv\n"
-        "assert '-z' in sys.argv\n"
-        "print(json.dumps({'headline': 'Verified insight'}))\n",
-        encoding="utf-8",
-    )
-    provider = HermesOAuthProvider(command=(sys.executable, str(executable)), profile="ops")
-    usage: list[dict[str, int]] = []
-
-    result = await provider.complete(
-        messages=[{"role": "user", "content": "Return JSON only."}], usage_sink=usage
-    )
-
-    assert result == '{"headline": "Verified insight"}'
-    assert usage == [{"input_tokens": 0, "output_tokens": 0}]
-
-
-def test_insight_provider_factory_selects_oauth_without_changing_legacy_provider(monkeypatch):
+def test_s2k_factory_builds_the_configured_bounded_bridge(monkeypatch, tmp_path):
     import config
-    from app.factory import build_insight_llm_provider
-    from app.llm.hermes_oauth import HermesOAuthProvider
+
+    profile = tmp_path / "s2k-profile"
+    profile.mkdir()
+    (profile / "config.yaml").write_text("auxiliary:\n  s2k: {}\n", encoding="utf-8")
+    script = tmp_path / "s2k_completion.py"
+    script.write_text("print('{}')\n", encoding="utf-8")
+    script.chmod(0o700)
+    command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+    monkeypatch.setattr(
+        config,
+        "settings",
+        SimpleNamespace(
+            S2K_COMPLETION_COMMAND=command,
+            S2K_COMPLETION_PROFILE_HOME=str(profile),
+            S2K_COMPLETION_TIMEOUT_SECONDS=5,
+            S2K_COMPLETION_MAX_STDOUT_BYTES=8192,
+        ),
+    )
+
+    provider = build_s2k_llm_provider()
+
+    assert isinstance(provider, S2KBridgeProvider)
+
+
+def test_s2k_factory_fails_closed_without_an_isolated_profile(monkeypatch):
+    import pytest
+
+    import config
 
     monkeypatch.setattr(
         config,
         "settings",
         SimpleNamespace(
-            INSIGHT_OAUTH_COMMAND=f"{sys.executable} -m hermes_cli.main",
-            INSIGHT_OAUTH_PROFILE="ops",
+            S2K_COMPLETION_COMMAND=f"{sys.executable} /static/s2k_completion.py",
+            S2K_COMPLETION_PROFILE_HOME="",
+            S2K_COMPLETION_TIMEOUT_SECONDS=5,
+            S2K_COMPLETION_MAX_STDOUT_BYTES=8192,
         ),
     )
 
-    provider = build_insight_llm_provider()
-
-    assert isinstance(provider, HermesOAuthProvider)
+    with pytest.raises(ValueError):
+        build_s2k_llm_provider()

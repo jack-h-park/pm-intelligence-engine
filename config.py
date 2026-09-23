@@ -27,10 +27,13 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     ANTHROPIC_MODEL: str = "claude-sonnet-5"
     OPENAI_MODEL: str = "gpt-6-sol"
-    # Insight jobs use the local Hermes OAuth subscription rather than inheriting
-    # the API-key provider used by the legacy decision workflow.
-    INSIGHT_OAUTH_COMMAND: str = ""
-    INSIGHT_OAUTH_PROFILE: str = "ops"
+    # S2K completions use a separate bounded control-plane bridge subprocess.
+    # These remain unset until the isolated profile and absolute bridge command
+    # have been provisioned; the factory fails closed when either is missing.
+    S2K_COMPLETION_COMMAND: str = ""
+    S2K_COMPLETION_PROFILE_HOME: str = ""
+    S2K_COMPLETION_TIMEOUT_SECONDS: float = 90.0
+    S2K_COMPLETION_MAX_STDOUT_BYTES: int = 1_048_576
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 
