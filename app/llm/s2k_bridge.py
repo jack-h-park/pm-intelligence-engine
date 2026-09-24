@@ -14,15 +14,45 @@ from pathlib import Path
 from app.llm.protocol import LLMProvider, Message, Usage
 from app.logging import emit_event
 
-_ALLOWED_PROVIDERS = {"openai-codex", "anthropic", "openai"}
+_ROUTE_ORDER = ("openai-codex", "anthropic", "openai")
+_ALLOWED_PROVIDERS = set(_ROUTE_ORDER)
 _MAX_STDERR_BYTES = 65_536
+_SAFE_CHILD_ERRORS = {
+    "authentication_failed",
+    "bridge_internal",
+    "credentials_unavailable",
+    "invalid_completion",
+    "invalid_request",
+    "invalid_route_configuration",
+    "malformed_completion",
+    "profile_config_invalid",
+    "profile_config_missing",
+    "profile_identity_invalid",
+    "profile_identity_missing",
+    "provider_capacity",
+    "provider_connection",
+    "provider_request_failed",
+    "provider_timeout",
+    "providers_exhausted",
+    "request_too_large",
+    "route_identity_unverifiable",
+}
+_ATTEMPT_OUTCOMES = {"failed", "selected", "unavailable"}
 
 
 class S2KBridgeError(RuntimeError):
     """Sanitized subprocess/response error with no child output attached."""
 
-    def __init__(self, kind: str):
+    def __init__(
+        self,
+        kind: str,
+        *,
+        retryable: bool = False,
+        attempts: list[dict[str, object]] | None = None,
+    ):
         self.kind = kind
+        self.retryable = retryable
+        self.attempts = attempts or []
         super().__init__(kind)
 
 
@@ -113,6 +143,85 @@ def _minimal_environment(profile_home: str) -> dict[str, str]:
     env["PATH"] = env.get("PATH") or "/usr/bin:/bin"
     env["HERMES_HOME"] = profile_home
     return env
+
+
+def _validated_attempts(value: object) -> list[dict[str, object]] | None:
+    if not isinstance(value, list) or len(value) > len(_ALLOWED_PROVIDERS):
+        return None
+    result: list[dict[str, object]] = []
+    previous_route_index = -1
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {
+            "provider", "outcome", "error_type", "retryable"
+        }:
+            return None
+        provider = item.get("provider")
+        outcome = item.get("outcome")
+        error_type = item.get("error_type")
+        retryable = item.get("retryable")
+        if (
+            not isinstance(provider, str)
+            or provider not in _ALLOWED_PROVIDERS
+            or not isinstance(outcome, str)
+            or outcome not in _ATTEMPT_OUTCOMES
+            or (error_type is not None and not isinstance(error_type, str))
+            or (isinstance(error_type, str) and error_type not in _SAFE_CHILD_ERRORS)
+            or not isinstance(retryable, bool)
+            or (outcome == "selected" and error_type is not None)
+            or (outcome == "selected" and retryable)
+            or (outcome != "selected" and error_type is None)
+        ):
+            return None
+        route_index = _ROUTE_ORDER.index(provider)
+        if route_index <= previous_route_index:
+            return None
+        previous_route_index = route_index
+        result.append(
+            {
+                "provider": provider,
+                "outcome": outcome,
+                "error_type": error_type,
+                "retryable": retryable,
+            }
+        )
+    return result
+
+
+def _child_failure(
+    stdout: bytes, request_id: str
+) -> tuple[str, bool, list[dict[str, object]]] | None:
+    """Read only the bridge's fixed error schema; never surface child text or stderr."""
+    try:
+        payload = json.loads(stdout.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) not in ({"error"}, {"error", "request_id"}):
+        return None
+    child_request_id = payload.get("request_id")
+    if child_request_id is not None and child_request_id != request_id:
+        return None
+    error = payload.get("error")
+    if not isinstance(error, dict) or set(error) not in (
+        {"type", "retryable"}, {"type", "retryable", "attempts"}
+    ):
+        return None
+    kind = error.get("type")
+    retryable = error.get("retryable")
+    if (
+        not isinstance(kind, str)
+        or kind not in _SAFE_CHILD_ERRORS
+        or not isinstance(retryable, bool)
+    ):
+        return None
+    attempts: list[dict[str, object]] = []
+    if "attempts" in error:
+        validated = _validated_attempts(error["attempts"])
+        if validated is None:
+            return None
+        attempts = validated
+        if attempts and child_request_id != request_id:
+            return None
+    return kind, retryable, attempts
 
 
 class S2KBridgeProvider:
@@ -214,6 +323,26 @@ class S2KBridgeProvider:
         except Exception:
             raise S2KBridgeError("bridge_process_failed") from None
         if returncode != 0:
+            child_failure = _child_failure(stdout, request_id)
+            if child_failure is not None:
+                kind, retryable, attempts = child_failure
+                try:
+                    emit_event(
+                        "s2k_inference",
+                        "bridge_failed",
+                        request_id,
+                        {
+                            "error_type": kind,
+                            "retryable": retryable,
+                            "attempts": attempts,
+                        },
+                    )
+                except Exception:
+                    # Diagnostic telemetry must not mask the original failure.
+                    pass
+                raise S2KBridgeError(
+                    kind, retryable=retryable, attempts=attempts
+                ) from None
             raise S2KBridgeError("bridge_process_failed")
         if len(stdout) > self._max_stdout_bytes:
             raise S2KBridgeError("stdout_too_large")

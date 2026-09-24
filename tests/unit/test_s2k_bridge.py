@@ -158,6 +158,51 @@ async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body)
 
 
 @pytest.mark.asyncio
+async def test_bridge_propagates_sanitized_child_attempts_and_emits_event(tmp_path, monkeypatch):
+    profile = _profile(tmp_path)
+    script = _executable(
+        tmp_path,
+        "import json, sys\n"
+        "request = json.load(sys.stdin)\n"
+        "print(json.dumps({'error': {'type': 'providers_exhausted', 'retryable': True, 'attempts': ["
+        "{'provider': 'openai-codex', 'outcome': 'failed', 'error_type': 'provider_capacity', 'retryable': True}, "
+        "{'provider': 'anthropic', 'outcome': 'failed', 'error_type': 'provider_timeout', 'retryable': True}]}, "
+        "'request_id': request['request_id']}))\n"
+        "sys.exit(1)\n",
+    )
+    provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
+    events = []
+    monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
+
+    with pytest.raises(S2KBridgeError) as exc_info:
+        await provider.complete([{"role": "user", "content": "fixture"}])
+
+    error = exc_info.value
+    assert error.kind == "providers_exhausted"
+    assert error.retryable is True
+    assert [attempt["provider"] for attempt in error.attempts] == ["openai-codex", "anthropic"]
+    assert events[0][0:2] == ("s2k_inference", "bridge_failed")
+    assert events[0][3]["error_type"] == "providers_exhausted"
+    assert events[0][3]["attempts"] == error.attempts
+
+
+def test_child_failure_rejects_attempts_without_matching_request_id():
+    from app.llm.s2k_bridge import _child_failure
+
+    payload = {
+        "error": {
+            "type": "providers_exhausted",
+            "retryable": True,
+            "attempts": [
+                {"provider": "openai-codex", "outcome": "failed", "error_type": "provider_capacity", "retryable": True}
+            ],
+        }
+    }
+
+    assert _child_failure(json.dumps(payload).encode(), "expected-request") is None
+
+
+@pytest.mark.asyncio
 async def test_bridge_rejects_oversized_stderr_and_reaps_child(tmp_path):
     profile = _profile(tmp_path)
     script = _executable(tmp_path, "import sys\nsys.stderr.write('x' * 70000)\nprint('{}')\n")
