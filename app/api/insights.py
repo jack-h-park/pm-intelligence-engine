@@ -69,6 +69,21 @@ class _Request(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class InsightOperationReservationStatus(BaseModel):
+    reservation_id: str
+    state: Literal["reserved", "finalized", "unknown"]
+    allowance_class: str
+    maximum_micros: int
+    actual_micros: int | None
+
+
+class InsightOperationStatus(BaseModel):
+    operation_id: str
+    triage_state: str | None
+    has_triage_result: bool
+    reservation: InsightOperationReservationStatus | None
+
+
 class CandidateCreate(_Request):
     origin: Literal["discovered", "user_supplied", "legacy_import"]
     subject: str = Field(min_length=1)
@@ -991,6 +1006,24 @@ async def insight_operations(engine: PMEngine = Depends(get_engine)) -> dict[str
             detail="Insight storage is unavailable",
         )
     return engine.insight_store.operational_summary()
+
+
+@router.get(
+    "/insight-operations/{operation_id}", response_model=InsightOperationStatus
+)
+async def insight_operation_status(
+    operation_id: str, engine: PMEngine = Depends(get_engine)
+) -> InsightOperationStatus:
+    """Read sanitized status for one triage operation without exposing its payload."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    operation = engine.insight_store.get_operation_status(operation_id)
+    if operation is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operation not found")
+    return InsightOperationStatus.model_validate(operation)
 
 
 @router.get(

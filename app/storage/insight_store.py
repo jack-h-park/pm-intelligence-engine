@@ -369,6 +369,36 @@ class InsightStore:
             if row is not None and row.state == "running":
                 session.delete(row)
 
+    def get_operation_status(self, operation_id: str) -> dict[str, Any] | None:
+        """Return only operation state and an allowlisted reservation projection."""
+        with self._Session() as session:
+            triage = session.get(IntelligenceTriageRow, operation_id)
+            reservation_row = session.execute(
+                select(IntelligenceBudgetReservationRow).where(
+                    IntelligenceBudgetReservationRow.operation_id == operation_id
+                )
+            ).scalar_one_or_none()
+            if triage is None and reservation_row is None:
+                return None
+
+            reservation = None
+            if reservation_row is not None:
+                stored = BudgetReservation.model_validate_json(reservation_row.payload_json)
+                reservation = {
+                    "reservation_id": stored.reservation_id,
+                    "state": stored.state,
+                    "allowance_class": stored.allowance_class,
+                    "maximum_micros": stored.maximum_micros,
+                    "actual_micros": stored.actual_micros,
+                }
+
+            return {
+                "operation_id": operation_id,
+                "triage_state": triage.state if triage is not None else None,
+                "has_triage_result": triage is not None and triage.state == "complete",
+                "reservation": reservation,
+            }
+
     # --- Prepared analysis records (E03) ---
 
     def save_prepared_context(self, payload: dict[str, Any]) -> PreparedContext:
