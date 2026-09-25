@@ -103,6 +103,98 @@ def test_evidence_backfill_api_creates_an_idempotent_product_agnostic_request(
     )
 
 
+def test_insight_operation_detail_exposes_only_sanitized_status(client, auth_headers):
+    engine = app.dependency_overrides[get_engine]()
+    operation_id = "operation-status-fixture"
+    reservation = engine.insight_store.reserve_budget(
+        {
+            "operation_id": operation_id,
+            "operation_type": "triage",
+            "policy_revision": "fixture-policy",
+            "provider": "private-provider-name",
+            "rate_revision": "fixture-rate",
+            "maximum_micros": 100_000,
+            "allowance_class": "sensing",
+            "budget_window": "fixture-window",
+            "state": "reserved",
+        },
+        allowance_micros=100_000,
+    )
+    assert reservation is not None
+    engine.insight_store.claim_triage(operation_id)
+    engine.insight_store.complete_triage(
+        operation_id,
+        {"decision": "keep", "source_text": "private source", "prompt": "private prompt"},
+    )
+
+    response = client.get(f"/insight-operations/{operation_id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "operation_id": operation_id,
+        "triage_state": "complete",
+        "has_triage_result": True,
+        "reservation": {
+            "reservation_id": reservation.reservation_id,
+            "state": "reserved",
+            "allowance_class": "sensing",
+            "maximum_micros": 100_000,
+            "actual_micros": None,
+        },
+    }
+    assert "private source" not in response.text
+    assert "private prompt" not in response.text
+    assert "private-provider-name" not in response.text
+
+
+def test_insight_operation_detail_returns_not_found_for_unknown_operation(client, auth_headers):
+    response = client.get("/insight-operations/not-recorded", headers=auth_headers)
+
+    assert response.status_code == 404
+
+
+def test_insight_operation_detail_requires_bearer_authentication(client):
+    response = client.get("/insight-operations/not-recorded")
+
+    assert response.status_code == 401
+
+
+def test_insight_operation_detail_reports_reservation_without_triage(client, auth_headers):
+    engine = app.dependency_overrides[get_engine]()
+    operation_id = "reservation-only-fixture"
+    reservation = engine.insight_store.reserve_budget(
+        {
+            "operation_id": operation_id,
+            "operation_type": "triage",
+            "policy_revision": "fixture-policy",
+            "provider": "private-provider-name",
+            "rate_revision": "fixture-rate",
+            "maximum_micros": 50_000,
+            "allowance_class": "sensing",
+            "budget_window": "fixture-window",
+            "state": "reserved",
+        },
+        allowance_micros=50_000,
+    )
+    assert reservation is not None
+
+    response = client.get(f"/insight-operations/{operation_id}", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "operation_id": operation_id,
+        "triage_state": None,
+        "has_triage_result": False,
+        "reservation": {
+            "reservation_id": reservation.reservation_id,
+            "state": "reserved",
+            "allowance_class": "sensing",
+            "maximum_micros": 50_000,
+            "actual_micros": None,
+        },
+    }
+
+
 def test_evidence_backfill_api_rejects_changed_replays_and_invalid_bases(
     client, auth_headers, candidate_payload, source_payload, bundle_payload
 ):
