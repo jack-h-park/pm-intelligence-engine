@@ -22,7 +22,7 @@
 
 .PHONY: start stop restart status logs dev fixture-replay \
         service-start service-stop service-restart service-status service-logs \
-        install-service uninstall-service \
+        install-service render-plist uninstall-service \
         test eval lint require-decision-context
 
 PID_FILE  := .pid
@@ -31,6 +31,14 @@ SERVICE   := com.jackpark.pm-engine
 SVC_DOMAIN := gui/$(shell id -u)
 PLIST_SRC := deploy/com.jackpark.pm-engine.plist
 PLIST_DST := $(HOME)/Library/LaunchAgents/com.jackpark.pm-engine.plist
+
+# Filled into the plist template by install-service / render-plist.
+# UVICORN must be absolute: launchd resolves nothing through a shell, so the bare
+# name is refused rather than stamped in. Override with UVICORN=/absolute/path.
+# HOST is the bind address; the default keeps the service reachable over the
+# tailnet (see the comment at the top of the plist template for loopback).
+UVICORN ?= $(shell command -v uvicorn 2>/dev/null)
+HOST    ?= 0.0.0.0
 
 
 # ---------------------------------------------------------------------------
@@ -114,11 +122,20 @@ fixture-replay:
 # iMac auto-start via launchd (one-time setup)
 # ---------------------------------------------------------------------------
 
-install-service:
-	@mkdir -p $(HOME)/Library/LaunchAgents
-	cp $(PLIST_SRC) $(PLIST_DST)
+# render-plist writes the filled-in plist to PLIST_DST without touching launchd,
+# so the substitution can be checked (or the file inspected) before installing:
+#   make render-plist PLIST_DST=/tmp/pm-engine.plist
+render-plist:
+	@case "$(UVICORN)" in /*) : ;; *) echo "uvicorn not found as an absolute path: pass UVICORN=/absolute/path/to/uvicorn"; exit 1;; esac
+	mkdir -p $(dir $(PLIST_DST)) logs
+	sed -e "s|__WORKDIR__|$(CURDIR)|g" -e "s|__UVICORN__|$(UVICORN)|g" \
+	    -e "s|__VENV_BIN__|$(patsubst %/,%,$(dir $(UVICORN)))|g" -e "s|__HOST__|$(HOST)|g" \
+	    $(PLIST_SRC) > $(PLIST_DST)
+
+install-service: render-plist
+	launchctl unload $(PLIST_DST) 2>/dev/null || true
 	launchctl load $(PLIST_DST)
-	@echo "Service installed. pm-engine will start automatically on login."
+	@echo "Service installed (uvicorn: $(UVICORN), bind: $(HOST):8000). pm-engine will start automatically on login."
 	@echo "To check: launchctl list | grep pm-engine"
 
 uninstall-service:

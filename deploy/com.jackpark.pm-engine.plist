@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  launchd service definition for the pm-intelligence-engine API server.
+
+  A template, not an installable file: `make install-service` (or `make render-plist`)
+  fills four placeholders, written with two underscores on each side below, for the
+  machine it runs on, so nothing host specific is committed.
+
+    WORKDIR    this checkout (make: the current directory)
+    UVICORN    absolute path of the virtualenv's uvicorn (make: `command -v uvicorn`,
+               or pass UVICORN=/absolute/path/to/uvicorn)
+    VENV_BIN   the directory holding that uvicorn, put first on PATH
+    HOST       bind address (make: HOST, default 0.0.0.0, see below)
+
+  Bind address. The default is all interfaces on port 8000: review links are built
+  from BASE_URL, which normally names the machine's tailnet address, so the tailnet
+  has to reach the port directly. That also exposes it on the local network. To
+  listen on loopback only, run `make install-service HOST=127.0.0.1` and point
+  BASE_URL at whatever fronts the port (for example a reverse proxy on the same
+  machine).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.jackpark.pm-engine</string>
+
+  <key>WorkingDirectory</key>
+  <string>__WORKDIR__</string>
+
+  <!-- An absolute interpreter path, filled from the virtualenv that has the
+       engine's dependencies. launchd resolves nothing through a login shell, so a
+       bare `uvicorn` installs cleanly and then fails at every start. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__UVICORN__</string>
+    <string>app.api.main:app</string>
+    <string>--host</string>
+    <string>__HOST__</string>
+    <string>--port</string>
+    <string>8000</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- The virtualenv first, then the system directories. -->
+    <key>PATH</key>
+    <string>__VENV_BIN__:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- launchd starts a job with no locale. Python 3.13 then coerces LC_CTYPE, and the
+         coerced value reaches the child processes the engine starts (a test that
+         checks the child environment failed on exactly this). -->
+    <key>LANG</key>
+    <string>en_US.UTF-8</string>
+  </dict>
+
+  <!-- The default limit for a launchd job is 256 open files. The engine's own test
+       run died on it with "Too many open files", so a long-lived service that opens
+       files and sockets gets the same headroom instead of waiting to hit it. -->
+  <key>SoftResourceLimits</key>
+  <dict>
+    <key>NumberOfFiles</key>
+    <integer>10240</integer>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Both streams go to one file; the directory is created by `make install-service`. -->
+  <key>StandardOutPath</key>
+  <string>__WORKDIR__/logs/server.log</string>
+  <key>StandardErrorPath</key>
+  <string>__WORKDIR__/logs/server.log</string>
+</dict>
+</plist>
