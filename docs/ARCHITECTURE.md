@@ -472,6 +472,19 @@ BASE_URL=http://100.x.x.x:8000
 With this set, the review page link embedded in every Gate 2 message remains
 valid whether the PM is at home, in transit, or on a different network.
 
+**Running under launchd.** `make install-service` fills `deploy/com.jackpark.pm-engine.plist`
+for the machine it runs on (checkout path, the absolute path of the virtualenv's `uvicorn`
+found with `command -v`, or `UVICORN=/absolute/path/to/uvicorn`) and loads it as a
+LaunchAgent. `make render-plist PLIST_DST=/tmp/pm-engine.plist` writes the file without
+touching launchd. The template also sets `LANG=en_US.UTF-8` and a 10240 open-file limit;
+both were found the hard way, because launchd starts a job with no locale and a limit of 256.
+
+**Bind address.** The service listens on all interfaces (`0.0.0.0:8000`) so that the
+tailnet address in `BASE_URL` reaches it directly. That also exposes the port on the local
+network. To listen on loopback only, install with `make install-service HOST=127.0.0.1` and
+set `BASE_URL` to whatever fronts the port, for example a reverse proxy on the same machine.
+The default is unchanged; this is a choice to make per host.
+
 ### Gate 1 Notification (after S2)
 
 Composed by the ops plane when it observes a run in `waiting_direction` (data from
@@ -560,5 +573,5 @@ see `docs/NOTIFICATION_CONTRACT.md`.
 3. Install Tailscale on the iMac and ensure it is running
 4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
 5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is ops-plane-owned; see `docs/NOTIFICATION_CONTRACT.md`)
-6. Start the API: `uvicorn app.api.main:app --reload` (or via launchd for auto-start)
+6. Start the API: `uvicorn app.api.main:app --reload` (or `make install-service` for auto-start under launchd)
 7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari
