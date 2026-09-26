@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
-from sqlalchemy import Engine, and_, create_engine, or_, select
+from sqlalchemy import Engine, and_, create_engine, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -39,6 +39,7 @@ from app.models.insights import (
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    IntelligenceTriageReconciliationRow,
     IntelligenceTriageRow,
     PreparedContext,
     ResearchRequest,
@@ -71,6 +72,10 @@ class IdempotencyConflict(ValueError):
 
 
 class StaleLease(ValueError):
+    pass
+
+
+class TriageOperationNotRunning(ValueError):
     pass
 
 
@@ -356,11 +361,27 @@ class InsightStore:
 
     def complete_triage(self, operation_id: str, payload: dict[str, Any]) -> None:
         with self._Session.begin() as session:
-            row = session.get(IntelligenceTriageRow, operation_id)
-            if row is None:
-                raise MissingInsightRecord(f"triage operation {operation_id} was not claimed")
-            row.state = "complete"
-            row.payload_json = json.dumps(payload, sort_keys=True)
+            result = session.execute(
+                update(IntelligenceTriageRow)
+                .where(
+                    IntelligenceTriageRow.operation_id == operation_id,
+                    IntelligenceTriageRow.state == "running",
+                )
+                .values(state="complete", payload_json=json.dumps(payload, sort_keys=True))
+            )
+            if result.rowcount != 1:
+                state = session.scalar(
+                    select(IntelligenceTriageRow.state).where(
+                        IntelligenceTriageRow.operation_id == operation_id
+                    )
+                )
+                if state is None:
+                    raise MissingInsightRecord(
+                        f"triage operation {operation_id} was not claimed"
+                    )
+                raise TriageOperationNotRunning(
+                    f"triage operation {operation_id} is no longer running"
+                )
 
     def abandon_triage_claim(self, operation_id: str) -> None:
         """Release a pre-call denial; ambiguous model calls intentionally stay claimed."""
@@ -397,6 +418,77 @@ class InsightStore:
                 "triage_state": triage.state if triage is not None else None,
                 "has_triage_result": triage is not None and triage.state == "complete",
                 "reservation": reservation,
+            }
+
+    def reconcile_unknown_triage(
+        self, operation_id: str, *, operator_id: str, reason: str
+    ) -> dict[str, Any]:
+        """Fence an ambiguous provider call and persist its audit atomically."""
+        with self._Session.begin() as session:
+            # Make the conditional state transition the transaction's first DB
+            # statement. This acquires the SQLite write lock before any reads;
+            # concurrent reconcilers serialize, and only one can claim running.
+            transition = session.execute(
+                update(IntelligenceTriageRow)
+                .where(
+                    IntelligenceTriageRow.operation_id == operation_id,
+                    IntelligenceTriageRow.state == "running",
+                )
+                .values(state="terminal_unknown")
+            )
+            if transition.rowcount != 1:
+                audit = session.get(IntelligenceTriageReconciliationRow, operation_id)
+                if audit is not None:
+                    created_at = audit.created_at
+                    if created_at.tzinfo is None:
+                        created_at = created_at.replace(tzinfo=UTC)
+                    return {
+                        "operation_id": operation_id,
+                        "triage_state": audit.to_state,
+                        "operator_id": audit.operator_id,
+                        "reason": audit.reason,
+                        "created_at": created_at,
+                    }
+                if session.get(IntelligenceTriageRow, operation_id) is None:
+                    raise MissingInsightRecord(
+                        f"triage operation {operation_id} was not found"
+                    )
+                raise ValueError("triage operation is not running")
+
+            reservation = session.execute(
+                select(IntelligenceBudgetReservationRow).where(
+                    IntelligenceBudgetReservationRow.operation_id == operation_id
+                )
+            ).scalar_one_or_none()
+            if reservation is None:
+                raise ValueError("unknown reservation is required")
+            stored = BudgetReservation.model_validate_json(reservation.payload_json)
+            if (
+                stored.operation_id != operation_id
+                or stored.reservation_id != reservation.reservation_id
+                or stored.state != reservation.state
+                or stored.allowance_class != reservation.allowance_class
+                or stored.maximum_micros != reservation.maximum_micros
+                or stored.state != "unknown"
+                or stored.actual_micros is not None
+            ):
+                raise ValueError("reservation must remain unknown with no actual cost")
+            now = datetime.now(UTC)
+            audit = IntelligenceTriageReconciliationRow(
+                operation_id=operation_id,
+                from_state="running",
+                to_state="terminal_unknown",
+                operator_id=operator_id,
+                reason=reason,
+                created_at=now,
+            )
+            session.add(audit)
+            return {
+                "operation_id": operation_id,
+                "triage_state": "terminal_unknown",
+                "operator_id": operator_id,
+                "reason": reason,
+                "created_at": now,
             }
 
     # --- Prepared analysis records (E03) ---

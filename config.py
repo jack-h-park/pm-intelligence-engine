@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # provisioned in the calling client's environment. If left empty, the server fails
     # closed (503 on all authenticated routes) rather than serving an open API.
     PM_PLATFORM_API_TOKEN: str = ""
+    # Dedicated credential and server-owned actor identity for manually fencing
+    # ambiguous S2K calls. Unset disables the reconciliation write endpoint.
+    S2K_RECONCILIATION_TOKEN: str = ""
+    S2K_RECONCILIATION_OPERATOR_ID: str = ""
 
     # Auto-triage: runs with relevance_score strictly below this threshold are
     # automatically completed as 'file' mode without pausing at Gate 1.

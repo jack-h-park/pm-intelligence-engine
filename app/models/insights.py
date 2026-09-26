@@ -609,6 +609,19 @@ class IntelligenceTriageRow(Base):
     payload_json: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class IntelligenceTriageReconciliationRow(Base):
+    __tablename__ = "intelligence_triage_reconciliations"
+
+    operation_id: Mapped[str] = mapped_column(String, primary_key=True)
+    from_state: Mapped[str] = mapped_column(String, nullable=False)
+    to_state: Mapped[str] = mapped_column(String, nullable=False)
+    operator_id: Mapped[str] = mapped_column(String, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=_utc_now
+    )
+
+
 class IntelligenceInsightFeedbackRow(Base):
     __tablename__ = "intelligence_insight_feedback"
 

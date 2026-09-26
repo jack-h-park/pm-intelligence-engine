@@ -68,6 +68,8 @@ version bump.
 | `POST` | `/runs/{id}/deepen` | Resume a completed run at a deeper depth | Bridge PM depth pull |
 | `POST` | `/runs/{id}/decision` | **Unified gate decision** (advance/advance_to/revise/stop) | Preferred single entry (US-55) |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
+| `GET` | `/insight-operations/{operation_id}` | Read sanitized S2K operation and reservation status | Investigate ambiguous completion |
+| `POST` | `/insight-operations/{operation_id}/reconcile-unknown` | Fence an ambiguous S2K operation with an audit record | Authorized operator reconciliation |
 | `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
 
 ---
@@ -565,6 +567,27 @@ point the operations client / dashboard move to `/decision`.
 ---
 
 ## Insight Retrieval
+
+### `POST /insight-operations/{operation_id}/reconcile-unknown`
+
+This operator-only endpoint records `running → terminal_unknown` when an S2K
+provider call has an unresolved outcome. It requires the normal API bearer token
+and `X-S2K-Reconciliation-Token`; the server records the configured
+`S2K_RECONCILIATION_OPERATOR_ID`, never a caller-supplied actor. The request body
+is `{ "reason": "..." }` (1–1000 non-whitespace characters).
+
+The transition and its durable audit row commit in one transaction. The operation
+must be `running` and have a reservation already in `unknown` with no known actual
+cost. The reservation is left untouched and remains encumbered. The idempotency
+row stays present, so a repeated request cannot dispatch another provider call;
+repeated reconciliation returns the original audit record. A provider worker
+that returns late cannot overwrite `terminal_unknown` with `complete`. Missing operations
+return 404, invalid state/reservation returns 409, invalid credentials return 401,
+and missing server-side reconciliation configuration returns 503.
+
+This endpoint does not determine whether the provider completed the call. Use it
+only after reviewing available provider activity evidence and recording the
+reason. It must not be used to release or estimate the unknown reservation.
 
 ### `GET /insights`
 
