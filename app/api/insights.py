@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import secrets
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -60,6 +61,7 @@ from app.storage.insight_store import (
     InvalidInsightReference,
     MissingInsightRecord,
     StaleLease,
+    TriageOperationNotRunning,
 )
 
 router = APIRouter(tags=["insights"])
@@ -82,6 +84,25 @@ class InsightOperationStatus(BaseModel):
     triage_state: str | None
     has_triage_result: bool
     reservation: InsightOperationReservationStatus | None
+
+
+class ReconcileUnknownOperationRequest(_Request):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason")
+    @classmethod
+    def reason_must_have_content(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("reason must contain non-whitespace text")
+        return value.strip()
+
+
+class ReconciledOperation(BaseModel):
+    operation_id: str
+    triage_state: Literal["terminal_unknown"]
+    operator_id: str
+    reason: str
+    created_at: datetime
 
 
 class CandidateCreate(_Request):
@@ -966,7 +987,12 @@ async def _semantic_triage(
     except TriageBudgetDenied as exc:
         store.abandon_triage_claim(body.operation_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
-    store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    try:
+        store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    except TriageOperationNotRunning as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress"
+        ) from exc
     return decision
 
 
@@ -1024,6 +1050,51 @@ async def insight_operation_status(
     if operation is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Operation not found")
     return InsightOperationStatus.model_validate(operation)
+
+
+@router.post(
+    "/insight-operations/{operation_id}/reconcile-unknown",
+    response_model=ReconciledOperation,
+)
+async def reconcile_unknown_operation(
+    operation_id: str,
+    body: ReconcileUnknownOperationRequest,
+    reconciliation_token: str | None = Header(
+        default=None, alias="X-S2K-Reconciliation-Token"
+    ),
+    engine: PMEngine = Depends(get_engine),
+) -> ReconciledOperation:
+    """Fence an ambiguous provider call without releasing its budget reservation."""
+    from config import settings
+
+    expected = settings.S2K_RECONCILIATION_TOKEN
+    operator_id = settings.S2K_RECONCILIATION_OPERATOR_ID
+    if not expected or not operator_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S2K reconciliation is not configured",
+        )
+    if not reconciliation_token or not secrets.compare_digest(reconciliation_token, expected):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid reconciliation credential",
+        )
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    try:
+        result = engine.insight_store.reconcile_unknown_triage(
+            operation_id, operator_id=operator_id, reason=body.reason
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Operation not found"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return ReconciledOperation.model_validate(result)
 
 
 @router.get(
