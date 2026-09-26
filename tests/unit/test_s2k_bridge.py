@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shlex
 import sys
@@ -34,6 +35,30 @@ def _success(route: dict | None = None, usage=_UNSET) -> dict:
         "text": "fixture answer",
         "route": route or {"provider": "anthropic", "model": "fixture-model"},
         "usage": {"input_tokens": 6, "output_tokens": 4} if usage is _UNSET else usage,
+    }
+
+
+@pytest.mark.asyncio
+async def test_bridge_records_sanitized_cancellation_with_operation_id(tmp_path, monkeypatch):
+    profile = _profile(tmp_path)
+    script = _executable(tmp_path, "print('{}')\n")
+    provider = S2KBridgeProvider(
+        (sys.executable, str(script)), str(profile), 2, 4096, operation_id="cancelled-operation"
+    )
+    events = []
+    monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
+
+    async def cancel_communication(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.llm.s2k_bridge._communicate_bounded", cancel_communication)
+    with pytest.raises(asyncio.CancelledError):
+        await provider.complete([{"role": "user", "content": "fixture"}])
+
+    assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
+    assert events[-1][3] == {
+        "operation_id": "cancelled-operation",
+        "error_type": "bridge_cancelled",
     }
 
 

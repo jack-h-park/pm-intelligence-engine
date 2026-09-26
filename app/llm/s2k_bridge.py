@@ -348,6 +348,11 @@ class S2KBridgeProvider:
                 "bridge_failed", request_id, {"error_type": "bridge_timeout"}
             )
             raise S2KBridgeError("bridge_timeout") from None
+        except asyncio.CancelledError:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "bridge_cancelled"}
+            )
+            raise
         except _OutputLimitExceeded as exc:
             self._emit_event("bridge_failed", request_id, {"error_type": exc.kind})
             raise S2KBridgeError(exc.kind) from None
