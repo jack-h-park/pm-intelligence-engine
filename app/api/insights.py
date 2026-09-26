@@ -927,7 +927,7 @@ async def _semantic_triage(
     *,
     question: str,
     llm: LLMProvider | None = None,
-    llm_factory: Callable[[], LLMProvider] | None = None,
+    llm_factory: Callable[[str], LLMProvider] | None = None,
 ) -> TriageDecision:
     store = _processing_store(engine)
     claim_state, cached = store.claim_triage(body.operation_id)
@@ -937,7 +937,7 @@ async def _semantic_triage(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress")
     if llm_factory is not None:
         try:
-            llm = llm_factory()
+            llm = llm_factory(body.operation_id)
         except Exception:
             store.abandon_triage_claim(body.operation_id)
             raise HTTPException(

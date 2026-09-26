@@ -85,8 +85,8 @@ def _build_raw_llm_provider() -> LLMProvider:
         )
 
 
-def build_s2k_llm_provider() -> LLMProvider:
+def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
     """Build the fixture-bounded S2K transport provider for scoped Insight work."""
     from app.llm.s2k_bridge import build_s2k_llm_provider as build_provider
 
-    return build_provider()
+    return build_provider(operation_id=operation_id)
