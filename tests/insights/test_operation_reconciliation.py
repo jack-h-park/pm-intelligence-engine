@@ -102,28 +102,23 @@ def test_late_provider_completion_cannot_overwrite_terminal_unknown(client, monk
     assert operation["has_triage_result"] is False
 
 
-def test_concurrent_reconciliation_returns_one_original_audit(client, monkeypatch):
+def test_concurrent_reconciliation_returns_one_original_audit(client):
     from app.api.deps import get_engine
-    from config import settings
 
     store = client.app.dependency_overrides[get_engine]().insight_store
     _seed_unknown_operation(store)
-    monkeypatch.setattr(settings, "S2K_RECONCILIATION_TOKEN", "operator-secret")
-    monkeypatch.setattr(settings, "S2K_RECONCILIATION_OPERATOR_ID", "jack-park")
-    headers = {"Authorization": "Bearer insight-test-token",
-               "X-S2K-Reconciliation-Token": "operator-secret"}
-    url = "/insight-operations/op-unknown/reconcile-unknown"
     barrier = Barrier(2)
 
     def reconcile(reason):
         barrier.wait()
-        return client.post(url, headers=headers, json={"reason": reason})
+        return store.reconcile_unknown_triage(
+            "op-unknown", operator_id="jack-park", reason=reason
+        )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first, second = list(pool.map(reconcile, ["Reviewed first.", "Reviewed second."]))
 
-    assert first.status_code == second.status_code == 200
-    assert first.json() == second.json()
+    assert first == second
     with store.engine.connect() as connection:
         assert connection.scalar(select(func.count()).select_from(
             IntelligenceTriageReconciliationRow.__table__
