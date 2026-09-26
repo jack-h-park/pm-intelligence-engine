@@ -1,4 +1,6 @@
 import json
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 
 import pytest
 from sqlalchemy import func, select
@@ -75,7 +77,7 @@ def test_reconcile_unknown_fences_operation_and_preserves_reservation(client, mo
     assert audits[0]["reason"] == "Provider activity was reviewed; outcome remains unknown."
 
 
-def test_reconcile_unknown_is_idempotent_and_does_not_add_duplicate_audit(client, monkeypatch):
+def test_concurrent_reconciliation_returns_one_original_audit(client, monkeypatch):
     from app.api.deps import get_engine
     from config import settings
 
@@ -86,8 +88,14 @@ def test_reconcile_unknown_is_idempotent_and_does_not_add_duplicate_audit(client
     headers = {"Authorization": "Bearer insight-test-token",
                "X-S2K-Reconciliation-Token": "operator-secret"}
     url = "/insight-operations/op-unknown/reconcile-unknown"
-    first = client.post(url, headers=headers, json={"reason": "Reviewed."})
-    second = client.post(url, headers=headers, json={"reason": "Different retry text."})
+    barrier = Barrier(2)
+
+    def reconcile(reason):
+        barrier.wait()
+        return client.post(url, headers=headers, json={"reason": reason})
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first, second = list(pool.map(reconcile, ["Reviewed first.", "Reviewed second."]))
 
     assert first.status_code == second.status_code == 200
     assert first.json() == second.json()
