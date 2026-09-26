@@ -39,6 +39,7 @@ from app.models.insights import (
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
     IntelligenceSourceRow,
+    IntelligenceTriageReconciliationRow,
     IntelligenceTriageRow,
     PreparedContext,
     ResearchRequest,
@@ -397,6 +398,57 @@ class InsightStore:
                 "triage_state": triage.state if triage is not None else None,
                 "has_triage_result": triage is not None and triage.state == "complete",
                 "reservation": reservation,
+            }
+
+    def reconcile_unknown_triage(
+        self, operation_id: str, *, operator_id: str, reason: str
+    ) -> dict[str, Any]:
+        """Fence an ambiguous provider call and persist its audit atomically."""
+        with self._Session.begin() as session:
+            audit = session.get(IntelligenceTriageReconciliationRow, operation_id)
+            if audit is not None:
+                created_at = audit.created_at
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=UTC)
+                return {
+                    "operation_id": operation_id,
+                    "triage_state": audit.to_state,
+                    "operator_id": audit.operator_id,
+                    "reason": audit.reason,
+                    "created_at": created_at,
+                }
+            triage = session.get(IntelligenceTriageRow, operation_id)
+            if triage is None:
+                raise MissingInsightRecord(f"triage operation {operation_id} was not found")
+            reservation = session.execute(
+                select(IntelligenceBudgetReservationRow).where(
+                    IntelligenceBudgetReservationRow.operation_id == operation_id
+                )
+            ).scalar_one_or_none()
+            if triage.state != "running":
+                raise ValueError("triage operation is not running")
+            if reservation is None:
+                raise ValueError("unknown reservation is required")
+            stored = BudgetReservation.model_validate_json(reservation.payload_json)
+            if stored.state != "unknown" or stored.actual_micros is not None:
+                raise ValueError("reservation must remain unknown with no actual cost")
+            now = datetime.now(UTC)
+            triage.state = "terminal_unknown"
+            audit = IntelligenceTriageReconciliationRow(
+                operation_id=operation_id,
+                from_state="running",
+                to_state="terminal_unknown",
+                operator_id=operator_id,
+                reason=reason,
+                created_at=now,
+            )
+            session.add(audit)
+            return {
+                "operation_id": operation_id,
+                "triage_state": "terminal_unknown",
+                "operator_id": operator_id,
+                "reason": reason,
+                "created_at": now,
             }
 
     # --- Prepared analysis records (E03) ---
