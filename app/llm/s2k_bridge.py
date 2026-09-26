@@ -10,6 +10,7 @@ import shlex
 import uuid
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 from app.llm.protocol import LLMProvider, Message, Usage
 from app.logging import emit_event
@@ -233,6 +234,7 @@ class S2KBridgeProvider:
         profile_home: str,
         timeout_seconds: float,
         max_stdout_bytes: int,
+        operation_id: str | None = None,
     ) -> None:
         self._command = tuple(command)
         if len(self._command) != 2:
@@ -256,22 +258,46 @@ class S2KBridgeProvider:
             or not (profile / "config.yaml").is_file()
         ):
             raise ValueError("S2K bridge profile home must contain an isolated config.yaml")
-        if (
-            isinstance(timeout_seconds, bool)
-            or not isinstance(timeout_seconds, (int, float))
-            or timeout_seconds <= 0
-        ):
-            raise ValueError("S2K bridge timeout must be positive")
+        if isinstance(timeout_seconds, bool) or not isinstance(timeout_seconds, (int, float)):
+            raise ValueError("S2K bridge timeout must be finite and positive")
+        try:
+            normalized_timeout = float(timeout_seconds)
+        except OverflowError:
+            raise ValueError("S2K bridge timeout must be finite and positive") from None
+        if not math.isfinite(normalized_timeout) or normalized_timeout <= 0:
+            raise ValueError("S2K bridge timeout must be finite and positive")
         if (
             isinstance(max_stdout_bytes, bool)
             or max_stdout_bytes <= 0
             or max_stdout_bytes > 1_048_576
         ):
             raise ValueError("S2K bridge stdout limit must be between 1 and 1048576 bytes")
+        if operation_id is not None and (
+            not isinstance(operation_id, str)
+            or not operation_id
+            or len(operation_id) > 128
+            or any(
+                character not in (
+                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:_-."
+                )
+                for character in operation_id
+            )
+        ):
+            raise ValueError("S2K bridge operation ID must be a short safe identifier")
 
         self._profile_home = str(profile)
-        self._timeout_seconds = float(timeout_seconds)
+        self._timeout_seconds = normalized_timeout
         self._max_stdout_bytes = max_stdout_bytes
+        self._operation_id = operation_id
+
+    def _emit_event(self, action: str, request_id: str, detail: dict[str, Any]) -> None:
+        if self._operation_id is not None:
+            detail = {**detail, "operation_id": self._operation_id}
+        try:
+            emit_event("s2k_inference", action, request_id, detail)
+        except Exception:
+            # Diagnostic telemetry must never trigger a paid retry.
+            pass
 
     async def complete(
         self,
@@ -306,6 +332,7 @@ class S2KBridgeProvider:
         except (TypeError, ValueError):
             raise ValueError("S2K request is not JSON serializable") from None
 
+        self._emit_event("bridge_started", request_id, {})
         try:
             returncode, stdout = await asyncio.wait_for(
                 _communicate_bounded(
@@ -317,40 +344,59 @@ class S2KBridgeProvider:
                 timeout=self._timeout_seconds,
             )
         except TimeoutError:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "bridge_timeout"}
+            )
             raise S2KBridgeError("bridge_timeout") from None
+        except asyncio.CancelledError:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "bridge_cancelled"}
+            )
+            raise
         except _OutputLimitExceeded as exc:
+            self._emit_event("bridge_failed", request_id, {"error_type": exc.kind})
             raise S2KBridgeError(exc.kind) from None
         except Exception:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "bridge_process_failed"}
+            )
             raise S2KBridgeError("bridge_process_failed") from None
         if returncode != 0:
             child_failure = _child_failure(stdout, request_id)
             if child_failure is not None:
                 kind, retryable, attempts = child_failure
-                try:
-                    emit_event(
-                        "s2k_inference",
-                        "bridge_failed",
-                        request_id,
-                        {
-                            "error_type": kind,
-                            "retryable": retryable,
-                            "attempts": attempts,
-                        },
-                    )
-                except Exception:
-                    # Diagnostic telemetry must not mask the original failure.
-                    pass
+                self._emit_event(
+                    "bridge_failed",
+                    request_id,
+                    {
+                        "error_type": kind,
+                        "retryable": retryable,
+                        "attempts": attempts,
+                    },
+                )
                 raise S2KBridgeError(
                     kind, retryable=retryable, attempts=attempts
                 ) from None
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "bridge_process_failed"}
+            )
             raise S2KBridgeError("bridge_process_failed")
         if len(stdout) > self._max_stdout_bytes:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "stdout_too_large"}
+            )
             raise S2KBridgeError("stdout_too_large")
         try:
             response = json.loads(stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "invalid_bridge_json"}
+            )
             raise S2KBridgeError("invalid_bridge_json") from None
         if not isinstance(response, dict) or set(response) != {"text", "route", "usage"}:
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "invalid_bridge_response"}
+            )
             raise S2KBridgeError("invalid_bridge_response")
         text = response.get("text")
         route = response.get("route")
@@ -360,6 +406,9 @@ class S2KBridgeProvider:
             or not isinstance(route, dict)
             or set(route) != {"provider", "model"}
         ):
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "invalid_bridge_response"}
+            )
             raise S2KBridgeError("invalid_bridge_response")
         provider = route.get("provider")
         resolved_model = route.get("model")
@@ -369,12 +418,18 @@ class S2KBridgeProvider:
             or not isinstance(resolved_model, str)
             or not resolved_model.strip()
         ):
+            self._emit_event(
+                "bridge_failed", request_id, {"error_type": "unapproved_route"}
+            )
             raise S2KBridgeError("unapproved_route")
 
         usage = response.get("usage")
         measured: dict[str, int] | None = None
         if usage is not None:
             if not isinstance(usage, dict) or set(usage) != {"input_tokens", "output_tokens"}:
+                self._emit_event(
+                    "bridge_failed", request_id, {"error_type": "invalid_usage"}
+                )
                 raise S2KBridgeError("invalid_usage")
             input_tokens, output_tokens = usage["input_tokens"], usage["output_tokens"]
             if (
@@ -386,6 +441,9 @@ class S2KBridgeProvider:
                 or output_tokens < 0
                 or input_tokens + output_tokens == 0
             ):
+                self._emit_event(
+                    "bridge_failed", request_id, {"error_type": "invalid_usage"}
+                )
                 raise S2KBridgeError("invalid_usage")
             measured = {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
@@ -399,24 +457,19 @@ class S2KBridgeProvider:
                     "tokens_available": True,
                 }
             )
-        try:
-            emit_event(
-                "s2k_inference",
-                "route_selected",
-                request_id,
-                {
-                    "provider": provider,
-                    "model": resolved_model,
-                    "usage_status": "measured" if measured is not None else "unknown",
-                },
-            )
-        except Exception:
-            # Telemetry failure must not cause a paid request to be retried by its caller.
-            pass
+        self._emit_event(
+            "route_selected",
+            request_id,
+            {
+                "provider": provider,
+                "model": resolved_model,
+                "usage_status": "measured" if measured is not None else "unknown",
+            },
+        )
         return text
 
 
-def build_s2k_llm_provider() -> LLMProvider:
+def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
     from config import settings
 
     command_text = settings.S2K_COMPLETION_COMMAND
@@ -432,4 +485,5 @@ def build_s2k_llm_provider() -> LLMProvider:
         profile_home=profile_home,
         timeout_seconds=settings.S2K_COMPLETION_TIMEOUT_SECONDS,
         max_stdout_bytes=settings.S2K_COMPLETION_MAX_STDOUT_BYTES,
+        operation_id=operation_id,
     )

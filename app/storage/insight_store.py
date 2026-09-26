@@ -9,6 +9,7 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 from sqlalchemy import Engine, and_, create_engine, or_, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -361,14 +362,14 @@ class InsightStore:
 
     def complete_triage(self, operation_id: str, payload: dict[str, Any]) -> None:
         with self._Session.begin() as session:
-            result = session.execute(
+            result = cast(CursorResult[Any], session.execute(
                 update(IntelligenceTriageRow)
                 .where(
                     IntelligenceTriageRow.operation_id == operation_id,
                     IntelligenceTriageRow.state == "running",
                 )
                 .values(state="complete", payload_json=json.dumps(payload, sort_keys=True))
-            )
+            ))
             if result.rowcount != 1:
                 state = session.scalar(
                     select(IntelligenceTriageRow.state).where(
@@ -428,14 +429,14 @@ class InsightStore:
             # Make the conditional state transition the transaction's first DB
             # statement. This acquires the SQLite write lock before any reads;
             # concurrent reconcilers serialize, and only one can claim running.
-            transition = session.execute(
+            transition = cast(CursorResult[Any], session.execute(
                 update(IntelligenceTriageRow)
                 .where(
                     IntelligenceTriageRow.operation_id == operation_id,
                     IntelligenceTriageRow.state == "running",
                 )
                 .values(state="terminal_unknown")
-            )
+            ))
             if transition.rowcount != 1:
                 audit = session.get(IntelligenceTriageReconciliationRow, operation_id)
                 if audit is not None:

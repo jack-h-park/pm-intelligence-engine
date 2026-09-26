@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shlex
 import sys
@@ -38,6 +39,54 @@ def _success(route: dict | None = None, usage=_UNSET) -> dict:
 
 
 @pytest.mark.asyncio
+async def test_bridge_records_sanitized_cancellation_with_operation_id(tmp_path, monkeypatch):
+    profile = _profile(tmp_path)
+    script = _executable(tmp_path, "print('{}')\n")
+    provider = S2KBridgeProvider(
+        (sys.executable, str(script)), str(profile), 2, 4096, operation_id="cancelled-operation"
+    )
+    events = []
+    monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
+
+    async def cancel_communication(*_args, **_kwargs):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr("app.llm.s2k_bridge._communicate_bounded", cancel_communication)
+    with pytest.raises(asyncio.CancelledError):
+        await provider.complete([{"role": "user", "content": "fixture"}])
+
+    assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
+    assert events[-1][3] == {
+        "operation_id": "cancelled-operation",
+        "error_type": "bridge_cancelled",
+    }
+
+
+@pytest.mark.parametrize(
+    "timeout_seconds", [float("inf"), float("-inf"), float("nan"), 1 << 2048]
+)
+def test_bridge_rejects_non_finite_timeout(tmp_path, timeout_seconds):
+    profile = _profile(tmp_path)
+    script = _executable(tmp_path, "print('{}')\n")
+
+    with pytest.raises(ValueError, match="timeout must be finite and positive"):
+        S2KBridgeProvider((sys.executable, str(script)), str(profile), timeout_seconds, 4096)
+
+
+@pytest.mark.parametrize(
+    "operation_id", ["", "contains whitespace", "contains\nnewline", "x" * 129]
+)
+def test_bridge_rejects_unsafe_operation_identifier(tmp_path, operation_id):
+    profile = _profile(tmp_path)
+    script = _executable(tmp_path, "print('{}')\n")
+
+    with pytest.raises(ValueError, match="operation ID must be a short safe identifier"):
+        S2KBridgeProvider(
+            (sys.executable, str(script)), str(profile), 2, 4096, operation_id=operation_id
+        )
+
+
+@pytest.mark.asyncio
 async def test_bridge_sends_prompt_on_stdin_and_filters_child_environment(tmp_path, monkeypatch):
     profile = _profile(tmp_path)
     audit = tmp_path / "child-audit.json"
@@ -51,7 +100,9 @@ Path({str(audit)!r}).write_text(json.dumps(audit))
 print(json.dumps({_success()!r}))
 """,
     )
-    provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
+    provider = S2KBridgeProvider(
+        (sys.executable, str(script)), str(profile), 2, 4096, operation_id="operation-123"
+    )
     prompt = "PRIVATE_PROMPT_MUST_NOT_BE_IN_ARGV"
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_BASE_URL", "LLM_PROVIDER"):
         monkeypatch.setenv(key, "fixture-secret-or-provider")
@@ -89,9 +140,11 @@ print(json.dumps({_success()!r}))
             "tokens_available": True,
         }
     ]
-    assert events[0][0:2] == ("s2k_inference", "route_selected")
-    uuid.UUID(events[0][2])
-    assert events[0][3] == {
+    assert [event[1] for event in events] == ["bridge_started", "route_selected"]
+    assert all(event[3]["operation_id"] == "operation-123" for event in events)
+    uuid.UUID(events[-1][2])
+    assert events[-1][3] == {
+        "operation_id": "operation-123",
         "provider": "anthropic",
         "model": "fixture-model",
         "usage_status": "measured",
@@ -144,10 +197,18 @@ async def test_bridge_rejects_invalid_route_or_usage(tmp_path, response):
     ids=("malformed-json", "nonzero-exit", "oversized-stdout", "timeout"),
 )
 @pytest.mark.asyncio
-async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body):
+async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body, monkeypatch):
     profile = _profile(tmp_path)
     script = _executable(tmp_path, body)
-    provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 0.15, 4096)
+    provider = S2KBridgeProvider(
+        (sys.executable, str(script)),
+        str(profile),
+        0.15,
+        4096,
+        operation_id="timeout-operation",
+    )
+    events = []
+    monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
 
     with pytest.raises(S2KBridgeError) as exc_info:
         await provider.complete([{"role": "user", "content": "PRIVATE_MODEL_OUTPUT"}])
@@ -155,6 +216,12 @@ async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body)
     assert "PRIVATE" not in str(exc_info.value)
     assert "not-json" not in str(exc_info.value)
     assert "x" * 100 not in str(exc_info.value)
+    if body.startswith("import time"):
+        assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
+        assert events[-1][3] == {
+            "operation_id": "timeout-operation",
+            "error_type": "bridge_timeout",
+        }
 
 
 @pytest.mark.asyncio
@@ -164,13 +231,20 @@ async def test_bridge_propagates_sanitized_child_attempts_and_emits_event(tmp_pa
         tmp_path,
         "import json, sys\n"
         "request = json.load(sys.stdin)\n"
-        "print(json.dumps({'error': {'type': 'providers_exhausted', 'retryable': True, 'attempts': ["
-        "{'provider': 'openai-codex', 'outcome': 'failed', 'error_type': 'provider_capacity', 'retryable': True}, "
-        "{'provider': 'anthropic', 'outcome': 'failed', 'error_type': 'provider_timeout', 'retryable': True}]}, "
-        "'request_id': request['request_id']}))\n"
+        "attempts = [\n"
+        " {'provider': 'openai-codex', 'outcome': 'failed',\n"
+        "  'error_type': 'provider_capacity', 'retryable': True},\n"
+        " {'provider': 'anthropic', 'outcome': 'failed',\n"
+        "  'error_type': 'provider_timeout', 'retryable': True},\n"
+        "]\n"
+        "error = {'type': 'providers_exhausted', 'retryable': True,\n"
+        "         'attempts': attempts}\n"
+        "print(json.dumps({'error': error, 'request_id': request['request_id']}))\n"
         "sys.exit(1)\n",
     )
-    provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
+    provider = S2KBridgeProvider(
+        (sys.executable, str(script)), str(profile), 2, 4096, operation_id="failed-operation"
+    )
     events = []
     monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
 
@@ -181,9 +255,10 @@ async def test_bridge_propagates_sanitized_child_attempts_and_emits_event(tmp_pa
     assert error.kind == "providers_exhausted"
     assert error.retryable is True
     assert [attempt["provider"] for attempt in error.attempts] == ["openai-codex", "anthropic"]
-    assert events[0][0:2] == ("s2k_inference", "bridge_failed")
-    assert events[0][3]["error_type"] == "providers_exhausted"
-    assert events[0][3]["attempts"] == error.attempts
+    assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
+    assert events[-1][3]["operation_id"] == "failed-operation"
+    assert events[-1][3]["error_type"] == "providers_exhausted"
+    assert events[-1][3]["attempts"] == error.attempts
 
 
 def test_child_failure_rejects_attempts_without_matching_request_id():
@@ -194,7 +269,12 @@ def test_child_failure_rejects_attempts_without_matching_request_id():
             "type": "providers_exhausted",
             "retryable": True,
             "attempts": [
-                {"provider": "openai-codex", "outcome": "failed", "error_type": "provider_capacity", "retryable": True}
+                {
+                    "provider": "openai-codex",
+                    "outcome": "failed",
+                    "error_type": "provider_capacity",
+                    "retryable": True,
+                }
             ],
         }
     }

@@ -684,8 +684,13 @@ def test_interest_triage_resolves_question_inside_engine(
     engine = app.dependency_overrides[get_engine]()
     product_decision_llm = object()
     s2k_llm = object()
+    s2k_factory_calls = []
     engine.llm = product_decision_llm
-    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda: s2k_llm)
+    monkeypatch.setattr(
+        insights_api,
+        "build_s2k_llm_provider",
+        lambda operation_id: (s2k_factory_calls.append(operation_id), s2k_llm)[1],
+    )
     triage_calls = 0
 
     async def capture_triage(**kwargs):
@@ -711,7 +716,9 @@ def test_interest_triage_resolves_question_inside_engine(
     monkeypatch.setattr(
         insights_api,
         "build_s2k_llm_provider",
-        lambda: (_ for _ in ()).throw(ValueError("bridge unavailable after first call")),
+        lambda _operation_id: (_ for _ in ()).throw(
+            ValueError("bridge unavailable after first call")
+        ),
     )
     repeated = client.post("/insight-triage/interest", json=payload, headers=auth_headers)
 
@@ -720,6 +727,7 @@ def test_interest_triage_resolves_question_inside_engine(
     assert captured["question"] == "What should I test?"
     assert captured["reservation_payload"]["budget_window"] == "2026-09-21"
     assert captured["llm"] is s2k_llm
+    assert s2k_factory_calls == [payload["operation_id"]]
     assert engine.llm is product_decision_llm
     assert triage_calls == 1
 
@@ -742,7 +750,7 @@ def test_interest_triage_transport_failure_keeps_unknown_reservation_and_prevent
             raise RuntimeError("fixture transport failure")
 
     provider = BrokenLLM()
-    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda: provider)
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda _operation_id: provider)
     payload = _interest_triage_payload("learning-loop", "transport-failed-once")
 
     with pytest.raises(RuntimeError, match="fixture transport failure"):
@@ -765,7 +773,7 @@ def test_interest_triage_rejects_unknown_id_before_model(
 ):
     _write_interest_triage_context(tmp_path)
 
-    def provider_must_not_be_built():
+    def provider_must_not_be_built(_operation_id):
         raise AssertionError("S2K provider must not build for an unknown interest")
 
     monkeypatch.setattr(insights_api, "build_s2k_llm_provider", provider_must_not_be_built)
