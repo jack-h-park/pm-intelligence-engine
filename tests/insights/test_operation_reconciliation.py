@@ -77,6 +77,31 @@ def test_reconcile_unknown_fences_operation_and_preserves_reservation(client, mo
     assert audits[0]["reason"] == "Provider activity was reviewed; outcome remains unknown."
 
 
+def test_late_provider_completion_cannot_overwrite_terminal_unknown(client, monkeypatch):
+    from app.api.deps import get_engine
+    from app.storage.insight_store import TriageOperationNotRunning
+    from config import settings
+
+    store = client.app.dependency_overrides[get_engine]().insight_store
+    _seed_unknown_operation(store)
+    monkeypatch.setattr(settings, "S2K_RECONCILIATION_TOKEN", "operator-secret")
+    monkeypatch.setattr(settings, "S2K_RECONCILIATION_OPERATOR_ID", "jack-park")
+    reconciled = client.post(
+        "/insight-operations/op-unknown/reconcile-unknown",
+        headers={"Authorization": "Bearer insight-test-token",
+                 "X-S2K-Reconciliation-Token": "operator-secret"},
+        json={"reason": "Provider outcome remains unresolved."},
+    )
+    assert reconciled.status_code == 200
+
+    with pytest.raises(TriageOperationNotRunning):
+        store.complete_triage("op-unknown", {"disposition": "admit"})
+
+    operation = store.get_operation_status("op-unknown")
+    assert operation["triage_state"] == "terminal_unknown"
+    assert operation["has_triage_result"] is False
+
+
 def test_concurrent_reconciliation_returns_one_original_audit(client, monkeypatch):
     from app.api.deps import get_engine
     from config import settings

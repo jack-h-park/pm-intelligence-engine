@@ -580,7 +580,8 @@ The transition and its durable audit row commit in one transaction. The operatio
 must be `running` and have a reservation already in `unknown` with no known actual
 cost. The reservation is left untouched and remains encumbered. The idempotency
 row stays present, so a repeated request cannot dispatch another provider call;
-repeated reconciliation returns the original audit record. Missing operations
+repeated reconciliation returns the original audit record. A provider worker
+that returns late cannot overwrite `terminal_unknown` with `complete`. Missing operations
 return 404, invalid state/reservation returns 409, invalid credentials return 401,
 and missing server-side reconciliation configuration returns 503.
 

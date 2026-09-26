@@ -61,6 +61,7 @@ from app.storage.insight_store import (
     InvalidInsightReference,
     MissingInsightRecord,
     StaleLease,
+    TriageOperationNotRunning,
 )
 
 router = APIRouter(tags=["insights"])
@@ -986,7 +987,12 @@ async def _semantic_triage(
     except TriageBudgetDenied as exc:
         store.abandon_triage_claim(body.operation_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc
-    store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    try:
+        store.complete_triage(body.operation_id, decision.model_dump(mode="json"))
+    except TriageOperationNotRunning as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="triage_in_progress"
+        ) from exc
     return decision
 
 

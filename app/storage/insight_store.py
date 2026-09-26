@@ -75,6 +75,10 @@ class StaleLease(ValueError):
     pass
 
 
+class TriageOperationNotRunning(ValueError):
+    pass
+
+
 def _json(record: BaseModel) -> str:
     return json.dumps(record.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
 
@@ -357,11 +361,27 @@ class InsightStore:
 
     def complete_triage(self, operation_id: str, payload: dict[str, Any]) -> None:
         with self._Session.begin() as session:
-            row = session.get(IntelligenceTriageRow, operation_id)
-            if row is None:
-                raise MissingInsightRecord(f"triage operation {operation_id} was not claimed")
-            row.state = "complete"
-            row.payload_json = json.dumps(payload, sort_keys=True)
+            result = session.execute(
+                update(IntelligenceTriageRow)
+                .where(
+                    IntelligenceTriageRow.operation_id == operation_id,
+                    IntelligenceTriageRow.state == "running",
+                )
+                .values(state="complete", payload_json=json.dumps(payload, sort_keys=True))
+            )
+            if result.rowcount != 1:
+                state = session.scalar(
+                    select(IntelligenceTriageRow.state).where(
+                        IntelligenceTriageRow.operation_id == operation_id
+                    )
+                )
+                if state is None:
+                    raise MissingInsightRecord(
+                        f"triage operation {operation_id} was not claimed"
+                    )
+                raise TriageOperationNotRunning(
+                    f"triage operation {operation_id} is no longer running"
+                )
 
     def abandon_triage_claim(self, operation_id: str) -> None:
         """Release a pre-call denial; ambiguous model calls intentionally stay claimed."""
