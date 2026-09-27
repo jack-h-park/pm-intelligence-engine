@@ -1028,15 +1028,18 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
 def test_primary_search_reservation_is_default_off_and_one_call_only(
     client, auth_headers, monkeypatch,
 ):
+    import app.api.insight_budget as budget_api
     from config import settings
 
     query_hash = hashlib.sha256(b"official change log").hexdigest()
     interest = "learning-loop"
+    cycle = "scheduled-2026-09-27T16:20Z"
     operation_id = "s2k-search:" + hashlib.sha256(
-        f"{interest}\n{query_hash}".encode()
+        f"{cycle}\n{interest}\n{query_hash}".encode()
     ).hexdigest()
     payload = {
         "operation_id": operation_id,
+        "cycle_id": cycle,
         "interest_id": interest,
         "query_sha256": query_hash,
         "policy_revision": "fixture-search-v1",
@@ -1067,13 +1070,25 @@ def test_primary_search_reservation_is_default_off_and_one_call_only(
 
     another_query = hashlib.sha256(b"another official change log").hexdigest()
     another_id = "s2k-search:" + hashlib.sha256(
-        f"{interest}\n{another_query}".encode()
+        f"{cycle}\n{interest}\n{another_query}".encode()
     ).hexdigest()
     over_daily = client.post(path, json={
         **payload, "query_sha256": another_query, "operation_id": another_id,
     }, headers={**auth_headers, "Idempotency-Key": another_id})
     assert over_daily.status_code == 409
     assert over_daily.json()["detail"] == "budget_denied"
+
+    monkeypatch.setattr(budget_api, "utc_day_window", lambda: "2026-09-28")
+    later_cycle = "scheduled-2026-09-28T16:20Z"
+    later_id = "s2k-search:" + hashlib.sha256(
+        f"{later_cycle}\n{interest}\n{query_hash}".encode()
+    ).hexdigest()
+    later = client.post(path, json={
+        **payload, "cycle_id": later_cycle, "operation_id": later_id,
+    }, headers={**auth_headers, "Idempotency-Key": later_id})
+    assert later.status_code == 201
+    assert later.json()["reservation_id"] != created.json()["reservation_id"]
+    assert later.json()["budget_window"] == "2026-09-28"
 
     mismatched_key = client.post(path, json=payload, headers={
         **auth_headers, "Idempotency-Key": "different",

@@ -601,10 +601,12 @@ state and reservation without disclosing query text or model output.
 ### `POST /insight-budget/search-reservations`
 
 This authenticated endpoint only reserves budget; it never calls a search provider.
-The body contains `interest_id`, `query_sha256`, `policy_revision`,
+The body contains a stable caller-generated `cycle_id`, `interest_id`, `query_sha256`, `policy_revision`,
 `rate_revision`, `maximum_micros`, and `operation_id`. Compute the last field as
 `s2k-search:` followed by SHA-256 of the UTF-8 string
-`<interest_id>\n<query_sha256>`. Send that exact operation ID as
+`<cycle_id>\n<interest_id>\n<query_sha256>`. Keep `cycle_id` unchanged across
+retries of one scheduled discovery cycle; use a new value for a later cycle.
+Send that exact operation ID as
 `Idempotency-Key`. The Engine sets `provider=tavily`,
 `allowance_class=search_acquisition`, and the current UTC day.
 

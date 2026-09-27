@@ -37,6 +37,7 @@ class SearchReservationCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     operation_id: str = Field(min_length=1)
+    cycle_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9._:-]+$")
     interest_id: str = Field(min_length=1)
     query_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     policy_revision: str = Field(min_length=1)
@@ -79,7 +80,7 @@ async def reserve_primary_search(
     if not idempotency_key or idempotency_key != body.operation_id:
         raise HTTPException(status_code=422, detail="Idempotency-Key must match operation_id")
     expected_id = "s2k-search:" + hashlib.sha256(
-        f"{body.interest_id}\n{body.query_sha256}".encode()
+        f"{body.cycle_id}\n{body.interest_id}\n{body.query_sha256}".encode()
     ).hexdigest()
     if body.operation_id != expected_id:
         raise HTTPException(status_code=422, detail="invalid search operation_id")
