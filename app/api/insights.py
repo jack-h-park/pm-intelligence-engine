@@ -49,7 +49,7 @@ from app.models.insights import (
 from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import resolve_interest
-from app.services.insight_delivery import confirm_delivery, queue_delivery
+from app.services.insight_delivery import confirm_delivery, normalize_insight_mode, queue_delivery
 from app.services.insight_migration import (
     build_dry_run_inventory,
     validate_external_legacy_inventory,
@@ -134,6 +134,15 @@ class CandidateCreate(_Request):
     question_ids: list[str]
     source_ids: list[str] = Field(default_factory=list)
     policy_revision: str = Field(min_length=1)
+
+
+class IntelligenceRuntimeStatus(BaseModel):
+    mode: Literal["legacy", "shadow", "insights"]
+    insight_writes_enabled: bool
+    decision_v2_enabled: bool
+    migration_activation_enabled: bool
+    legacy_import_enabled: bool
+    projection_enabled: bool
 
 
 class SourceCreate(_Request):
@@ -657,6 +666,21 @@ async def create_insight_decision_request(
         idempotency_key,
         authorization,
         engine,
+    )
+
+
+@router.get("/intelligence/runtime", response_model=IntelligenceRuntimeStatus)
+async def get_intelligence_runtime_status() -> IntelligenceRuntimeStatus:
+    """Expose effective cutover switches to authenticated release readers."""
+    from config import settings
+
+    return IntelligenceRuntimeStatus(
+        mode=normalize_insight_mode(settings.INTELLIGENCE_MODE),
+        insight_writes_enabled=settings.INSIGHT_WRITES_ENABLED,
+        decision_v2_enabled=settings.DECISION_PIPELINE_V2_ENABLED,
+        migration_activation_enabled=settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED,
+        legacy_import_enabled=settings.INSIGHT_LEGACY_IMPORT_ENABLED,
+        projection_enabled=settings.INSIGHT_PROJECTION_ENABLED,
     )
 
 

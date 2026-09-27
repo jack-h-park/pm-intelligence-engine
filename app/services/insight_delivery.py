@@ -1,12 +1,16 @@
 """Durable delivery boundary; transport remains owned by the operations plane."""
 
-from typing import Any
+from typing import Any, Literal
 
 from app.storage.insight_store import InsightStore
 
 
-def normalize_insight_mode(value: str | None) -> str:
-    return value if value in {"legacy", "shadow", "insights"} else "legacy"
+def normalize_insight_mode(value: str | None) -> Literal["legacy", "shadow", "insights"]:
+    if value == "shadow":
+        return "shadow"
+    if value == "insights":
+        return "insights"
+    return "legacy"
 
 
 def queue_delivery(
