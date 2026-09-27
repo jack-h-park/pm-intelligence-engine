@@ -1,7 +1,10 @@
 """Rebuildable Markdown projection of authoritative insight revisions."""
 
+import hashlib
+import json
 import logging
 import os
+import tempfile
 from pathlib import Path
 
 from app.models.insights import InsightRevision
@@ -77,4 +80,24 @@ def reconcile_store_projections(store: InsightStore, projection_root: str | Path
             # A modified or inaccessible file is not proven to be our projection.
             logger.warning("Could not retire superseded Insight projection %s", old.insight_id)
             continue
+    entries = [
+        {
+            "insight_id": insight.insight_id,
+            "revision": insight.revision,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        }
+        for insight, path in sorted(
+            zip(current, written), key=lambda pair: pair[0].insight_id
+        )
+    ]
+    manifest = root / ".projection-manifest.json"
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=root, delete=False) as temp:
+        try:
+            json.dump({"schema_version": 1, "entries": entries}, temp, sort_keys=True)
+            temp.write("\n")
+            temp.flush()
+            os.replace(temp.name, manifest)
+        finally:
+            if os.path.exists(temp.name):
+                os.unlink(temp.name)
     return written
