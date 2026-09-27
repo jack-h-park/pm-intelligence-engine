@@ -56,6 +56,20 @@ async def test_triage_prompt_names_every_field_and_value_the_schema_requires():
 
 
 @pytest.mark.asyncio
+async def test_triage_prompt_carries_interest_constraints_as_context():
+    llm = RecordingLLM()
+    await triage_source(
+        question="What changed in enterprise mobile security?",
+        constraints=["State the affected device and deployment scope."],
+        title="Desktop browser patch", content="Windows, Mac, and Linux fixes.", llm=llm,
+    )
+
+    context = json.loads(llm.messages[1]["content"])
+    assert context["constraints"] == ["State the affected device and deployment scope."]
+    assert "Shared keywords do not establish" in llm.messages[0]["content"]
+
+
+@pytest.mark.asyncio
 async def test_triage_admits_relevant_evidence_with_a_meaningful_delta():
     result = await triage_source(
         question="What practical learning should be tested next?",
@@ -83,6 +97,28 @@ async def test_triage_never_admits_unchanged_or_irrelevant_evidence():
     )
 
     assert result.disposition == "quiet_reference"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("relevance", "novelty", "expected"),
+    [
+        ("adjacent", "meaningful_delta", "quiet_reference"),
+        ("relevant", "unknown", "defer"),
+    ],
+)
+async def test_triage_does_not_admit_without_both_supported_conditions(
+    relevance, novelty, expected
+):
+    result = await triage_source(
+        question="What changed?", title="A candidate", content="Evidence.",
+        llm=FixtureLLM({
+            "disposition": "admit", "relevance": relevance,
+            "novelty": novelty, "reason": "Model requested admission.",
+        }),
+    )
+
+    assert result.disposition == expected
 
 
 def _reservation(operation_id: str) -> dict[str, Any]:

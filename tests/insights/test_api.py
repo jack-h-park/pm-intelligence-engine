@@ -819,6 +819,7 @@ def test_interest_triage_resolves_question_inside_engine(
     assert response.status_code == 200
     assert repeated.json() == response.json()
     assert captured["question"] == "What should I test?"
+    assert captured["constraints"] == ["Keep claims attributed."]
     assert captured["reservation_payload"]["budget_window"] == "2026-09-21"
     assert captured["llm"] is s2k_llm
     assert s2k_factory_calls == [payload["operation_id"]]
