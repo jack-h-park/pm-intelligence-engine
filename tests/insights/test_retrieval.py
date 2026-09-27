@@ -49,6 +49,21 @@ def test_search_returns_no_answer_without_a_supported_match(
     assert search_insights(store_factory(), "unrelated quantum topic") == []
 
 
+def test_search_matches_words_across_a_supported_insight_without_phrase_order(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    insight = _saved_insight(store, candidate_payload, source_payload, bundle_payload)
+
+    assert [item.insight_id for item in search_insights(store, "Android added control")] == [
+        insight.insight_id
+    ]
+    assert [item.insight_id for item in search_insights(store, "managed devices control")] == [
+        insight.insight_id
+    ]
+    assert search_insights(store, "Android unrelated control") == []
+
+
 def test_correction_replaces_current_search_result_but_preserves_old_record(
     store_factory, candidate_payload, source_payload, bundle_payload
 ):
