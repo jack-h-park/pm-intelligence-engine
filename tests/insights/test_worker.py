@@ -216,7 +216,7 @@ def test_scoped_backfill_claim_recovers_only_its_own_expired_lease(
 
 @pytest.mark.asyncio
 async def test_backfill_worker_uses_allowlisted_results_to_create_a_superseding_insight(
-    store_factory, candidate_payload, source_payload, bundle_payload
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path
 ):
     """Catches a backfill that skips research, replaces its base, or lacks provenance linkage."""
     class FixtureLLM:
@@ -248,6 +248,13 @@ async def test_backfill_worker_uses_allowlisted_results_to_create_a_superseding_
     candidate, base = _save_base_insight(
         store, candidate_payload, source_payload, bundle_payload, with_prior_enrichment=True
     )
+    from app.services.insight_projection import project_insight
+    from config import settings
+
+    monkeypatch.setattr(settings, "INSIGHT_PROJECTION_ENABLED", True)
+    monkeypatch.setattr(settings, "WIKI_ROOT", str(tmp_path))
+    projection_root = tmp_path / "outputs" / "signal-intelligence"
+    old_projection = project_insight(base, projection_root)
     targets = [
         EvidenceBackfillTarget(
             url="https://www.group-ib.com/blog/vwork-app-cloning-gigabud-goldfactory/",
@@ -309,6 +316,10 @@ async def test_backfill_worker_uses_allowlisted_results_to_create_a_superseding_
     assert len(bundle.source_ids) == 4
     assert set(base_bundle.source_ids) <= set(bundle.source_ids)
     assert all(claim.passage_ids for claim in completed.claims)
+    assert not old_projection.exists()
+    assert (projection_root / f"{completed.insight_id}.md").is_file()
+    manifest = json.loads((projection_root / ".projection-manifest.json").read_text())
+    assert [entry["insight_id"] for entry in manifest["entries"]] == [completed.insight_id]
 
 
 @pytest.mark.asyncio
@@ -489,10 +500,21 @@ def test_duplicate_research_result_is_safe_and_resumes_once(store_factory, candi
     assert store.get_job(job.job_id).state == "queued"
 
 
+@pytest.mark.parametrize("projection_failure", [False, True])
 @pytest.mark.asyncio
 async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
-    store_factory, candidate_payload, source_payload, bundle_payload
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+    projection_failure,
 ):
+    from config import settings
+
+    monkeypatch.setattr(settings, "INSIGHT_PROJECTION_ENABLED", True)
+    monkeypatch.setattr(settings, "WIKI_ROOT", str(tmp_path))
+    if projection_failure:
+        def fail_projection(*args):
+            raise OSError("projection disk unavailable")
+
+        monkeypatch.setattr(insight_worker, "reconcile_store_projections", fail_projection)
     class FixtureLLM:
         async def complete(self, messages, **kwargs):
             supplied = json.loads(messages[1]["content"])
@@ -525,6 +547,11 @@ async def test_worker_completes_a_leased_job_with_prepared_context_and_insight(
     prepared = store.get_prepared_context(completed.prepared_context_id)
     assert prepared.question == "What changed in managed profile isolation?"
     assert prepared.constraints == ["Preserve attribution."]
+    if not projection_failure:
+        root = tmp_path / "outputs" / "signal-intelligence"
+        assert (root / f"{completed.insight_id}.md").is_file()
+        manifest = json.loads((root / ".projection-manifest.json").read_text())
+        assert [entry["insight_id"] for entry in manifest["entries"]] == [completed.insight_id]
 
 
 @pytest.mark.asyncio
