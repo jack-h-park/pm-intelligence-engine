@@ -2,7 +2,7 @@
 ## pm-intelligence-engine — Public Interface for External Operators
 
 **Version:** 1.1  
-**Last updated:** 2026-06-05
+**Last updated:** 2026-09-27
 
 ## Authentication
 
@@ -19,12 +19,17 @@ Authorization: Bearer ${PM_PLATFORM_API_TOKEN}
 - If the server is started without `PM_PLATFORM_API_TOKEN` set, it **fails closed**:
   authenticated routes return **`503`** rather than serving an open API. `GET /health`
   stays available so liveness probes / launchd `KeepAlive` do not thrash.
-- `GET /health` is intentionally unauthenticated (liveness probe only; returns no data).
+- `GET /health` is intentionally unauthenticated. It returns `status`, plus the
+  source revision, tracked-checkout modification flag, and process start time
+  captured at startup. Revision and modification are `null` when Git cannot be
+  read; they are provenance hints, not an attestation of dependencies or external
+  assets. No token or application records are returned.
 
-**Network bind:** the service binds to **`127.0.0.1:8000`** (loopback only). It is not
-reachable off-device. Same-host callers (the operations client, local scripts) use
-`http://localhost:8000`. Off-device review links must go through HTTPS / a reverse
-proxy — not a wide plain-HTTP bind.
+**Network bind:** launchd's default is **`0.0.0.0:8000`** for private-network
+access; the Mac Studio service uses that default. Setting `HOST=127.0.0.1`
+for `make install-service` restricts a new installation to loopback. Same-host callers use
+`http://localhost:8000`. Off-device access must be restricted by the host/private
+network and authenticated API routes still require the bearer token.
 
 **URL policy:**
 
@@ -70,7 +75,7 @@ version bump.
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/insight-operations/{operation_id}` | Read sanitized S2K operation and reservation status | Investigate ambiguous completion |
 | `POST` | `/insight-operations/{operation_id}/reconcile-unknown` | Fence an ambiguous S2K operation with an audit record | Authorized operator reconciliation |
-| `GET` | `/health` | Health check (unauthenticated) | Liveness probe |
+| `GET` | `/health` | Health and startup source provenance (unauthenticated) | Liveness and revision check |
 
 ---
 
