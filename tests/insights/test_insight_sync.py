@@ -91,6 +91,29 @@ def test_list_insights_since_uses_created_at_then_id_as_a_stable_boundary(store_
     assert has_more is False
 
 
+def test_lineage_resolves_all_current_leaves_without_losing_historical_records(store_factory):
+    store = store_factory()
+    old = _save_fixture_insight(store, "root", datetime(2026, 9, 16, tzinfo=UTC))
+    for insight_id, parent in (
+        ("middle", old.insight_id),
+        ("latest", "middle"),
+        ("parallel-correction", old.insight_id),
+    ):
+        store.save_insight({
+            **old.model_dump(mode="json"),
+            "insight_id": insight_id,
+            "supersedes_insight_id": parent,
+        })
+
+    assert store.insight_lineage(old.insight_id) == (
+        False, ["latest", "parallel-correction"]
+    )
+    assert store.insight_lineage("middle") == (False, ["latest"])
+    assert store.insight_lineage("latest") == (True, ["latest"])
+    assert store.insight_lineage("missing") is None
+    assert store.get_insight(old.insight_id) == old
+
+
 def test_cursor_round_trip_preserves_the_engine_boundary():
     cursor = InsightListCursor(
         since=datetime(2026, 9, 16, 0, 0, tzinfo=UTC),

@@ -218,6 +218,12 @@ class InsightSearchResults(BaseModel):
     next_cursor: str | None = None
 
 
+class InsightLineage(BaseModel):
+    insight_id: str
+    is_current: bool
+    current_descendant_ids: list[str]
+
+
 class NoveltyLookup(_Request):
     content_hashes: list[str] = Field(min_length=1, max_length=20)
 
@@ -1558,6 +1564,26 @@ async def get_insight(insight_id: str, engine: PMEngine = Depends(get_engine)) -
     if insight is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     return insight
+
+
+@router.get("/insights/{insight_id}/lineage", response_model=InsightLineage)
+async def get_insight_lineage(
+    insight_id: str, engine: PMEngine = Depends(get_engine)
+) -> InsightLineage:
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Insight storage is unavailable",
+        )
+    lineage = engine.insight_store.insight_lineage(insight_id)
+    if lineage is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    is_current, current_descendant_ids = lineage
+    return InsightLineage(
+        insight_id=insight_id,
+        is_current=is_current,
+        current_descendant_ids=current_descendant_ids,
+    )
 
 
 @router.get("/insights/{insight_id}/reviews", response_model=InsightReviewList)

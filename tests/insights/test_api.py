@@ -1070,6 +1070,20 @@ def test_insight_list_defaults_to_current_and_filters_before_pagination(
         corrected.insight_id, other.insight_id
     }
     assert client.get(f"/insights/{old.insight_id}", headers=auth_headers).status_code == 200
+    old_lineage = client.get(f"/insights/{old.insight_id}/lineage", headers=auth_headers)
+    assert old_lineage.status_code == 200
+    assert old_lineage.json() == {
+        "insight_id": old.insight_id,
+        "is_current": False,
+        "current_descendant_ids": [corrected.insight_id],
+    }
+    assert client.get(
+        f"/insights/{corrected.insight_id}/lineage", headers=auth_headers
+    ).json() == {
+        "insight_id": corrected.insight_id,
+        "is_current": True,
+        "current_descendant_ids": [corrected.insight_id],
+    }
 
     filtered = client.get(
         "/insights", params={"question_id": "android-enterprise-isolation",
