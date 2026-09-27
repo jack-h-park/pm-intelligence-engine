@@ -19,6 +19,7 @@ from fastapi import (
     status,
 )
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import get_engine
 from app.factory import PMEngine, build_s2k_llm_provider
@@ -350,6 +351,7 @@ class LegacyPreflightReceipt(_Request):
     checked_at: str = Field(min_length=1)
     nonce: str = Field(min_length=32, max_length=32)
     signature: str = Field(min_length=64, max_length=64)
+    purpose: str | None = None
 
 
 class LegacyImportRequest(_Request):
@@ -372,6 +374,36 @@ class LegacyAliasResults(BaseModel):
     manifest_hash: str
     total_count: int
     aliases: list[dict[str, Any]]
+    next_offset: int | None
+
+
+class LegacyOverlayRequest(_Request):
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    plan_id: str | None = None
+    plan_hash: str | None = None
+    enabled: bool
+    expected_revision: int = Field(ge=0)
+    preflight: LegacyPreflightReceipt | None = None
+
+
+class LegacyOverlayStatus(BaseModel):
+    inventory_id: str
+    manifest_hash: str
+    enabled: bool
+    revision: int
+    plan_id: str | None
+    plan_hash: str | None
+    suppressed_count: int
+
+
+class LegacyOverlaySuppressedResults(BaseModel):
+    inventory_id: str
+    manifest_hash: str
+    revision: int
+    enabled: bool
+    plan_hash: str | None
+    total_count: int
+    records: list[dict[str, Any]]
     next_offset: int | None
 
 
@@ -808,7 +840,9 @@ async def get_legacy_migration_inventory(
 ) -> LegacyMigrationInventoryAccepted:
     stored = _read_store(engine).get_migration_inventory(inventory_id)
     if stored is None or stored.get("kind") != "legacy_external":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
     return _legacy_inventory_response(stored)
 
 
@@ -827,7 +861,9 @@ async def list_legacy_migration_inventory_records(
     """Page through every private historical record without activating an overlay."""
     stored = _read_store(engine).get_migration_inventory(inventory_id)
     if stored is None or stored.get("kind") != "legacy_external":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
     records = stored["records"]
     if classification is not None:
         records = [item for item in records if item["classification"] == classification]
@@ -969,6 +1005,121 @@ async def list_legacy_imported_aliases(
         total_count=len(aliases),
         aliases=page,
         next_offset=next_offset,
+    )
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}/overlay",
+    response_model=LegacyOverlayStatus,
+)
+async def get_legacy_overlay(
+    inventory_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyOverlayStatus:
+    store = _read_store(engine)
+    inventory = store.get_migration_inventory(inventory_id)
+    if inventory is None or inventory.get("kind") != "legacy_external":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
+    try:
+        state = store.get_legacy_migration_overlay_status(
+            inventory_id, inventory["inventory_hash"]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return LegacyOverlayStatus(
+        inventory_id=inventory_id, manifest_hash=inventory["inventory_hash"], **state
+    )
+
+
+@router.post(
+    "/insight-migration-inventories/legacy/{inventory_id}/overlay",
+    response_model=LegacyOverlayStatus,
+)
+async def set_legacy_overlay(
+    inventory_id: str,
+    body: LegacyOverlayRequest,
+    authorization: str | None = Header(default=None),
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyOverlayStatus:
+    """Activate only a reviewed, fully imported batch; permit emergency disable."""
+    from config import settings
+
+    if body.enabled:
+        if not settings.INSIGHT_WRITES_ENABLED:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Insight writes are disabled",
+            )
+        if not settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED or (
+            body.plan_hash != settings.INSIGHT_LEGACY_APPROVED_PLAN_HASH
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Historical overlay activation is not approved",
+            )
+        if body.plan_id is None or body.plan_hash is None or body.preflight is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Activation needs a plan and fresh source preflight",
+            )
+        try:
+            verify_legacy_preflight(
+                body.preflight.model_dump(), settings.INSIGHT_LEGACY_PREFLIGHT_SECRET,
+                inventory_id=inventory_id, manifest_hash=body.manifest_hash,
+                plan_hash=body.plan_hash, purpose="overlay_activation",
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    try:
+        state = _read_store(engine).set_legacy_migration_overlay(
+            inventory_id, body.manifest_hash, body.plan_id, body.plan_hash,
+            enabled=body.enabled, expected_revision=body.expected_revision,
+            actor_fingerprint=_actor_fingerprint(authorization),
+            preflight_signature=body.preflight.signature if body.preflight else None,
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except IntegrityError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Overlay revision changed"
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return LegacyOverlayStatus(
+        inventory_id=inventory_id, manifest_hash=body.manifest_hash, **state
+    )
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}/overlay/suppressed",
+    response_model=LegacyOverlaySuppressedResults,
+)
+async def list_legacy_overlay_suppressed(
+    inventory_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyOverlaySuppressedResults:
+    store = _read_store(engine)
+    inventory = store.get_migration_inventory(inventory_id)
+    if inventory is None or inventory.get("kind") != "legacy_external":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
+    try:
+        state, records = store.list_legacy_overlay_suppressed(
+            inventory_id, inventory["inventory_hash"]
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    page = records[offset:offset + limit]
+    return LegacyOverlaySuppressedResults(
+        inventory_id=inventory_id, manifest_hash=inventory["inventory_hash"],
+        revision=state["revision"], enabled=state["enabled"],
+        plan_hash=state["plan_hash"], total_count=len(records), records=page,
+        next_offset=offset + limit if offset + limit < len(records) else None,
     )
 
 

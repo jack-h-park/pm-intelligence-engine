@@ -8,6 +8,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.models.insights import (
+    Candidate,
+    EvidenceBundle,
+    InsightRevision,
+    PreparedContext,
+    SourceRecord,
+)
 from app.services.insight_migration import (
     validate_external_legacy_inventory,
     validate_legacy_disposition_plan,
@@ -24,6 +31,7 @@ def _manifest():
             "original_id": "source.md",
             "original_path": "/private/source.md",
             "source_hash": "a" * 64,
+            "source_url": "https://example.com/record",
             "snapshot_revision": None,
             "classification": "legacy_submitted_preserve",
             "migration_state": "unreviewed",
@@ -75,7 +83,7 @@ def _plan(manifest):
     }
 
 
-def _preflight(inventory_id, manifest_hash, plan_hash, secret, checked_at=None):
+def _preflight(inventory_id, manifest_hash, plan_hash, secret, checked_at=None, purpose=None):
     receipt = {
         "inventory_id": inventory_id,
         "manifest_hash": manifest_hash,
@@ -83,6 +91,8 @@ def _preflight(inventory_id, manifest_hash, plan_hash, secret, checked_at=None):
         "checked_at": (checked_at or datetime.now(UTC)).isoformat(),
         "nonce": secrets.token_hex(16),
     }
+    if purpose is not None:
+        receipt["purpose"] = purpose
     receipt["signature"] = hmac.new(
         secret.encode(),
         json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode(),
@@ -390,6 +400,155 @@ def test_reviewed_suppression_metadata_is_preserved_by_quiet_import(tmp_path):
     assert store.get_migration_overlay("inventory-1") is None
 
 
+def test_external_overlay_requires_complete_import_and_records_reversible_revisions(tmp_path):
+    store = InsightStore(f"sqlite:///{tmp_path}/legacy-overlay.db")
+    store.initialize_schema()
+    manifest = _manifest()
+    inventory = validate_external_legacy_inventory(manifest)
+    inventory["inventory_id"] = "inventory-1"
+    store.save_migration_inventory("inventory-1", inventory["inventory_hash"], inventory)
+    plan = validate_legacy_disposition_plan(inventory, _plan(manifest))
+    plan["inventory_id"] = "plan-1"
+    store.save_migration_inventory("plan-1", plan["inventory_hash"], plan)
+    assert store.get_legacy_migration_overlay_status("inventory-1", manifest["manifest_hash"]) == {
+        "enabled": False, "revision": 0, "plan_id": None, "plan_hash": None,
+        "suppressed_count": 0,
+    }
+    with pytest.raises(ValueError, match="fully imported"):
+        store.set_legacy_migration_overlay(
+            "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+            enabled=True, expected_revision=0, actor_fingerprint="operator",
+            preflight_signature="a" * 64,
+        )
+
+    store.import_legacy_disposition_plan(
+        "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+        batch_size=100, preflight_signature="a" * 64,
+    )
+    activated = store.set_legacy_migration_overlay(
+        "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+        enabled=True, expected_revision=0, actor_fingerprint="operator",
+        preflight_signature="b" * 64,
+    )
+    assert activated == {
+        "enabled": True, "revision": 1, "plan_id": "plan-1",
+        "plan_hash": plan["inventory_hash"], "suppressed_count": 0,
+    }
+    with pytest.raises(ValueError, match="already used"):
+        store.set_legacy_migration_overlay(
+            "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+            enabled=True, expected_revision=1, actor_fingerprint="operator",
+            preflight_signature="b" * 64,
+        )
+    with pytest.raises(ValueError, match="revision"):
+        store.set_legacy_migration_overlay(
+            "inventory-1", manifest["manifest_hash"], None, None,
+            enabled=False, expected_revision=0, actor_fingerprint="operator",
+        )
+    disabled = store.set_legacy_migration_overlay(
+        "inventory-1", manifest["manifest_hash"], None, None,
+        enabled=False, expected_revision=1, actor_fingerprint="operator",
+    )
+    assert disabled == {
+        "enabled": False, "revision": 2, "plan_id": "plan-1",
+        "plan_hash": plan["inventory_hash"], "suppressed_count": 0,
+    }
+    assert (
+        store.get_legacy_migration_overlay_status("inventory-1", manifest["manifest_hash"])
+        == disabled
+    )
+    assert len(store.list_migration_aliases("inventory-1")) == 2
+
+
+def test_external_overlay_refuses_unverified_replacement_insight(tmp_path):
+    store = InsightStore(f"sqlite:///{tmp_path}/legacy-overlay-source.db")
+    store.initialize_schema()
+    manifest = _manifest()
+    manifest["entries"][0]["source_url"] = "https://example.com/record"
+    manifest["manifest_hash"] = hashlib.sha256(json.dumps(
+        {"entries": manifest["entries"], "snapshot": manifest["snapshot"]},
+        sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest()
+    inventory = validate_external_legacy_inventory(manifest)
+    inventory["inventory_id"] = "inventory-1"
+    store.save_migration_inventory("inventory-1", inventory["inventory_hash"], inventory)
+    proposal = _plan(manifest)
+    proposal["decisions"][0].update(
+        suppress_legacy_reminder=True, replacement_insight_id="insight-missing"
+    )
+    plan = validate_legacy_disposition_plan(inventory, proposal)
+    plan["inventory_id"] = "plan-1"
+    store.save_migration_inventory("plan-1", plan["inventory_hash"], plan)
+    store.import_legacy_disposition_plan(
+        "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+        batch_size=100, preflight_signature="a" * 64,
+    )
+
+    with pytest.raises(ValueError, match="replacement Insight"):
+        store.set_legacy_migration_overlay(
+            "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+            enabled=True, expected_revision=0, actor_fingerprint="operator",
+            preflight_signature="b" * 64,
+        )
+    assert store.get_migration_overlay("inventory-1") is None
+
+    candidate = store.save_candidate(Candidate(
+        candidate_id="candidate-1", origin="user_supplied", subject="Source review",
+        question_ids=["question"], policy_revision="fixture-v1",
+    ).model_dump(mode="json"))
+    content = "A bounded source observation."
+    source = store.save_source(SourceRecord(
+        source_id="source-1", candidate_id=candidate.candidate_id,
+        origin="user_supplied", content_hash=hashlib.sha256(content.encode()).hexdigest(),
+        acquisition_status="ok", retrieved_at=datetime.now(UTC), content=content,
+        url="https://example.com/record",
+    ).model_dump(mode="json"))
+    bundle = store.save_bundle(EvidenceBundle(
+        candidate_id=candidate.candidate_id, source_ids=[source.source_id],
+        passages=[{
+            "passage_id": "passage-1", "source_id": source.source_id,
+            "locator": "body", "text": content, "role": "seed",
+        }], freshness_status="current", context_revision="fixture-v1",
+    ).model_dump(mode="json"))
+    prepared = store.save_prepared_context(PreparedContext(
+        candidate_id=candidate.candidate_id, bundle_id=bundle.bundle_id,
+        question="What changed?", validation_status="valid", context_revision="fixture-v1",
+    ).model_dump(mode="json"))
+    store.save_insight(InsightRevision(
+        insight_id="insight-missing", prepared_context_id=prepared.prepared_context_id,
+        headline="A bounded finding", explanation="The source supports it.",
+        actual_change="A source observation.", why_now="The source was reviewed now.",
+        personal_relevance="It answers the question.", takeaway="Retain the observation.",
+        claims=[{"text": "A source observation.", "passage_ids": ["passage-1"]}],
+        context_revision="fixture-v1",
+    ).model_dump(mode="json"))
+    activated = store.set_legacy_migration_overlay(
+        "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+        enabled=True, expected_revision=0, actor_fingerprint="operator",
+        preflight_signature="b" * 64,
+    )
+    assert activated["enabled"] is True
+    assert activated["suppressed_count"] == 1
+    state, selected = store.list_legacy_overlay_suppressed(
+        "inventory-1", manifest["manifest_hash"]
+    )
+    assert state == activated
+    assert selected == [{
+        "original_system": "gate0_sensing", "original_type": "sensing_file",
+        "original_id": "source.md", "source_hash": "a" * 64,
+        "source_url": "https://example.com/record",
+        "replacement_insight_id": "insight-missing",
+    }]
+    disabled = store.set_legacy_migration_overlay(
+        "inventory-1", manifest["manifest_hash"], None, None,
+        enabled=False, expected_revision=1, actor_fingerprint="operator",
+    )
+    assert disabled["suppressed_count"] == 0
+    assert store.list_legacy_overlay_suppressed(
+        "inventory-1", manifest["manifest_hash"]
+    )[1] == []
+
+
 def test_legacy_plan_api_requires_auth_and_import_flag(client, auth_headers, monkeypatch):
     from config import settings
 
@@ -461,6 +620,84 @@ def test_legacy_plan_api_requires_auth_and_import_flag(client, auth_headers, mon
     assert aliases.json()["total_count"] == 2
     assert len(aliases.json()["aliases"]) == 1
     assert aliases.json()["next_offset"] == 1
+
+
+def test_external_overlay_api_requires_release_gates_and_allows_disabled_rollback(
+    client, auth_headers, monkeypatch
+):
+    from config import settings
+
+    secret = "fixture-preflight-secret-longer-than-32-characters"
+    manifest = _manifest()
+    inventory = client.post(
+        "/insight-migration-inventories/legacy", json=manifest, headers=auth_headers
+    ).json()
+    base = f"/insight-migration-inventories/legacy/{inventory['inventory_id']}"
+    plan = client.post(base + "/plans", json=_plan(manifest), headers=auth_headers).json()
+    empty = client.get(base + "/overlay", headers=auth_headers)
+    assert empty.status_code == 200
+    assert empty.json()["enabled"] is False
+    assert empty.json()["revision"] == 0
+    assert client.get(base + "/overlay").status_code == 401
+    assert client.get(base + "/overlay/suppressed", headers=auth_headers).json()[
+        "total_count"
+    ] == 0
+
+    monkeypatch.setattr(settings, "INSIGHT_LEGACY_IMPORT_ENABLED", True)
+    monkeypatch.setattr(settings, "INSIGHT_LEGACY_APPROVED_PLAN_HASH", plan["plan_hash"])
+    monkeypatch.setattr(settings, "INSIGHT_LEGACY_PREFLIGHT_SECRET", secret)
+    imported = client.post(base + "/imports", json={
+        "manifest_hash": manifest["manifest_hash"], "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"], "batch_size": 100,
+        "preflight": _preflight(
+            inventory["inventory_id"], manifest["manifest_hash"], plan["plan_hash"], secret,
+        ),
+    }, headers=auth_headers)
+    assert imported.status_code == 202
+    assert imported.json()["complete"] is True
+
+    activation = {
+        "manifest_hash": manifest["manifest_hash"], "plan_id": plan["plan_id"],
+        "plan_hash": plan["plan_hash"], "enabled": True, "expected_revision": 0,
+        "preflight": _preflight(
+            inventory["inventory_id"], manifest["manifest_hash"], plan["plan_hash"], secret,
+            purpose="overlay_activation",
+        ),
+    }
+    assert client.post(base + "/overlay", json=activation).status_code == 401
+    assert client.post(base + "/overlay", json=activation, headers=auth_headers).status_code == 409
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", True)
+    import_purpose = {**activation, "preflight": _preflight(
+        inventory["inventory_id"], manifest["manifest_hash"], plan["plan_hash"], secret
+    )}
+    assert (
+        client.post(base + "/overlay", json=import_purpose, headers=auth_headers).status_code
+        == 409
+    )
+    activated = client.post(base + "/overlay", json=activation, headers=auth_headers)
+    assert activated.status_code == 200
+    assert activated.json()["enabled"] is True
+    assert activated.json()["revision"] == 1
+    assert activated.json()["suppressed_count"] == 0
+    assert client.get(base + "/overlay", headers=auth_headers).json() == activated.json()
+    selected = client.get(base + "/overlay/suppressed", headers=auth_headers).json()
+    assert selected["enabled"] is True
+    assert selected["revision"] == 1
+    assert selected["records"] == []
+
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", False)
+    monkeypatch.setattr(settings, "INSIGHT_WRITES_ENABLED", False)
+    disabled = client.post(base + "/overlay", json={
+        "manifest_hash": manifest["manifest_hash"], "enabled": False,
+        "expected_revision": 1,
+    }, headers=auth_headers)
+    assert disabled.status_code == 200
+    assert disabled.json()["enabled"] is False
+    assert disabled.json()["revision"] == 2
+    assert client.get(base + "/aliases", headers=auth_headers).json()["total_count"] == 2
+    assert client.get(base + "/overlay/suppressed", headers=auth_headers).json()[
+        "enabled"
+    ] is False
 
 
 def test_legacy_batch_rejects_changed_hash_and_duplicate_origin(client, auth_headers):

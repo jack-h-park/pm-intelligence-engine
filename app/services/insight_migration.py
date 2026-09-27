@@ -10,7 +10,6 @@ from typing import Any
 
 from app.storage.insight_store import InsightStore
 
-
 LEGACY_COVERAGE = "sensing_engine_wiki_references_with_outputs_artifacts_and_capture_rows"
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _LEGACY_SYSTEMS = {"gate0_sensing", "pm_engine", "pm_wiki"}
@@ -204,6 +203,8 @@ def validate_legacy_disposition_plan(
         ):
             raise ValueError("legacy reminder suppression applies only to resolved sensing files")
         if suppress:
+            if not entry.get("source_hash") or not entry.get("source_url"):
+                raise ValueError("legacy reminder suppression needs a source hash and URL")
             if not isinstance(replacement, str) or not replacement.strip():
                 raise ValueError("legacy reminder suppression needs a replacement Insight ID")
             replacement_id = replacement.strip()
@@ -247,6 +248,7 @@ def validate_legacy_disposition_plan(
 def verify_legacy_preflight(
     receipt: dict[str, str], secret: str, *, inventory_id: str,
     manifest_hash: str, plan_hash: str, now: datetime | None = None,
+    purpose: str | None = None,
 ) -> None:
     """Verify a short-lived receipt from the source-reading migration runner."""
     if len(secret) < 32:
@@ -258,6 +260,10 @@ def verify_legacy_preflight(
     }
     if any(receipt.get(key) != value for key, value in expected.items()):
         raise ValueError("legacy preflight does not name this inventory and plan")
+    if purpose is not None:
+        if receipt.get("purpose") != purpose:
+            raise ValueError("legacy preflight purpose does not match this operation")
+        expected["purpose"] = purpose
     try:
         checked_at = datetime.fromisoformat(receipt["checked_at"])
     except (KeyError, TypeError, ValueError) as exc:

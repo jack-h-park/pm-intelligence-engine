@@ -34,6 +34,19 @@ legacy inventory.
 5. `GET /insight-migration-inventories/legacy/{id}/aliases` pages the saved
    metadata for reconciliation. Compare its count and origin/revision fields
    against the reviewed plan before treating the batch as imported.
+6. `GET /insight-migration-inventories/legacy/{id}/overlay` reports the
+   external overlay's enabled state and revision. `GET .../overlay/suppressed`
+   pages only the sensing origins explicitly selected by an active overlay;
+   while disabled it returns an empty set. The listing includes the inventory
+   hash and overlay revision so detector and Console readers can reject drift.
+7. `POST /insight-migration-inventories/legacy/{id}/overlay` activates only
+   when the import is complete, every alias matches the approved plan, the
+   release flag and approved plan hash match, and a purpose-specific fresh
+   source preflight is signed. Each selected replacement Insight must still be
+   current and cite a source with the exact original URL. The request names
+   `expected_revision`; each change appends an actor- and hash-bound audit
+   event. Disabling needs no activation flag or Insight write gate and keeps
+   the aliases and audit events. A concurrent or stale revision is rejected.
 
 Import is disabled by default through `INSIGHT_LEGACY_IMPORT_ENABLED=false`
 and an empty `INSIGHT_LEGACY_APPROVED_PLAN_HASH`. The operator must set both
@@ -53,9 +66,10 @@ The flag is an operational gate, not an E10 default-cutover authorization.
 The import writes only `intelligence_migration_aliases`. It does not create
 Insights, change source or decision records, send notifications, call a model,
 spend an allowance, or enable the migration overlay. An imported suppression
-decision remains inert until a separate release-gated overlay path validates
-the replacement Insight and enables consistent readers. That external overlay
-activation path is not implemented yet. The existing per-origin
-overlay and Candidate importer remain independent. Rollback disables readers
-and retains original records and alias receipts; it does not restore an old
-database over newer decisions.
+decision remains inert until the separately gated overlay activation. The
+Engine API alone does not establish reader agreement, fresh source coverage,
+or release approval; the source-reading runner and every legacy reminder
+consumer must use the same revision before production activation. The existing
+per-origin overlay and Candidate importer remain independent. Rollback
+disables readers and retains original records and alias receipts; it does not
+restore an old database over newer decisions.
