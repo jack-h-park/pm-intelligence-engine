@@ -1,5 +1,8 @@
 """One bounded worker tick for fixture-safe personal insight analysis."""
 
+import logging
+from pathlib import Path
+
 from app.factory import build_s2k_llm_provider
 from app.llm.protocol import LLMProvider
 from app.models.insights import InsightJob, InsightRevision
@@ -7,8 +10,11 @@ from app.services.insight_analysis import analyze_bundle
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import load_prepared_context
 from app.services.insight_knowledge_verdict import judge_knowledge
+from app.services.insight_projection import reconcile_store_projections
 from app.storage.insight_store import InsightStore
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 
 async def process_one(
@@ -100,7 +106,17 @@ async def _process_claimed_job(
     if job.supersedes_insight_id:
         insight = insight.model_copy(update={"supersedes_insight_id": job.supersedes_insight_id})
     insight = await _attach_knowledge_verdict(store, job, insight, llm)
-    return store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
+    completed = store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
+    if settings.INSIGHT_PROJECTION_ENABLED:
+        try:
+            reconcile_store_projections(
+                store, Path(settings.WIKI_ROOT) / "outputs" / "signal-intelligence"
+            )
+        except Exception:
+            # The Insight and job are already committed. A restart can rebuild
+            # the derived files; never turn this into a retry of paid analysis.
+            logger.exception("Could not update Insight projection after job completion")
+    return completed
 
 
 async def _attach_knowledge_verdict(
