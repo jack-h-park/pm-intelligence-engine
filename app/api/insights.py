@@ -1224,6 +1224,10 @@ async def list_insights(
     since: datetime | None = Query(default=None),
     after: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
+    question_id: str | None = Query(default=None, min_length=1),
+    freshness: Literal["current", "background", "superseded", "unknown"] | None = Query(
+        default=None
+    ),
     engine: PMEngine = Depends(get_engine),
 ) -> InsightSearchResults:
     """List Engine-owned learning insights without joining product workflow state."""
@@ -1242,15 +1246,31 @@ async def list_insights(
             raise HTTPException(
                 status_code=422, detail="cursor since boundary does not match request"
             )
+        if question_id is not None and question_id != cursor.question_id:
+            raise HTTPException(
+                status_code=422, detail="cursor question filter does not match request"
+            )
+        if freshness is not None and freshness != cursor.freshness:
+            raise HTTPException(
+                status_code=422, detail="cursor freshness filter does not match request"
+            )
     normalized_since = (
         since.astimezone(UTC)
         if since is not None
         else cursor.since if cursor is not None else None
     )
-    items, _has_more = engine.insight_store.list_insights_since(
+    normalized_question_id = question_id if question_id is not None else (
+        cursor.question_id if cursor is not None else None
+    )
+    normalized_freshness = freshness if freshness is not None else (
+        cursor.freshness if cursor is not None else None
+    )
+    items, _has_more = engine.insight_store.list_current_insights_page(
         normalized_since,
         (cursor.created_at, cursor.insight_id) if cursor is not None else None,
         limit,
+        question_id=normalized_question_id,
+        freshness=normalized_freshness,
     )
     next_cursor = None
     if items:
@@ -1260,6 +1280,8 @@ async def list_insights(
                 since=normalized_since,
                 created_at=final.created_at,
                 insight_id=final.insight_id,
+                question_id=normalized_question_id,
+                freshness=normalized_freshness,
             )
         )
     return InsightSearchResults(items=items, next_cursor=next_cursor)
