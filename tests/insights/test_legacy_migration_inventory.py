@@ -106,6 +106,44 @@ def test_legacy_batch_is_authenticated_idempotent_and_not_importable(client, aut
     assert rejected_overlay.status_code == 409
 
 
+def test_legacy_records_are_authenticated_paged_and_filterable(client, auth_headers):
+    manifest = _manifest()
+    created = client.post(
+        "/insight-migration-inventories/legacy", json=manifest, headers=auth_headers
+    )
+    assert created.status_code == 201
+    inventory_id = created.json()["inventory_id"]
+    url = f"/insight-migration-inventories/legacy/{inventory_id}/records"
+
+    assert client.get(url).status_code == 401
+    first = client.get(url, params={"limit": 1}, headers=auth_headers)
+    assert first.status_code == 200
+    assert first.json() == {
+        "inventory_id": inventory_id,
+        "manifest_hash": manifest["manifest_hash"],
+        "record_count": 2,
+        "unresolved_count": 1,
+        "total_count": 2,
+        "records": [manifest["entries"][0]],
+        "next_offset": 1,
+    }
+    second = client.get(url, params={"offset": 1, "limit": 1}, headers=auth_headers)
+    assert second.status_code == 200
+    assert second.json()["records"] == [manifest["entries"][1]]
+    assert second.json()["next_offset"] is None
+
+    unresolved = client.get(
+        url, params={"migration_state": "unresolved"}, headers=auth_headers
+    )
+    assert unresolved.status_code == 200
+    assert unresolved.json()["total_count"] == 1
+    assert unresolved.json()["records"] == [manifest["entries"][1]]
+    assert client.get(url, params={"limit": 201}, headers=auth_headers).status_code == 422
+    assert client.get(
+        "/insight-migration-inventories/legacy/absent/records", headers=auth_headers
+    ).status_code == 404
+
+
 def test_legacy_batch_rejects_changed_hash_and_duplicate_origin(client, auth_headers):
     payload = _manifest()
     bad_hash = {**payload, "manifest_hash": "0" * 64}
