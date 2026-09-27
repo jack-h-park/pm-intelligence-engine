@@ -50,7 +50,10 @@ from app.services.decision_case import build_decision_case
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import resolve_interest
 from app.services.insight_delivery import confirm_delivery, queue_delivery
-from app.services.insight_migration import build_dry_run_inventory
+from app.services.insight_migration import (
+    build_dry_run_inventory,
+    validate_external_legacy_inventory,
+)
 from app.services.insight_search import search_insights
 from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
@@ -246,6 +249,22 @@ class MigrationInventoryAccepted(BaseModel):
     inventory_hash: str
     high_water_candidate_id: str | None
     records: list[dict[str, Any]]
+
+
+class LegacyMigrationInventoryCreate(_Request):
+    manifest_version: int
+    manifest_hash: str
+    snapshot: dict[str, Any]
+    entries: list[dict[str, Any]]
+    generated_at: str | None = None
+
+
+class LegacyMigrationInventoryAccepted(BaseModel):
+    inventory_id: str
+    manifest_hash: str
+    record_count: int
+    unresolved_count: int
+    coverage: str
 
 
 class MigrationImportRequest(_Request):
@@ -613,6 +632,53 @@ async def create_migration_inventory(
     }
     stored = store.save_migration_inventory(inventory_id, inventory.inventory_hash, payload)
     return MigrationInventoryAccepted(**stored)
+
+
+def _legacy_inventory_response(payload: dict[str, Any]) -> LegacyMigrationInventoryAccepted:
+    return LegacyMigrationInventoryAccepted(
+        inventory_id=payload["inventory_id"],
+        manifest_hash=payload["inventory_hash"],
+        record_count=payload["record_count"],
+        unresolved_count=payload["unresolved_count"],
+        coverage=payload["snapshot"]["coverage"],
+    )
+
+
+@router.post(
+    "/insight-migration-inventories/legacy",
+    response_model=LegacyMigrationInventoryAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_legacy_migration_inventory(
+    body: LegacyMigrationInventoryCreate,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyMigrationInventoryAccepted:
+    """Persist an authenticated, inert cross-system snapshot for human review."""
+    try:
+        payload = validate_external_legacy_inventory(body.model_dump(exclude={"generated_at"}))
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    payload["inventory_id"] = str(uuid.uuid4())
+    stored = _store(engine).save_migration_inventory(
+        payload["inventory_id"], payload["inventory_hash"], payload
+    )
+    if stored.get("kind") != "legacy_external":
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="inventory hash has another owner")
+    return _legacy_inventory_response(stored)
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}",
+    response_model=LegacyMigrationInventoryAccepted,
+)
+async def get_legacy_migration_inventory(
+    inventory_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyMigrationInventoryAccepted:
+    stored = _read_store(engine).get_migration_inventory(inventory_id)
+    if stored is None or stored.get("kind") != "legacy_external":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+    return _legacy_inventory_response(stored)
 
 
 @router.get(

@@ -247,6 +247,8 @@ class InsightStore:
         stored = json.loads(inventory.payload_json)
         if not isinstance(stored, dict):
             raise ValueError("stored migration inventory is invalid")
+        if stored.get("kind") == "legacy_external":
+            raise ValueError("legacy external inventory requires a reviewed import path")
         return cast(list[dict[str, Any]], stored.get("records", []))
 
     def import_migration_inventory(
