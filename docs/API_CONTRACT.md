@@ -74,6 +74,7 @@ version bump.
 | `POST` | `/runs/{id}/decision` | **Unified gate decision** (advance/advance_to/revise/stop) | Preferred single entry (US-55) |
 | `GET` | `/runs/{id}/review` | Gate 2 browser review page | Link in Gate 2 notification |
 | `GET` | `/insight-operations/{operation_id}` | Read sanitized S2K operation and reservation status | Investigate ambiguous completion |
+| `POST` | `/insight-budget/search-reservations` | Reserve one primary-source search call before dispatch | Disabled until a separate acquisition allowance is configured |
 | `POST` | `/insight-operations/{operation_id}/reconcile-unknown` | Fence an ambiguous S2K operation with an audit record | Authorized operator reconciliation |
 | `GET` | `/health` | Health and startup source provenance (unauthenticated) | Liveness and revision check |
 
@@ -596,6 +597,27 @@ OAuth/fallback routes is not inferred from token counts: the full reservation
 remains `unknown` and encumbered for review. The sanitized
 `GET /insight-operations/search-expansion:<query-hash>` response exposes its
 state and reservation without disclosing query text or model output.
+
+### `POST /insight-budget/search-reservations`
+
+This authenticated endpoint only reserves budget; it never calls a search provider.
+The body contains `interest_id`, `query_sha256`, `policy_revision`,
+`rate_revision`, `maximum_micros`, and `operation_id`. Compute the last field as
+`s2k-search:` followed by SHA-256 of the UTF-8 string
+`<interest_id>\n<query_sha256>`. Send that exact operation ID as
+`Idempotency-Key`. The Engine sets `provider=tavily`,
+`allowance_class=search_acquisition`, and the current UTC day.
+
+`INTELLIGENCE_SEARCH_ALLOWANCE_MICROS`,
+`INTELLIGENCE_SEARCH_MAXIMUM_MICROS`, and
+`INTELLIGENCE_SEARCH_RATE_REVISION` all default to disabled. A reservation
+requires positive daily and per-call limits, matching rate revision, enabled
+Insight writes, and remaining daily allowance. HTTP 201 means a new reservation;
+HTTP 200 means the same operation was already reserved and **does not authorize
+another provider call**. Changed reservation fields for an existing operation
+return 409. Denial is 409, malformed identity is 422, and unavailable Insight
+writes are 503. Unknown provider cost must remain encumbered at its full
+reservation maximum. No recurring allowance is configured by this API change.
 
 ### `POST /insight-operations/{operation_id}/reconcile-unknown`
 

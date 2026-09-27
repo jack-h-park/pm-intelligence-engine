@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # when both limits are set. Unknown usage encumbers the full reservation.
     INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS: int | None = None
     INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS: int | None = None
+    # Primary-source acquisition has its own UTC-day allowance and per-call
+    # ceiling. All three values must be set before an external search can reserve.
+    INTELLIGENCE_SEARCH_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_SEARCH_MAXIMUM_MICROS: int | None = None
+    INTELLIGENCE_SEARCH_RATE_REVISION: str = ""
     KNOWLEDGE_RUBRIC_PATH: str | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires
