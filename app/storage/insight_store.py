@@ -945,6 +945,52 @@ class InsightStore:
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
 
+    def list_current_insights_page(
+        self,
+        since: datetime | None,
+        after: tuple[datetime, str] | None,
+        limit: int,
+        *,
+        question_id: str | None = None,
+        freshness: str | None = None,
+    ) -> tuple[list[InsightRevision], bool]:
+        """Page current, valid Insights after applying consumer filters."""
+        with self._Session() as session:
+            rows = session.execute(select(IntelligenceInsightRow)).scalars().all()
+            insights = [InsightRevision.model_validate_json(row.payload_json) for row in rows]
+            superseded = {item.supersedes_insight_id for item in insights}
+            prepared_by_id: dict[str, PreparedContext | None] = {}
+            bundle_by_id: dict[str, EvidenceBundle | None] = {}
+            matching: list[InsightRevision] = []
+            for insight in insights:
+                key = (insight.created_at, insight.insight_id)
+                if insight.insight_id in superseded or (since is not None and key[0] <= since):
+                    continue
+                if after is not None and key <= after:
+                    continue
+                if question_id is not None and question_id not in insight.question_ids:
+                    continue
+                if insight.prepared_context_id not in prepared_by_id:
+                    row = session.get(IntelligencePreparedContextRow, insight.prepared_context_id)
+                    prepared_by_id[insight.prepared_context_id] = (
+                        PreparedContext.model_validate_json(row.payload_json) if row else None
+                    )
+                prepared = prepared_by_id[insight.prepared_context_id]
+                if prepared is None or prepared.validation_status != "valid":
+                    continue
+                if freshness is not None:
+                    if prepared.bundle_id not in bundle_by_id:
+                        row = session.get(IntelligenceBundleRow, prepared.bundle_id)
+                        bundle_by_id[prepared.bundle_id] = (
+                            EvidenceBundle.model_validate_json(row.payload_json) if row else None
+                        )
+                    bundle = bundle_by_id[prepared.bundle_id]
+                    if bundle is None or bundle.freshness_status != freshness:
+                        continue
+                matching.append(insight)
+        matching.sort(key=lambda item: (item.created_at, item.insight_id))
+        return matching[:limit], len(matching) > limit
+
     def operational_summary(self) -> dict[str, Any]:
         """Return read-only counts for shadow operations without admitting work."""
         with self._Session() as session:

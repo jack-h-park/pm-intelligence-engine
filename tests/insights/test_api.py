@@ -1036,6 +1036,61 @@ def test_list_insights_cursor_rejects_a_different_since_boundary(
     assert response.json()["detail"] == "cursor since boundary does not match request"
 
 
+def test_insight_list_defaults_to_current_and_filters_before_pagination(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    engine = app.dependency_overrides[get_engine]()
+    store = engine.insight_store
+    old, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+    corrected = store.save_insight({
+        **old.model_dump(mode="json"),
+        "insight_id": "corrected-current-insight",
+        "supersedes_insight_id": old.insight_id,
+        "question_ids": ["android-enterprise-isolation"],
+    })
+    other_content = "A distinct current Insight source."
+    other, _ = _seed_insight_with_evidence(
+        engine,
+        {**candidate_payload, "subject": "Other current Insight"},
+        {**source_payload, "content": other_content,
+         "content_hash": hashlib.sha256(other_content.encode()).hexdigest()},
+        bundle_payload,
+    )
+
+    page = client.get("/insights?limit=1", headers=auth_headers)
+    assert page.status_code == 200
+    next_page = client.get(
+        "/insights", params={"limit": 1, "after": page.json()["next_cursor"]},
+        headers=auth_headers,
+    )
+    assert next_page.status_code == 200
+    assert {item["insight_id"] for item in page.json()["items"] + next_page.json()["items"]} == {
+        corrected.insight_id, other.insight_id
+    }
+    assert client.get(f"/insights/{old.insight_id}", headers=auth_headers).status_code == 200
+
+    filtered = client.get(
+        "/insights", params={"question_id": "android-enterprise-isolation",
+                             "freshness": "unknown"}, headers=auth_headers,
+    )
+    assert filtered.status_code == 200
+    assert [item["insight_id"] for item in filtered.json()["items"]] == [corrected.insight_id]
+    assert client.get(
+        "/insights", params={"freshness": "current"}, headers=auth_headers,
+    ).json()["items"] == []
+    assert client.get(
+        "/insights", params={"question_id": "different"}, headers=auth_headers,
+    ).json()["items"] == []
+
+    changed_filter = client.get(
+        "/insights", params={"after": filtered.json()["next_cursor"],
+                             "freshness": "current"}, headers=auth_headers,
+    )
+    assert changed_filter.status_code == 422
+
+
 def test_authenticated_insight_search_returns_stored_revision(
     client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
 ):
