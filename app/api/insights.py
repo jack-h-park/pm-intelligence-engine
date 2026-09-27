@@ -1355,6 +1355,7 @@ async def _semantic_triage(
     engine: PMEngine,
     *,
     question: str,
+    constraints: list[str] | None = None,
     llm: LLMProvider | None = None,
     llm_factory: Callable[[str], LLMProvider] | None = None,
 ) -> TriageDecision:
@@ -1376,6 +1377,7 @@ async def _semantic_triage(
     try:
         decision = await triage_with_reservation(
             question=question,
+            constraints=constraints,
             title=body.title,
             content=body.content,
             llm=llm if llm is not None else engine.llm,
@@ -1427,6 +1429,7 @@ async def interest_semantic_triage(
         body,
         engine,
         question=resolved.question,
+        constraints=resolved.constraints,
         llm_factory=build_s2k_llm_provider,
     )
 
