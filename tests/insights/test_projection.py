@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.insights import InsightRevision
 from app.services.insight_projection import project_insight, reconcile_projections
 
@@ -41,3 +43,16 @@ def test_reconcile_restores_a_missing_current_projection(tmp_path):
 
     assert written == [output / "insight-projection-2.md"]
     assert written[0].is_file()
+
+
+def test_projection_rejects_an_insight_id_that_escapes_the_derived_directory(tmp_path):
+    insight = InsightRevision(
+        insight_id="../authored", prepared_context_id="prepared", headline="Unsafe",
+        explanation="Explanation.", actual_change="Change.", why_now="Now.",
+        personal_relevance="Relevant.", takeaway="Takeaway.",
+        claims=[{"text": "Claim.", "passage_ids": ["passage"]}],
+        context_revision="fixture-v1",
+    )
+    with pytest.raises(ValueError, match="safe projection filename"):
+        project_insight(insight, tmp_path / "outputs" / "signal-intelligence")
+    assert not (tmp_path / "outputs" / "authored.md").exists()

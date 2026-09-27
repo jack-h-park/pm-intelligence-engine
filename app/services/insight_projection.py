@@ -1,32 +1,44 @@
 """Rebuildable Markdown projection of authoritative insight revisions."""
 
+import logging
 import os
 from pathlib import Path
 
 from app.models.insights import InsightRevision
 from app.storage.insight_store import InsightStore
 
+logger = logging.getLogger(__name__)
 
-def project_insight(insight: InsightRevision, projection_root: str | Path) -> Path:
-    """Atomically replace only this revision's derived Markdown file."""
-    root = Path(projection_root)
-    root.mkdir(parents=True, exist_ok=True)
-    destination = root / f"{insight.insight_id}.md"
-    temp = root / f".{insight.insight_id}.tmp"
+
+def _projection_text(insight: InsightRevision) -> str:
     claims = "\n".join(
         f"- {claim.text} ({', '.join(claim.passage_ids)})" for claim in insight.claims
     )
     uncertainties = "\n".join(f"- {item}" for item in insight.uncertainties) or "- None recorded."
-    temp.write_text(
+    return (
         f"# {insight.headline}\n\n"
         f"## Actual change\n\n{insight.actual_change}\n\n"
         f"## Takeaway\n\n{insight.takeaway}\n\n"
         f"## Explanation\n\n{insight.explanation}\n\n"
         f"## Why now\n\n{insight.why_now}\n\n"
         f"## Claims\n\n{claims}\n\n"
-        f"## Uncertainties\n\n{uncertainties}\n",
-        encoding="utf-8",
+        f"## Uncertainties\n\n{uncertainties}\n"
     )
+
+
+def _projection_path(root: Path, insight_id: str) -> Path:
+    if not insight_id or Path(insight_id).name != insight_id or "\\" in insight_id:
+        raise ValueError("Insight ID is not a safe projection filename")
+    return root / f"{insight_id}.md"
+
+
+def project_insight(insight: InsightRevision, projection_root: str | Path) -> Path:
+    """Atomically replace only this revision's derived Markdown file."""
+    root = Path(projection_root)
+    destination = _projection_path(root, insight.insight_id)
+    root.mkdir(parents=True, exist_ok=True)
+    temp = root / f".{insight.insight_id}.tmp"
+    temp.write_text(_projection_text(insight), encoding="utf-8")
     os.replace(temp, destination)
     return destination
 
@@ -39,5 +51,30 @@ def reconcile_projections(
 
 
 def reconcile_store_projections(store: InsightStore, projection_root: str | Path) -> list[Path]:
-    """Rebuild the derived current view from the store without reading wiki content."""
-    return reconcile_projections(store.list_current_insights(), projection_root)
+    """Rebuild current files and retire only unchanged superseded projections."""
+    all_insights = store.list_insights()
+    superseded_ids = {insight.supersedes_insight_id for insight in all_insights}
+    current = [insight for insight in all_insights if insight.insight_id not in superseded_ids]
+    written = reconcile_projections(current, projection_root)
+    root = Path(projection_root)
+    for old in all_insights:
+        if old.insight_id not in superseded_ids:
+            continue
+        path = _projection_path(root, old.insight_id)
+        if path.is_symlink():
+            logger.warning("Skipping symlinked superseded Insight projection %s", old.insight_id)
+            continue
+        if not path.is_file():
+            continue
+        try:
+            if path.read_text(encoding="utf-8") == _projection_text(old):
+                path.unlink()
+            else:
+                logger.warning(
+                    "Preserving modified superseded Insight projection %s", old.insight_id
+                )
+        except OSError:
+            # A modified or inaccessible file is not proven to be our projection.
+            logger.warning("Could not retire superseded Insight projection %s", old.insight_id)
+            continue
+    return written
