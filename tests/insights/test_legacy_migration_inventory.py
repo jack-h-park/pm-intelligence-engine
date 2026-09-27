@@ -136,6 +136,18 @@ def test_legacy_batch_is_authenticated_idempotent_and_not_importable(client, aut
     assert fetched.status_code == 200
     assert fetched.json() == body
 
+    overlay = client.get(
+        f"/insight-migration-inventories/{body['inventory_id']}/overlay", headers=auth_headers
+    )
+    assert overlay.status_code == 200
+    assert overlay.json() == {
+        "inventory_id": body["inventory_id"],
+        "inventory_hash": body["manifest_hash"],
+        "inventory_kind": "legacy_external",
+        "overlay_present": False,
+        "enabled": False,
+    }
+
     rejected_import = client.post(
         f"/insight-migration-inventories/{body['inventory_id']}/import",
         json={"inventory_hash": payload["manifest_hash"], "batch_size": 100},
@@ -313,6 +325,7 @@ def test_legacy_plan_api_requires_auth_and_import_flag(client, auth_headers, mon
     assert client.get(base + "/plans/" + plan["plan_id"], headers=auth_headers).json() == plan
     generic = f"/insight-migration-inventories/{plan['plan_id']}"
     assert client.get(generic, headers=auth_headers).status_code == 404
+    assert client.get(generic + "/overlay", headers=auth_headers).status_code == 404
     assert client.post(
         generic + "/import",
         json={"inventory_hash": plan["plan_hash"], "batch_size": 100},

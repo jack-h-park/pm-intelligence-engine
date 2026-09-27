@@ -393,6 +393,14 @@ class MigrationOverlayAccepted(BaseModel):
     enabled: bool
 
 
+class MigrationOverlayStatus(BaseModel):
+    inventory_id: str
+    inventory_hash: str
+    inventory_kind: Literal["insight", "legacy_external"]
+    overlay_present: bool
+    enabled: bool
+
+
 class SemanticTriageRequest(_Request):
     question: str = Field(min_length=1)
     title: str = Field(min_length=1)
@@ -998,6 +1006,31 @@ async def import_migration_inventory(
         inventory_id=inventory_id,
         imported_count=int(result["imported_count"]),
         complete=bool(result["complete"]),
+    )
+
+
+@router.get(
+    "/insight-migration-inventories/{inventory_id}/overlay",
+    response_model=MigrationOverlayStatus,
+)
+async def get_migration_overlay(
+    inventory_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> MigrationOverlayStatus:
+    """Read the exact overlay state, including an absent row, for cutover checks."""
+    store = _read_store(engine)
+    inventory = store.get_migration_inventory(inventory_id)
+    if inventory is None or inventory.get("kind") not in (None, "legacy_external"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Migration inventory not found"
+        )
+    overlay = store.get_migration_overlay(inventory_id)
+    return MigrationOverlayStatus(
+        inventory_id=inventory_id,
+        inventory_hash=inventory["inventory_hash"],
+        inventory_kind="insight" if inventory.get("kind") is None else "legacy_external",
+        overlay_present=overlay is not None,
+        enabled=overlay["enabled"] if overlay is not None else False,
     )
 
 

@@ -598,6 +598,57 @@ def test_migration_overlay_requires_release_flag(
     assert disabled.json() == {"inventory_id": inventory["inventory_id"], "enabled": False}
 
 
+def test_migration_overlay_status_is_authenticated_and_distinguishes_absent_from_disabled(
+    client, auth_headers, candidate_payload, monkeypatch
+):
+    from config import settings
+
+    missing = client.get(
+        "/insight-migration-inventories/missing/overlay", headers=auth_headers
+    )
+    assert missing.status_code == 404
+    client.post(
+        "/insight-candidates",
+        json=candidate_payload,
+        headers={**auth_headers, "Idempotency-Key": "overlay-status-candidate"},
+    )
+    inventory = client.post("/insight-migration-inventories", headers=auth_headers).json()
+    path = f"/insight-migration-inventories/{inventory['inventory_id']}/overlay"
+    assert client.get(path).status_code == 401
+    expected = {
+        "inventory_id": inventory["inventory_id"],
+        "inventory_hash": inventory["inventory_hash"],
+        "inventory_kind": "insight",
+        "overlay_present": False,
+        "enabled": False,
+    }
+    assert client.get(path, headers=auth_headers).json() == expected
+
+    client.post(
+        f"/insight-migration-inventories/{inventory['inventory_id']}/import",
+        json={"inventory_hash": inventory["inventory_hash"]},
+        headers=auth_headers,
+    )
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", True)
+    assert client.post(
+        path,
+        json={"inventory_hash": inventory["inventory_hash"], "enabled": True},
+        headers=auth_headers,
+    ).status_code == 200
+    assert client.get(path, headers=auth_headers).json() == {
+        **expected, "overlay_present": True, "enabled": True,
+    }
+    monkeypatch.setattr(settings, "INSIGHT_MIGRATION_ACTIVATION_ENABLED", False)
+    assert client.post(
+        path,
+        json={"inventory_hash": inventory["inventory_hash"], "enabled": False},
+        headers=auth_headers,
+    ).status_code == 200
+    assert client.get(path, headers=auth_headers).json() == {
+        **expected, "overlay_present": True,
+    }
+
+
 def test_intake_routes_require_bearer_authentication(client, candidate_payload):
     response = client.post(
         "/insight-candidates",
