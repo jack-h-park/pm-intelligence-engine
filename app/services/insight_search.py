@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import re
 import unicodedata
 from collections.abc import Callable
 from typing import Any
@@ -15,6 +16,15 @@ from app.services.insight_budget import BudgetService
 from app.storage.insight_store import InsightStore
 
 SEARCH_EXPANSION_REVISION = "translation-v1"
+
+
+def _search_words(text: str) -> set[str]:
+    """Normalize word boundaries for an inexpensive, evidence-bound lexical match."""
+    words = re.findall(r"[^\W_]+", unicodedata.normalize("NFKC", text).casefold())
+    return {
+        word[:-1] if len(word) > 4 and word.isascii() and word.endswith("s") else word
+        for word in words
+    }
 
 
 class QueryExpansion(BaseModel):
@@ -111,7 +121,10 @@ def search_insights(
 ) -> list[InsightRevision]:
     """Return only revisions whose stored text supports the query or expansion."""
     terms = [query, *(expand(query) if expand else [])]
-    normalized = [term.casefold().strip() for term in terms if term.strip()]
+    normalized = [
+        unicodedata.normalize("NFKC", term).casefold().strip() for term in terms if term.strip()
+    ]
+    query_terms = [(term, _search_words(term)) for term in normalized]
     matches: list[InsightRevision] = []
     for insight in store.list_current_insights():
         corpus = "\n".join(
@@ -125,7 +138,13 @@ def search_insights(
                 *insight.question_ids,
                 *(claim.text for claim in insight.claims),
             ]
-        ).casefold()
-        if any(term in corpus for term in normalized):
+        )
+        normalized_corpus = unicodedata.normalize("NFKC", corpus).casefold()
+        corpus_words = _search_words(corpus)
+        if any(
+            term in normalized_corpus
+            or (len(query_words) > 1 and query_words <= corpus_words)
+            for term, query_words in query_terms
+        ):
             matches.append(insight)
     return matches

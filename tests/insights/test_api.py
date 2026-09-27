@@ -1377,6 +1377,33 @@ def test_authenticated_insight_search_returns_stored_revision(
     }
 
 
+def test_english_multiword_search_uses_stored_text_without_expansion(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    from config import settings
+
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+
+    def fail_if_called(_):
+        raise AssertionError("supported lexical search must not call a model")
+
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", fail_if_called)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates-v1")
+
+    response = client.get("/insights/search?q=Android added control", headers=auth_headers)
+
+    assert response.status_code == 200
+    assert [item["insight_id"] for item in response.json()["items"]] == [insight.insight_id]
+    assert client.get("/insight-operations", headers=auth_headers).json()["cost_micros"] == {
+        "reserved": 0, "finalized": 0, "unknown": 0,
+    }
+
+
 def test_korean_search_expands_once_under_a_separate_budget(
     client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
 ):
