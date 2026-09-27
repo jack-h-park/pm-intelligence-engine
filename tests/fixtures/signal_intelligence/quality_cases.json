@@ -1,0 +1,438 @@
+{
+  "schema_version": 1,
+  "purpose": "semantic acceptance scenarios; not a historical or production quality baseline",
+  "cases": [
+    {
+      "case_id": "practical-learning",
+      "category": "practical_learning",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "07fc6a6ae7152922acdbd14e22aa7b29beb69d786d87c2f31156d967e9844451",
+        "text": "A mobile policy now requires a managed profile for corporate applications. The announcement does not state how many devices have received the policy.",
+        "passages": [
+          {
+            "passage_id": "practical-learning:0",
+            "text": "A mobile policy now requires a managed profile for corporate applications. The announcement does not state how many devices have received the policy."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The stated policy requires a managed profile.",
+            "passage_ids": [
+              "practical-learning:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Deployment coverage is not stated."
+        ],
+        "usefulness": "Identify the policy change and verify rollout before recommending enforcement."
+      }
+    },
+    {
+      "case_id": "commercial-judgment",
+      "category": "commercial_judgment",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "94583a632879aa14fe32c728c93879d5332b2034cbd61af13b3e312f38800d2c",
+        "text": "A vendor reported a quarterly average of 50,000 active users for its enterprise assistant. It did not report a launch-day count, retained users, or paid conversions.",
+        "passages": [
+          {
+            "passage_id": "commercial-judgment:0",
+            "text": "A vendor reported a quarterly average of 50,000 active users for its enterprise assistant. It did not report a launch-day count, retained users, or paid conversions."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The disclosed metric is a quarterly average of active users.",
+            "passage_ids": [
+              "commercial-judgment:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Launch-day adoption and paid conversion are unknown."
+        ],
+        "usefulness": "Separate adoption signals from commercial proof without inventing a launch spike."
+      }
+    },
+    {
+      "case_id": "platform-mechanism",
+      "category": "platform_mechanism",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "dde1de5a88a84ede48e968993f1ff265667ac828c80fa33bf40f35e7578b069b",
+        "text": "A security library exposes installed, published, and available patch levels per Android component. Available patch information depends on an update client that implements the provider interface.",
+        "passages": [
+          {
+            "passage_id": "platform-mechanism:0",
+            "text": "A security library exposes installed, published, and available patch levels per Android component. Available patch information depends on an update client that implements the provider interface."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The library exposes three component-level patch states.",
+            "passage_ids": [
+              "platform-mechanism:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Provider adoption across OEM fleets is unknown."
+        ],
+        "usefulness": "Ask whether device controls distinguish installed fixes from merely available updates."
+      }
+    },
+    {
+      "case_id": "strong-historical-output",
+      "category": "strong_historical_output",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "e8df6b085b7cfff1bbce7358129bbf5c9c93094e459acbf9ae9e9d45f021f9c4",
+        "text": "A prior analysis accurately separated local orchestration from remote model inference and cited the tool permission boundary. The new source repeats those same design facts without a new capability.",
+        "passages": [
+          {
+            "passage_id": "strong-historical-output:0",
+            "text": "A prior analysis accurately separated local orchestration from remote model inference and cited the tool permission boundary. The new source repeats those same design facts without a new capability."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "no_new_learning",
+        "facts": [
+          {
+            "text": "The previous analysis already captured the architecture and boundary.",
+            "passage_ids": [
+              "strong-historical-output:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "No new deployment evidence is supplied."
+        ],
+        "usefulness": "Retain the strong earlier explanation and avoid a redundant new insight."
+      }
+    },
+    {
+      "case_id": "weak-historical-output",
+      "category": "weak_historical_output",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "2378b3d05563fbfd68470c031f6d03c3673601a32608d1300caf88150cb520e6",
+        "text": "An earlier brief described a mobile agent as relevant to a product but did not explain its execution boundary.\n\nThe newly retrieved architecture section says orchestration stays on device while inference calls a remote API.",
+        "passages": [
+          {
+            "passage_id": "weak-historical-output:0",
+            "text": "An earlier brief described a mobile agent as relevant to a product but did not explain its execution boundary."
+          },
+          {
+            "passage_id": "weak-historical-output:1",
+            "text": "The newly retrieved architecture section says orchestration stays on device while inference calls a remote API."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "Local orchestration and remote inference are separate architecture choices.",
+            "passage_ids": [
+              "weak-historical-output:1"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Production security properties are not verified."
+        ],
+        "usefulness": "Extract the newly supported mechanism without inventing product impact."
+      }
+    },
+    {
+      "case_id": "late-body-evidence",
+      "category": "late_body_evidence",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "d14fa64f267af0d340b59e842dcfab50888b52ca4652571c84eb0a1ad33be5ad",
+        "text": "The opening summary calls the system an on-device agent.\n\nA later architecture section says planning invokes a remote model API and device actions pass a local permission check.",
+        "passages": [
+          {
+            "passage_id": "late-body-evidence:0",
+            "text": "The opening summary calls the system an on-device agent."
+          },
+          {
+            "passage_id": "late-body-evidence:1",
+            "text": "A later architecture section says planning invokes a remote model API and device actions pass a local permission check."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The later section identifies remote inference and a local action check.",
+            "passage_ids": [
+              "late-body-evidence:1"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Offline operation is not established."
+        ],
+        "usefulness": "Read past the abstract and distinguish where reasoning and actions execute."
+      }
+    },
+    {
+      "case_id": "thin-source",
+      "category": "thin_source",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "9d7548cc25840aa90692a77eaf28646cf313d914fa3b6d4723425dcfd3446af3",
+        "text": "A headline claims that a new mobile security control has launched. No body, release note, affected versions, or technical description is available.",
+        "passages": [
+          {
+            "passage_id": "thin-source:0",
+            "text": "A headline claims that a new mobile security control has launched. No body, release note, affected versions, or technical description is available."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "needs_evidence",
+        "facts": [
+          {
+            "text": "Only a launch claim appears in the headline.",
+            "passage_ids": [
+              "thin-source:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "The control mechanism and availability are unknown."
+        ],
+        "usefulness": "Keep the candidate for research rather than publishing a technical takeaway."
+      }
+    },
+    {
+      "case_id": "old-useful-background",
+      "category": "old_useful_background",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "141d3c830677c889b882fac46d43f4a4f003d53d19474332beef8489cd424a6e",
+        "text": "A 2023 platform guide explains that managed profiles separate work and personal app data. It is background architecture, not evidence of a 2026 product release.",
+        "passages": [
+          {
+            "passage_id": "old-useful-background:0",
+            "text": "A 2023 platform guide explains that managed profiles separate work and personal app data. It is background architecture, not evidence of a 2026 product release."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The guide describes the managed-profile data boundary.",
+            "passage_ids": [
+              "old-useful-background:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Current deployment and later changes are not established by this old guide."
+        ],
+        "usefulness": "Use the architectural distinction as background while labeling its age."
+      }
+    },
+    {
+      "case_id": "superseded-release",
+      "category": "superseded_release",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "fa425d83e39f12c5fcf31e15041ef706a9b61e64893ddabb0bd73b48e072c12c",
+        "text": "A 2024 release note introduced an API limit of 100 requests per minute. A dated 2026 release note explicitly replaces that limit with 500 requests per minute.",
+        "passages": [
+          {
+            "passage_id": "superseded-release:0",
+            "text": "A 2024 release note introduced an API limit of 100 requests per minute. A dated 2026 release note explicitly replaces that limit with 500 requests per minute."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "no_new_learning",
+        "facts": [
+          {
+            "text": "The 2024 limit was superseded by the 2026 release.",
+            "passage_ids": [
+              "superseded-release:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Current tenant-specific quotas are not stated."
+        ],
+        "usefulness": "Do not present the obsolete limit as a current change."
+      }
+    },
+    {
+      "case_id": "repeat-with-delta",
+      "category": "repeat_with_delta",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "5a6b87bfc18758a9772dd5b2cfd93d2d261076f9c64320a5e0649864910dea1d",
+        "text": "The first report announced a device policy with no deployment data.\n\nA later report adds a measured 80 percent rollout in the named pilot fleet, with the remaining devices pending.",
+        "passages": [
+          {
+            "passage_id": "repeat-with-delta:0",
+            "text": "The first report announced a device policy with no deployment data."
+          },
+          {
+            "passage_id": "repeat-with-delta:1",
+            "text": "A later report adds a measured 80 percent rollout in the named pilot fleet, with the remaining devices pending."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "The later report adds pilot-fleet rollout evidence.",
+            "passage_ids": [
+              "repeat-with-delta:1"
+            ]
+          }
+        ],
+        "unknowns": [
+          "Coverage outside the pilot fleet is unknown."
+        ],
+        "usefulness": "Preserve the original announcement and explain the new deployment evidence."
+      }
+    },
+    {
+      "case_id": "repeat-without-delta",
+      "category": "repeat_without_delta",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "fb4f0c2922e8b167b2d75cb037412a8757ed2610d0e6c7d007b2fb5b64973ce2",
+        "text": "A follow-up post repeats the same device-policy announcement, publication date, and pilot number. It supplies no changed scope, mechanism, or measurement.",
+        "passages": [
+          {
+            "passage_id": "repeat-without-delta:0",
+            "text": "A follow-up post repeats the same device-policy announcement, publication date, and pilot number. It supplies no changed scope, mechanism, or measurement."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "no_new_learning",
+        "facts": [
+          {
+            "text": "The follow-up repeats the earlier facts.",
+            "passage_ids": [
+              "repeat-without-delta:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "No later rollout measurement is available."
+        ],
+        "usefulness": "Deduplicate the post instead of creating another Insight."
+      }
+    },
+    {
+      "case_id": "no-agent-handoff",
+      "category": "no_agent_handoff",
+      "source": {
+        "provenance": "synthetic_acceptance_fixture",
+        "version": "quality-fixture-v1",
+        "sha256": "84ec7c096620da39fbc469eb7331dedcd342db939f52dcd6e849e9916c7357bf",
+        "text": "A source explains that a project may keep orchestration local while calling a remote model. It names no product request, publication need, study assignment, or authorized agent task.",
+        "passages": [
+          {
+            "passage_id": "no-agent-handoff:0",
+            "text": "A source explains that a project may keep orchestration local while calling a remote model. It names no product request, publication need, study assignment, or authorized agent task."
+          }
+        ]
+      },
+      "historical": {
+        "status": "not_preserved",
+        "reason": "No exact historical source and output pair is frozen for this synthetic scenario."
+      },
+      "expected": {
+        "disposition": "ready",
+        "facts": [
+          {
+            "text": "Local orchestration does not imply local inference.",
+            "passage_ids": [
+              "no-agent-handoff:0"
+            ]
+          }
+        ],
+        "unknowns": [
+          "No product decision or agent deliverable is specified."
+        ],
+        "usefulness": "Retain the learning without assigning work to an agent."
+      }
+    }
+  ]
+}
