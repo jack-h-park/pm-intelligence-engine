@@ -2214,6 +2214,13 @@ class InsightStore:
     def reserve_budget(
         self, payload: dict[str, Any], allowance_micros: int
     ) -> BudgetReservation | None:
+        reservation, _ = self.reserve_budget_with_status(payload, allowance_micros)
+        return reservation
+
+    def reserve_budget_with_status(
+        self, payload: dict[str, Any], allowance_micros: int
+    ) -> tuple[BudgetReservation | None, bool]:
+        """Return the reservation and whether this transaction created it."""
         reservation = BudgetReservation.model_validate(payload)
         # SQLite's deferred transactions allow two workers to read the same
         # remaining allowance before either writes. Acquire the write lock
@@ -2230,7 +2237,7 @@ class InsightStore:
                 ).scalar_one_or_none()
                 if existing is not None:
                     connection.commit()
-                    return BudgetReservation.model_validate_json(existing.payload_json)
+                    return BudgetReservation.model_validate_json(existing.payload_json), False
                 prior = [
                     BudgetReservation.model_validate_json(row.payload_json)
                     for row in session.execute(
@@ -2249,7 +2256,7 @@ class InsightStore:
                 )
                 if reserved + reservation.maximum_micros > allowance_micros:
                     connection.commit()
-                    return None
+                    return None, False
                 session.add(
                     IntelligenceBudgetReservationRow(
                         reservation_id=reservation.reservation_id,
@@ -2262,7 +2269,7 @@ class InsightStore:
                 )
                 session.flush()
                 connection.commit()
-                return reservation
+                return reservation, True
             except Exception:
                 connection.rollback()
                 raise

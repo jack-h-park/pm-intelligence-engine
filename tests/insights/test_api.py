@@ -1025,6 +1025,62 @@ def test_budget_denial_never_creates_a_paid_reservation(client, auth_headers):
     assert response.json()["detail"] == "budget_denied"
 
 
+def test_primary_search_reservation_is_default_off_and_one_call_only(
+    client, auth_headers, monkeypatch,
+):
+    from config import settings
+
+    query_hash = hashlib.sha256(b"official change log").hexdigest()
+    interest = "learning-loop"
+    operation_id = "s2k-search:" + hashlib.sha256(
+        f"{interest}\n{query_hash}".encode()
+    ).hexdigest()
+    payload = {
+        "operation_id": operation_id,
+        "interest_id": interest,
+        "query_sha256": query_hash,
+        "policy_revision": "fixture-search-v1",
+        "rate_revision": "fixture-search-rates-v1",
+        "maximum_micros": 100,
+    }
+    headers = {**auth_headers, "Idempotency-Key": operation_id}
+    path = "/insight-budget/search-reservations"
+
+    denied = client.post(path, json=payload, headers=headers)
+    assert denied.status_code == 409
+    assert denied.json()["detail"] == "budget_denied"
+
+    monkeypatch.setattr(settings, "INTELLIGENCE_SEARCH_ALLOWANCE_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_SEARCH_MAXIMUM_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_SEARCH_RATE_REVISION", "fixture-search-rates-v1")
+    created = client.post(path, json=payload, headers=headers)
+    repeated = client.post(path, json=payload, headers=headers)
+    assert created.status_code == 201
+    assert repeated.status_code == 200
+    assert repeated.json()["reservation_id"] == created.json()["reservation_id"]
+    assert created.json()["allowance_class"] == "search_acquisition"
+    assert created.json()["budget_window"] is not None
+
+    changed = client.post(path, json={**payload, "maximum_micros": 99}, headers=headers)
+    assert changed.status_code == 409
+    assert changed.json()["detail"] == "operation_id_conflict"
+
+    another_query = hashlib.sha256(b"another official change log").hexdigest()
+    another_id = "s2k-search:" + hashlib.sha256(
+        f"{interest}\n{another_query}".encode()
+    ).hexdigest()
+    over_daily = client.post(path, json={
+        **payload, "query_sha256": another_query, "operation_id": another_id,
+    }, headers={**auth_headers, "Idempotency-Key": another_id})
+    assert over_daily.status_code == 409
+    assert over_daily.json()["detail"] == "budget_denied"
+
+    mismatched_key = client.post(path, json=payload, headers={
+        **auth_headers, "Idempotency-Key": "different",
+    })
+    assert mismatched_key.status_code == 422
+
+
 def test_insight_evidence_response_shape_includes_stored_context_and_excludes_uncited_passages(
     client, auth_headers, candidate_payload, source_payload, bundle_payload
 ):
