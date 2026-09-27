@@ -267,6 +267,16 @@ class LegacyMigrationInventoryAccepted(BaseModel):
     coverage: str
 
 
+class LegacyMigrationInventoryRecords(BaseModel):
+    inventory_id: str
+    manifest_hash: str
+    record_count: int
+    unresolved_count: int
+    total_count: int
+    records: list[dict[str, Any]]
+    next_offset: int | None
+
+
 class MigrationImportRequest(_Request):
     inventory_hash: str = Field(min_length=64, max_length=64)
     batch_size: int = Field(default=100, ge=1, le=100)
@@ -679,6 +689,40 @@ async def get_legacy_migration_inventory(
     if stored is None or stored.get("kind") != "legacy_external":
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
     return _legacy_inventory_response(stored)
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}/records",
+    response_model=LegacyMigrationInventoryRecords,
+)
+async def list_legacy_migration_inventory_records(
+    inventory_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    classification: str | None = Query(default=None, min_length=1),
+    migration_state: str | None = Query(default=None, min_length=1),
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyMigrationInventoryRecords:
+    """Page through every private historical record without activating an overlay."""
+    stored = _read_store(engine).get_migration_inventory(inventory_id)
+    if stored is None or stored.get("kind") != "legacy_external":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+    records = stored["records"]
+    if classification is not None:
+        records = [item for item in records if item["classification"] == classification]
+    if migration_state is not None:
+        records = [item for item in records if item["migration_state"] == migration_state]
+    page = records[offset:offset + limit]
+    next_offset = offset + len(page) if offset + len(page) < len(records) else None
+    return LegacyMigrationInventoryRecords(
+        inventory_id=inventory_id,
+        manifest_hash=stored["inventory_hash"],
+        record_count=stored["record_count"],
+        unresolved_count=stored["unresolved_count"],
+        total_count=len(records),
+        records=page,
+        next_offset=next_offset,
+    )
 
 
 @router.get(
