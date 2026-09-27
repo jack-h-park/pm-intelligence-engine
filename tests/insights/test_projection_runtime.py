@@ -1,3 +1,6 @@
+import hashlib
+import json
+
 from app.models.insights import InsightRevision
 from app.services.insight_projection import project_insight, reconcile_store_projections
 
@@ -22,6 +25,15 @@ def test_runtime_reconcile_uses_only_current_authoritative_insights(tmp_path):
     paths = reconcile_store_projections(Store(), tmp_path / "outputs" / "signal-intelligence")
 
     assert paths == [tmp_path / "outputs" / "signal-intelligence" / "runtime-insight.md"]
+    manifest = json.loads((paths[0].parent / ".projection-manifest.json").read_text())
+    assert manifest == {
+        "schema_version": 1,
+        "entries": [{
+            "insight_id": "runtime-insight",
+            "revision": 1,
+            "sha256": hashlib.sha256(paths[0].read_bytes()).hexdigest(),
+        }],
+    }
 
 
 def test_runtime_reconcile_retires_only_unchanged_superseded_projection(tmp_path):
@@ -54,6 +66,8 @@ def test_runtime_reconcile_retires_only_unchanged_superseded_projection(tmp_path
     assert paths[0].is_file()
     assert not generated_old.exists()
     assert authored.read_text(encoding="utf-8") == "Keep this authored file."
+    manifest = json.loads((root / ".projection-manifest.json").read_text())
+    assert [entry["insight_id"] for entry in manifest["entries"]] == ["current-insight"]
 
 
 def test_runtime_reconcile_preserves_modified_superseded_projection(tmp_path):
