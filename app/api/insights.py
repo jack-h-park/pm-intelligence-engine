@@ -239,6 +239,7 @@ class InsightLineage(BaseModel):
 
 class NoveltyLookup(_Request):
     content_hashes: list[str] = Field(min_length=1, max_length=20)
+    interest_id: str | None = Field(default=None, min_length=1)
 
     @field_validator("content_hashes")
     @classmethod
@@ -1346,7 +1347,9 @@ async def novelty_lookup(
             detail="Insight storage is unavailable",
         )
     return NoveltyLookupResult(
-        known_content_hashes=engine.insight_store.known_source_hashes(body.content_hashes)
+        known_content_hashes=engine.insight_store.known_source_hashes(
+            body.content_hashes, interest_id=body.interest_id
+        )
     )
 
 
