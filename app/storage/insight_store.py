@@ -945,6 +945,27 @@ class InsightStore:
         superseded = {insight.supersedes_insight_id for insight in insights}
         return [insight for insight in insights if insight.insight_id not in superseded]
 
+    def insight_lineage(self, insight_id: str) -> tuple[bool, list[str]] | None:
+        """Resolve all current descendants of one immutable Insight record."""
+        insights = self.list_insights()
+        if insight_id not in {insight.insight_id for insight in insights}:
+            return None
+        children: dict[str, list[str]] = {}
+        for insight in insights:
+            if insight.supersedes_insight_id is not None:
+                children.setdefault(insight.supersedes_insight_id, []).append(insight.insight_id)
+        if insight_id not in children:
+            return True, [insight_id]
+        descendants: set[str] = set()
+        pending = list(children[insight_id])
+        while pending:
+            current = pending.pop()
+            if current in descendants:
+                continue
+            descendants.add(current)
+            pending.extend(children.get(current, []))
+        return False, sorted(item for item in descendants if item not in children)
+
     def list_current_insights_page(
         self,
         since: datetime | None,
@@ -971,18 +992,22 @@ class InsightStore:
                 if question_id is not None and question_id not in insight.question_ids:
                     continue
                 if insight.prepared_context_id not in prepared_by_id:
-                    row = session.get(IntelligencePreparedContextRow, insight.prepared_context_id)
+                    prepared_row = session.get(
+                        IntelligencePreparedContextRow, insight.prepared_context_id
+                    )
                     prepared_by_id[insight.prepared_context_id] = (
-                        PreparedContext.model_validate_json(row.payload_json) if row else None
+                        PreparedContext.model_validate_json(prepared_row.payload_json)
+                        if prepared_row else None
                     )
                 prepared = prepared_by_id[insight.prepared_context_id]
                 if prepared is None or prepared.validation_status != "valid":
                     continue
                 if freshness is not None:
                     if prepared.bundle_id not in bundle_by_id:
-                        row = session.get(IntelligenceBundleRow, prepared.bundle_id)
+                        bundle_row = session.get(IntelligenceBundleRow, prepared.bundle_id)
                         bundle_by_id[prepared.bundle_id] = (
-                            EvidenceBundle.model_validate_json(row.payload_json) if row else None
+                            EvidenceBundle.model_validate_json(bundle_row.payload_json)
+                            if bundle_row else None
                         )
                     bundle = bundle_by_id[prepared.bundle_id]
                     if bundle is None or bundle.freshness_status != freshness:
