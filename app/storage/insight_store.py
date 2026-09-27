@@ -459,6 +459,270 @@ class InsightStore:
             overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
             return {"enabled": overlay.enabled} if overlay is not None else None
 
+    @staticmethod
+    def _legacy_overlay_event_prefix(inventory_id: str) -> str:
+        return "legacy-overlay-event:" + hashlib.sha256(inventory_id.encode()).hexdigest() + ":"
+
+    def _legacy_overlay_status(self, session: Session, inventory_id: str) -> dict[str, Any]:
+        prefix = self._legacy_overlay_event_prefix(inventory_id)
+        rows = session.scalars(
+            select(IntelligenceMigrationInventoryRow).where(
+                IntelligenceMigrationInventoryRow.inventory_id.like(prefix + "%")
+            )
+        ).all()
+        events = sorted(
+            ((json.loads(row.payload_json), row.inventory_hash, row.inventory_id) for row in rows),
+            key=lambda pair: pair[0]["revision"],
+        )
+        for revision, (event, stored_hash, event_id) in enumerate(events, start=1):
+            canonical = json.dumps(event, sort_keys=True, separators=(",", ":")).encode()
+            if event_id != prefix + str(revision) or (
+                event.get("kind") != "legacy_overlay_event"
+            ) or (
+                event.get("inventory_id") != inventory_id
+            ) or event.get("revision") != revision or (
+                event.get("prior_revision") != revision - 1
+            ) or hashlib.sha256(canonical).hexdigest() != stored_hash:
+                raise ValueError("external overlay audit history is invalid")
+        latest = events[-1][0] if events else None
+        overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
+        if latest is None:
+            if overlay is not None:
+                raise ValueError("external overlay has an unaudited state")
+            return {
+                "enabled": False, "revision": 0, "plan_id": None,
+                "plan_hash": None, "suppressed_count": 0,
+            }
+        if overlay is None or overlay.enabled != latest["enabled"]:
+            raise ValueError("external overlay event and current state disagree")
+        return {key: latest[key] for key in (
+            "enabled", "revision", "plan_id", "plan_hash", "suppressed_count"
+        )}
+
+    def get_legacy_migration_overlay_status(
+        self, inventory_id: str, manifest_hash: str
+    ) -> dict[str, Any]:
+        """Read an external inventory's release state without changing any origin."""
+        with self._Session() as session:
+            row = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+            if row is None:
+                raise MissingInsightRecord("legacy inventory was not found")
+            inventory = json.loads(row.payload_json)
+            if inventory.get("kind") != "legacy_external" or row.inventory_hash != manifest_hash:
+                raise ValueError("legacy inventory hash or kind changed")
+            return self._legacy_overlay_status(session, inventory_id)
+
+    def list_legacy_overlay_suppressed(
+        self, inventory_id: str, manifest_hash: str
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        """Return only the currently active, explicitly reviewed sensing suppressions."""
+        with self._Session() as session:
+            inventory_row = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+            if inventory_row is None:
+                raise MissingInsightRecord("legacy inventory was not found")
+            inventory = json.loads(inventory_row.payload_json)
+            if inventory.get("kind") != "legacy_external" or (
+                inventory_row.inventory_hash != manifest_hash
+            ):
+                raise ValueError("legacy inventory hash or kind changed")
+            state = self._legacy_overlay_status(session, inventory_id)
+            if not state["enabled"]:
+                return state, []
+            aliases = [json.loads(row.payload_json) for row in session.scalars(
+                select(IntelligenceMigrationAliasRow).where(
+                    IntelligenceMigrationAliasRow.inventory_id == inventory_id
+                )
+            ).all()]
+            selected = sorted(
+                (
+                    {
+                        key: alias[key] for key in (
+                            "original_system", "original_type", "original_id", "source_hash",
+                            "source_url", "replacement_insight_id",
+                        )
+                    }
+                    for alias in aliases if alias.get("plan_hash") == state["plan_hash"]
+                    and alias.get("suppress_legacy_reminder") is True
+                ),
+                key=lambda item: (
+                    item["original_system"], item["original_type"], item["original_id"]
+                ),
+            )
+            if len(selected) != state["suppressed_count"]:
+                raise ValueError("external overlay suppression count drifted")
+            return state, selected
+
+    @staticmethod
+    def _replacement_is_current_and_linked(session: Session, alias: dict[str, Any]) -> bool:
+        replacement_id = alias.get("replacement_insight_id")
+        source_url = alias.get("source_url")
+        if not isinstance(replacement_id, str) or not isinstance(source_url, str):
+            return False
+        row = session.get(IntelligenceInsightRow, replacement_id)
+        if row is None:
+            return False
+        if any(
+            InsightRevision.model_validate_json(item.payload_json).supersedes_insight_id
+            == replacement_id
+            for item in session.scalars(select(IntelligenceInsightRow)).all()
+        ):
+            return False
+        insight = InsightRevision.model_validate_json(row.payload_json)
+        prepared = session.get(IntelligencePreparedContextRow, insight.prepared_context_id)
+        if prepared is None:
+            return False
+        context = PreparedContext.model_validate_json(prepared.payload_json)
+        bundle_row = session.get(IntelligenceBundleRow, context.bundle_id)
+        if bundle_row is None:
+            return False
+        bundle = EvidenceBundle.model_validate_json(bundle_row.payload_json)
+        return any(
+            source is not None and SourceRecord.model_validate_json(source.payload_json).url
+            == source_url
+            for source in (
+                session.get(IntelligenceSourceRow, source_id) for source_id in bundle.source_ids
+            )
+        )
+
+    def set_legacy_migration_overlay(
+        self, inventory_id: str, manifest_hash: str, plan_id: str | None,
+        plan_hash: str | None, *, enabled: bool, expected_revision: int,
+        actor_fingerprint: str, preflight_signature: str | None = None,
+    ) -> dict[str, Any]:
+        """Toggle an imported external overlay with append-only revision evidence."""
+        if expected_revision < 0 or not actor_fingerprint:
+            raise ValueError("overlay revision or actor is invalid")
+        with self._Session.begin() as session:
+            inventory_row = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+            if inventory_row is None:
+                raise MissingInsightRecord("legacy inventory was not found")
+            inventory = json.loads(inventory_row.payload_json)
+            if inventory.get("kind") != "legacy_external" or (
+                inventory_row.inventory_hash != manifest_hash
+            ):
+                raise ValueError("legacy inventory hash or kind changed")
+            previous = self._legacy_overlay_status(session, inventory_id)
+            if previous["revision"] != expected_revision:
+                raise ValueError("legacy overlay revision changed")
+            if not enabled and not previous["enabled"]:
+                return previous
+
+            selected_plan_id = previous["plan_id"]
+            selected_plan_hash = previous["plan_hash"]
+            suppressed_count = previous["suppressed_count"]
+            if enabled:
+                if not plan_id or not plan_hash or not preflight_signature or (
+                    len(preflight_signature) != 64
+                ):
+                    raise ValueError("overlay activation needs a plan and fresh preflight")
+                plan_row = session.get(IntelligenceMigrationInventoryRow, plan_id)
+                if plan_row is None:
+                    raise MissingInsightRecord("legacy disposition plan was not found")
+                plan = json.loads(plan_row.payload_json)
+                if plan.get("kind") != "legacy_disposition_plan" or (
+                    plan.get("source_inventory_id") != inventory_id
+                ) or plan_row.inventory_hash != plan_hash or (
+                    plan.get("source_manifest_hash") != manifest_hash
+                ):
+                    raise ValueError("legacy disposition plan changed")
+                aliases = [json.loads(row.payload_json) for row in session.scalars(
+                    select(IntelligenceMigrationAliasRow).where(
+                        IntelligenceMigrationAliasRow.inventory_id == inventory_id
+                    )
+                ).all()]
+                alias_by_origin = {
+                    (
+                        alias.get("original_system"), alias.get("original_type"),
+                        alias.get("original_id"),
+                    ): alias for alias in aliases
+                }
+                if len(aliases) != len(inventory["records"]) or (
+                    len(alias_by_origin) != len(aliases)
+                ) or any(
+                    (
+                        decision["original_system"], decision["original_type"],
+                        decision["original_id"],
+                    ) not in alias_by_origin
+                    for decision in plan["records"]
+                ) or any(
+                    alias.get("plan_hash") != plan_hash or (
+                        alias.get("source_hash") != decision.get("source_hash")
+                    ) or alias.get("snapshot_revision") != decision.get("snapshot_revision") or (
+                        alias.get("disposition") != decision["disposition"]
+                    ) or bool(alias.get("suppress_legacy_reminder", False)) != bool(
+                        decision.get("suppress_legacy_reminder", False)
+                    ) or alias.get("replacement_insight_id") != decision.get(
+                        "replacement_insight_id"
+                    )
+                    for decision in plan["records"]
+                    for alias in [alias_by_origin[(
+                        decision["original_system"], decision["original_type"],
+                        decision["original_id"],
+                    )]]
+                ):
+                    raise ValueError("legacy inventory is not fully imported from this plan")
+                suppressed = [
+                    alias for alias in aliases if alias.get("suppress_legacy_reminder") is True
+                ]
+                if len(suppressed) != plan.get("suppressed_count", 0) or any(
+                    alias.get("original_system") != "gate0_sensing" or (
+                        alias.get("original_type") != "sensing_file"
+                    ) or alias.get("disposition") != "preserve_reference" or (
+                        alias.get("migration_state") == "unresolved"
+                    ) or not self._replacement_is_current_and_linked(session, alias)
+                    for alias in suppressed
+                ):
+                    raise ValueError("replacement Insight or suppression set is not verified")
+                receipt_id = str(uuid.uuid5(
+                    uuid.NAMESPACE_URL, "legacy-preflight:" + preflight_signature
+                ))
+                if session.get(IntelligenceMigrationInventoryRow, receipt_id) is not None:
+                    raise ValueError("legacy preflight receipt was already used")
+                session.add(IntelligenceMigrationInventoryRow(
+                    inventory_id=receipt_id,
+                    inventory_hash=hashlib.sha256(
+                        ("legacy-preflight:" + preflight_signature).encode()
+                    ).hexdigest(),
+                    payload_json=json.dumps({
+                        "kind": "legacy_preflight_consumed", "source_inventory_id": inventory_id,
+                        "plan_hash": plan_hash, "purpose": "overlay_activation",
+                    }, sort_keys=True, separators=(",", ":")),
+                ))
+                selected_plan_id = plan_id
+                selected_plan_hash = plan_hash
+                suppressed_count = len(suppressed)
+            else:
+                suppressed_count = 0
+
+            revision = expected_revision + 1
+            event = {
+                "kind": "legacy_overlay_event", "inventory_id": inventory_id,
+                "manifest_hash": manifest_hash, "revision": revision,
+                "prior_revision": expected_revision, "enabled": enabled,
+                "plan_id": selected_plan_id, "plan_hash": selected_plan_hash,
+                "suppressed_count": suppressed_count,
+                "actor_fingerprint": actor_fingerprint,
+                "created_at": datetime.now(UTC).isoformat(),
+            }
+            prefix = self._legacy_overlay_event_prefix(inventory_id)
+            session.add(IntelligenceMigrationInventoryRow(
+                inventory_id=prefix + str(revision),
+                inventory_hash=hashlib.sha256(json.dumps(
+                    event, sort_keys=True, separators=(",", ":")
+                ).encode()).hexdigest(),
+                payload_json=json.dumps(event, sort_keys=True, separators=(",", ":")),
+            ))
+            overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
+            if overlay is None:
+                session.add(IntelligenceMigrationOverlayRow(
+                    inventory_id=inventory_id, enabled=enabled
+                ))
+            else:
+                overlay.enabled = enabled
+            return {key: event[key] for key in (
+                "enabled", "revision", "plan_id", "plan_hash", "suppressed_count"
+            )}
+
     def known_source_hashes(
         self, content_hashes: list[str], *, interest_id: str | None = None
     ) -> list[str]:
