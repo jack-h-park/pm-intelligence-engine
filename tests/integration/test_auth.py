@@ -58,10 +58,35 @@ _SIGNAL_BODY = {
 }
 
 
-def test_health_requires_no_token(client):
+def test_health_requires_no_token_and_attests_started_process(client, monkeypatch):
+    import app.api.main as main_api
+
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok"}
+    payload = resp.json()
+    assert payload["status"] == "ok"
+    assert len(payload["source_revision"]) == 40
+    assert isinstance(payload["source_modified"], bool)
+    assert payload["started_at"].endswith("Z")
+
+    def should_not_reread_git():
+        raise AssertionError("health must report startup state, not current checkout state")
+
+    monkeypatch.setattr(main_api, "_source_provenance", should_not_reread_git)
+    assert client.get("/health").json() == payload
+
+
+def test_source_provenance_degrades_when_git_is_unavailable(monkeypatch):
+    import app.api.main as main_api
+
+    def unavailable(*args, **kwargs):
+        raise FileNotFoundError("git is not installed")
+
+    monkeypatch.setattr(main_api.subprocess, "run", unavailable)
+    assert main_api._source_provenance() == {
+        "source_revision": None,
+        "source_modified": None,
+    }
 
 
 def test_write_endpoint_rejects_missing_token(client):

@@ -1,9 +1,11 @@
+import subprocess
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
 
 from app.api.approvals import router as approvals_router
 from app.api.artifacts import router as artifacts_router
@@ -18,6 +20,25 @@ from app.api.routing_review import router as routing_review_router
 from app.api.runs import router as runs_router
 from app.api.signals import router as signals_router
 from app.api.void import router as void_router
+
+
+def _source_provenance() -> dict[str, str | bool | None]:
+    """Capture checkout provenance once at boot; never infer it from a later pull."""
+    root = Path(__file__).resolve().parents[2]
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True,
+            text=True, check=True, timeout=2,
+        ).stdout.strip()
+        if len(revision) != 40 or any(ch not in "0123456789abcdef" for ch in revision):
+            return {"source_revision": None, "source_modified": None}
+        modified = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"], cwd=root,
+            capture_output=True, text=True, check=True, timeout=2,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return {"source_revision": None, "source_modified": None}
+    return {"source_revision": revision, "source_modified": bool(modified)}
 
 
 def _warn_incomplete_knowledge_budget_configuration() -> None:
@@ -74,6 +95,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             engine.insight_store, Path(settings.WIKI_ROOT) / "outputs" / "signal-intelligence"
         )
     app.state.engine = engine
+    app.state.health_metadata = {
+        **_source_provenance(),
+        "started_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+    }
     yield
 
 
@@ -104,5 +129,5 @@ app.include_router(insight_budget_router, dependencies=_auth)
 
 
 @app.get("/health")
-async def health() -> dict[str, Any]:
-    return {"status": "ok"}
+async def health(request: Request) -> dict[str, Any]:
+    return {"status": "ok", **request.app.state.health_metadata}
