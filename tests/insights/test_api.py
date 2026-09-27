@@ -696,6 +696,47 @@ def test_novelty_lookup_returns_only_known_source_hashes(
     assert response.status_code == 200
     assert response.json() == {"known_content_hashes": [source_payload["content_hash"]]}
 
+    same_interest = client.post(
+        "/insight-triage/novelty",
+        json={
+            "content_hashes": [source_payload["content_hash"]],
+            "interest_id": "android-enterprise-isolation",
+        },
+        headers=auth_headers,
+    )
+    other_interest = client.post(
+        "/insight-triage/novelty",
+        json={
+            "content_hashes": [source_payload["content_hash"]],
+            "interest_id": "personal-ai-agent-market",
+        },
+        headers=auth_headers,
+    )
+    assert same_interest.status_code == other_interest.status_code == 200
+    assert same_interest.json() == {"known_content_hashes": [source_payload["content_hash"]]}
+    assert other_interest.json() == {"known_content_hashes": []}
+
+    second_candidate = client.post(
+        "/insight-candidates",
+        json={**candidate_payload, "question_ids": ["personal-ai-agent-market"]},
+        headers={**auth_headers, "Idempotency-Key": "other-interest-candidate"},
+    ).json()
+    second_source = client.post(
+        "/insight-sources",
+        json={**source_payload, "candidate_id": second_candidate["candidate_id"]},
+        headers={**auth_headers, "Idempotency-Key": "other-interest-source"},
+    )
+    assert second_source.status_code == 201
+    both = client.post(
+        "/insight-triage/novelty",
+        json={
+            "content_hashes": [source_payload["content_hash"]],
+            "interest_id": "personal-ai-agent-market",
+        },
+        headers=auth_headers,
+    )
+    assert both.json() == {"known_content_hashes": [source_payload["content_hash"]]}
+
 
 def test_semantic_triage_reserves_before_calling_the_model(client, auth_headers, monkeypatch):
     from config import settings

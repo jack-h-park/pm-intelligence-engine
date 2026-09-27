@@ -456,11 +456,27 @@ class InsightStore:
             overlay = session.get(IntelligenceMigrationOverlayRow, inventory_id)
             return {"enabled": overlay.enabled} if overlay is not None else None
 
-    def known_source_hashes(self, content_hashes: list[str]) -> list[str]:
-        """Find prior immutable source bodies without exposing their content."""
+    def known_source_hashes(
+        self, content_hashes: list[str], *, interest_id: str | None = None
+    ) -> list[str]:
+        """Find prior source bodies, optionally within a candidate's interest."""
         if not content_hashes:
             return []
         with self._Session() as session:
+            if interest_id is not None:
+                rows = session.execute(
+                    select(
+                        IntelligenceSourceRow.content_hash,
+                        IntelligenceCandidateRow.payload_json,
+                    ).join(
+                        IntelligenceCandidateRow,
+                        IntelligenceSourceRow.candidate_id == IntelligenceCandidateRow.candidate_id,
+                    ).where(IntelligenceSourceRow.content_hash.in_(content_hashes))
+                ).all()
+                return sorted({
+                    content_hash for content_hash, candidate_json in rows
+                    if interest_id in Candidate.model_validate_json(candidate_json).question_ids
+                })
             rows = session.execute(
                 select(IntelligenceSourceRow.content_hash).where(
                     IntelligenceSourceRow.content_hash.in_(content_hashes)
