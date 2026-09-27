@@ -290,6 +290,24 @@ class S2KBridgeProvider:
         self._max_stdout_bytes = max_stdout_bytes
         self._operation_id = operation_id
 
+    def bind_job_id(self, job_id: str) -> None:
+        """Attribute a worker's later provider calls to its claimed Insight job."""
+        if self._operation_id is not None:
+            raise ValueError("S2K bridge already has an operation ID")
+        if (
+            not isinstance(job_id, str)
+            or not job_id
+            or len(job_id) > 116
+            or any(
+                character not in (
+                    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:_-."
+                )
+                for character in job_id
+            )
+        ):
+            raise ValueError("S2K bridge job ID must be a short safe identifier")
+        self._operation_id = f"insight-job:{job_id}"
+
     def _emit_event(self, action: str, request_id: str, detail: dict[str, Any]) -> None:
         if self._operation_id is not None:
             detail = {**detail, "operation_id": self._operation_id}
@@ -463,7 +481,10 @@ class S2KBridgeProvider:
             {
                 "provider": provider,
                 "model": resolved_model,
+                "credential_kind": "api_key" if provider == "openai" else "oauth",
                 "usage_status": "measured" if measured is not None else "unknown",
+                "input_tokens": measured["input_tokens"] if measured is not None else None,
+                "output_tokens": measured["output_tokens"] if measured is not None else None,
             },
         )
         return text

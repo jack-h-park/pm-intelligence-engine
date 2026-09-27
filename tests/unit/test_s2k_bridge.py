@@ -147,7 +147,10 @@ print(json.dumps({_success()!r}))
         "operation_id": "operation-123",
         "provider": "anthropic",
         "model": "fixture-model",
+        "credential_kind": "oauth",
         "usage_status": "measured",
+        "input_tokens": 6,
+        "output_tokens": 4,
     }
     assert prompt not in json.dumps(events)
 

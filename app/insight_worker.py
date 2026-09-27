@@ -5,6 +5,7 @@ from pathlib import Path
 
 from app.factory import build_s2k_llm_provider
 from app.llm.protocol import LLMProvider
+from app.llm.s2k_bridge import S2KBridgeProvider
 from app.models.insights import InsightJob, InsightRevision
 from app.services.insight_analysis import analyze_bundle
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
@@ -51,6 +52,8 @@ async def _process_claimed_job(
 ) -> InsightRevision | None:
     if job is None:
         return None
+    if isinstance(llm, S2KBridgeProvider):
+        llm.bind_job_id(job.job_id)
     if job.bundle_id is None:
         if job.backfill_id:
             bundle = store.prepare_backfill_evidence(job.job_id, job.lease_token or "")
