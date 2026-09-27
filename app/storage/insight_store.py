@@ -1,5 +1,6 @@
 """Immutable SQLite-backed persistence for the E01 insight records."""
 
+import hashlib
 import json
 import uuid
 from collections import Counter
@@ -247,8 +248,8 @@ class InsightStore:
         stored = json.loads(inventory.payload_json)
         if not isinstance(stored, dict):
             raise ValueError("stored migration inventory is invalid")
-        if stored.get("kind") == "legacy_external":
-            raise ValueError("legacy external inventory requires a reviewed import path")
+        if stored.get("kind") is not None:
+            raise ValueError("historical inventory or plan requires the dedicated legacy import path")
         return cast(list[dict[str, Any]], stored.get("records", []))
 
     def import_migration_inventory(
@@ -290,6 +291,121 @@ class InsightStore:
                         ),
                     )
                 )
+            imported_count = min(len(pending), batch_size)
+            return {"imported_count": imported_count, "complete": imported_count == len(pending)}
+
+    def import_legacy_disposition_plan(
+        self,
+        inventory_id: str,
+        manifest_hash: str,
+        plan_id: str,
+        plan_hash: str,
+        *,
+        batch_size: int,
+        preflight_signature: str,
+    ) -> dict[str, int | bool]:
+        """Add reviewed historical metadata in bounded, retry-safe transactions.
+
+        The original source, Gate 0, run, artifact, notification, and Insight
+        rows are never modified. The external overlay remains disabled.
+        """
+        if not 1 <= batch_size <= 100:
+            raise ValueError("legacy import batch size must be between 1 and 100")
+        if len(preflight_signature) != 64:
+            raise ValueError("legacy preflight signature is invalid")
+        with self._Session.begin() as session:
+            inventory_row = session.get(IntelligenceMigrationInventoryRow, inventory_id)
+            plan_row = session.get(IntelligenceMigrationInventoryRow, plan_id)
+            if inventory_row is None or plan_row is None:
+                raise MissingInsightRecord("legacy inventory or disposition plan was not found")
+            inventory = json.loads(inventory_row.payload_json)
+            plan = json.loads(plan_row.payload_json)
+            if inventory.get("kind") != "legacy_external" or (
+                inventory_row.inventory_hash != manifest_hash
+            ) or plan.get("kind") != "legacy_disposition_plan" or (
+                plan_row.inventory_hash != plan_hash
+            ) or plan.get("source_inventory_id") != inventory_id or (
+                plan.get("source_manifest_hash") != manifest_hash
+            ):
+                raise ValueError("legacy inventory or disposition plan changed")
+            if len(inventory["records"]) != len(plan["records"]):
+                raise ValueError("legacy disposition plan no longer covers the inventory")
+
+            receipt_hash = hashlib.sha256(
+                ("legacy-preflight:" + preflight_signature).encode()
+            ).hexdigest()
+            if session.scalar(select(IntelligenceMigrationInventoryRow.inventory_id).where(
+                IntelligenceMigrationInventoryRow.inventory_hash == receipt_hash
+            )) is not None:
+                raise ValueError("legacy preflight receipt was already used")
+
+            existing = {
+                row.original_id: json.loads(row.payload_json)
+                for row in session.scalars(
+                    select(IntelligenceMigrationAliasRow).where(
+                        IntelligenceMigrationAliasRow.inventory_id == inventory_id
+                    )
+                ).all()
+            }
+            if any(row.get("plan_hash") != plan_hash for row in existing.values()):
+                raise ValueError("legacy inventory already has aliases from another plan")
+
+            pending = []
+            for entry, decision in zip(inventory["records"], plan["records"]):
+                identity = [entry[field] for field in (
+                    "original_system", "original_type", "original_id"
+                )]
+                key = json.dumps(identity, ensure_ascii=False, separators=(",", ":"))
+                if key in existing:
+                    continue
+                if identity != [decision[field] for field in (
+                    "original_system", "original_type", "original_id"
+                )] or any(
+                    entry.get(field) != decision.get(field)
+                    for field in ("source_hash", "snapshot_revision")
+                ):
+                    raise ValueError("legacy disposition plan has a changed origin")
+                pending.append((key, entry, decision))
+
+            for key, entry, decision in pending[:batch_size]:
+                metadata = {field: entry.get(field) for field in (
+                    "original_system", "original_type", "original_id", "original_path",
+                    "source_hash", "snapshot_revision", "source_url", "source_ref",
+                    "classification", "disposition_reason", "evidence_status",
+                    "authorship_status", "migration_state", "notification_handling",
+                    "linked_signal_ids", "linked_run_ids", "linked_sensing_ids",
+                    "linked_capture_ids", "alias_group_links", "proposed_target_id",
+                    "lifecycle", "outcome", "stage", "version", "artifact_type",
+                    "created_at", "capture_week", "migration_batch",
+                ) if field in entry}
+                metadata.update({
+                    "disposition": decision["disposition"],
+                    "plan_id": plan_id,
+                    "plan_hash": plan_hash,
+                    "llm_handling": "none",
+                })
+                alias_identity = json.dumps([
+                    inventory_id, key, entry.get("source_hash"),
+                    entry.get("snapshot_revision"),
+                ], ensure_ascii=False, separators=(",", ":"))
+                session.add(IntelligenceMigrationAliasRow(
+                    alias_id=str(uuid.uuid5(uuid.NAMESPACE_URL, alias_identity)),
+                    inventory_id=inventory_id,
+                    original_id=key,
+                    disposition=decision["disposition"],
+                    payload_json=json.dumps(
+                        metadata, sort_keys=True, separators=(",", ":")
+                    ),
+                ))
+            session.add(IntelligenceMigrationInventoryRow(
+                inventory_id=str(uuid.uuid5(uuid.NAMESPACE_URL, "legacy-preflight:" + preflight_signature)),
+                inventory_hash=receipt_hash,
+                payload_json=json.dumps({
+                    "kind": "legacy_preflight_consumed",
+                    "source_inventory_id": inventory_id,
+                    "plan_hash": plan_hash,
+                }, sort_keys=True, separators=(",", ":")),
+            ))
             imported_count = min(len(pending), batch_size)
             return {"imported_count": imported_count, "complete": imported_count == len(pending)}
 
