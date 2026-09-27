@@ -107,6 +107,19 @@ class ReconcileUnknownOperationRequest(_Request):
         return value.strip()
 
 
+class ReconcileNativeSupplierJobRequest(_Request):
+    scoped_job_id: str
+    apply: bool = False
+
+
+class ReconciledNativeSupplierJob(BaseModel):
+    job_id: str
+    scoped_job_id: str
+    state: str
+    completion_disposition: str | None
+    changed: bool
+
+
 class ReconciledOperation(BaseModel):
     operation_id: str
     triage_state: Literal["terminal_unknown"]
@@ -1173,6 +1186,36 @@ async def get_job(job_id: str, engine: PMEngine = Depends(get_engine)) -> Insigh
     if job is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job not found")
     return job
+
+
+@router.post(
+    "/insight-jobs/{job_id}/reconcile-native-supplier-duplicate",
+    response_model=ReconciledNativeSupplierJob,
+)
+async def reconcile_native_supplier_duplicate_job(
+    job_id: str,
+    body: ReconcileNativeSupplierJobRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> ReconciledNativeSupplierJob:
+    """Preview by default; close one exact, untouched duplicate on explicit apply."""
+    store = _processing_store(engine)
+    try:
+        job, changed = store.reconcile_native_supplier_duplicate_job(
+            job_id, body.scoped_job_id, apply=body.apply
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidInsightReference as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    return ReconciledNativeSupplierJob(
+        job_id=job.job_id,
+        scoped_job_id=body.scoped_job_id,
+        state=job.state,
+        completion_disposition=job.completion_disposition,
+        changed=changed,
+    )
 
 
 @router.get("/insights/search", response_model=InsightSearchResults)
