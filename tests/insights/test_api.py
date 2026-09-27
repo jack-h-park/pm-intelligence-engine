@@ -389,6 +389,98 @@ def test_scoped_candidate_worker_tick_replays_its_completed_insight_id(
     assert response.json()["insight_id"] == insight.insight_id
 
 
+def test_reconcile_native_supplier_duplicate_previews_then_closes_only_named_job(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    from app.models.insights import InsightRevision, PreparedContext
+
+    store = app.dependency_overrides[get_engine]().insight_store
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    manual_bundle = store.save_bundle({
+        **bundle_payload(candidate.candidate_id, source.source_id),
+        "provenance_status": "unknown",
+        "context_revision": "s2k-native-v1",
+    })
+    generic = store.create_job({
+        "candidate_id": candidate.candidate_id,
+        "bundle_id": manual_bundle.bundle_id,
+        "context_revision": "s2k-native-v1",
+        "purpose": "learning",
+    })
+    scoped = store.ensure_scoped_candidate_job(candidate.candidate_id)
+    claimed = store.claim_scoped_candidate_job(candidate.candidate_id)
+    prepared = PreparedContext(
+        candidate_id=candidate.candidate_id,
+        bundle_id=scoped.bundle_id,
+        question="What changed?",
+        validation_status="valid",
+        context_revision=scoped.context_revision,
+    )
+    insight = InsightRevision(
+        prepared_context_id=prepared.prepared_context_id,
+        headline="Scoped learning",
+        explanation="Only the stored source was used.",
+        actual_change="A bounded source was reviewed.",
+        why_now="The explicit Candidate was requested.",
+        personal_relevance="It answers the requested question.",
+        takeaway="Review the evidence.",
+        claims=[{
+            "text": "A bounded source was reviewed.",
+            "passage_ids": [f"{source.source_id}:0"],
+        }],
+        context_revision=scoped.context_revision,
+    )
+    store.complete_job_analysis(claimed.job_id, claimed.lease_token, prepared, insight)
+    route = f"/insight-jobs/{generic.job_id}/reconcile-native-supplier-duplicate"
+    body = {"scoped_job_id": scoped.job_id}
+
+    mismatch = client.post(
+        route,
+        json={"scoped_job_id": generic.job_id, "apply": True},
+        headers=auth_headers,
+    )
+    preview = client.post(route, json=body, headers=auth_headers)
+    assert mismatch.status_code == 409
+    assert preview.status_code == 200
+    assert preview.json()["state"] == "queued"
+    assert preview.json()["changed"] is False
+    assert store.get_job(generic.job_id).state == "queued"
+
+    applied = client.post(route, json={**body, "apply": True}, headers=auth_headers)
+    repeated = client.post(route, json={**body, "apply": True}, headers=auth_headers)
+    assert applied.status_code == 200
+    assert applied.json()["state"] == "complete"
+    assert applied.json()["completion_disposition"] == "no_new_learning"
+    assert applied.json()["changed"] is True
+    assert repeated.json()["changed"] is False
+    assert store.get_job(scoped.job_id).completion_disposition == "ready"
+    assert store.get_insight(insight.insight_id) == insight
+
+
+def test_reconcile_native_supplier_duplicate_rejects_non_native_job(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload
+):
+    store = app.dependency_overrides[get_engine]().insight_store
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    generic = store.create_job({
+        "candidate_id": candidate.candidate_id,
+        "bundle_id": bundle.bundle_id,
+        "context_revision": "s2k-native-v1",
+        "purpose": "learning",
+    })
+    scoped = store.ensure_scoped_candidate_job(candidate.candidate_id)
+    response = client.post(
+        f"/insight-jobs/{generic.job_id}/reconcile-native-supplier-duplicate",
+        json={"scoped_job_id": scoped.job_id, "apply": True},
+        headers=auth_headers,
+    )
+    assert response.status_code == 409
+    assert store.get_job(generic.job_id).state == "queued"
+
+
 def test_reused_key_with_changed_body_conflicts(client, auth_headers, candidate_payload):
     headers = {**auth_headers, "Idempotency-Key": "candidate-fixture-1"}
     first = client.post("/insight-candidates", json=candidate_payload, headers=headers)

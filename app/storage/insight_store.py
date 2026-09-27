@@ -1301,6 +1301,79 @@ class InsightStore:
             row = session.get(IntelligenceJobRow, job_id)
             return InsightJob.model_validate_json(row.payload_json) if row else None
 
+    def reconcile_native_supplier_duplicate_job(
+        self, job_id: str, scoped_job_id: str, *, apply: bool = False
+    ) -> tuple[InsightJob, bool]:
+        """Close only an untouched native supplier job duplicated by a ready scoped job.
+
+        The default is a read-only preview. Both the preview and mutation check
+        the same predicates within one transaction so a changed job fails closed.
+        """
+        reason = f"Superseded by completed scoped candidate job {scoped_job_id}"
+        with self._Session.begin() as session:
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if (
+                job.state == "complete"
+                and job.completion_disposition == "no_new_learning"
+                and job.error == reason
+            ):
+                return job, False
+            scoped_row = session.get(IntelligenceJobRow, scoped_job_id)
+            if scoped_row is None:
+                raise MissingInsightRecord(f"scoped job {scoped_job_id} was not found")
+            scoped = InsightJob.model_validate_json(scoped_row.payload_json)
+            bundle_row = (
+                session.get(IntelligenceBundleRow, job.bundle_id) if job.bundle_id else None
+            )
+            bundle = (
+                EvidenceBundle.model_validate_json(bundle_row.payload_json)
+                if bundle_row else None
+            )
+            research = session.execute(
+                select(IntelligenceResearchRequestRow.research_request_id)
+                .where(IntelligenceResearchRequestRow.job_id == job_id)
+                .limit(1)
+            ).first()
+            insight = (
+                session.execute(
+                    select(IntelligenceInsightRow.insight_id)
+                    .where(IntelligenceInsightRow.prepared_context_id == scoped.prepared_context_id)
+                    .limit(1)
+                ).first()
+                if scoped.prepared_context_id else None
+            )
+            if not (
+                row.scoped_candidate_id is None
+                and job.state == "queued"
+                and job.attempt_count == 0
+                and job.lease_token is None
+                and job.backfill_id is None
+                and job.context_revision == "s2k-native-v1"
+                and job.purpose == "learning"
+                and bundle is not None
+                and bundle.candidate_id == job.candidate_id
+                and bundle.provenance_status == "unknown"
+                and research is None
+                and scoped_row.scoped_candidate_id == job.candidate_id
+                and scoped.candidate_id == job.candidate_id
+                and scoped.state == "complete"
+                and scoped.completion_disposition == "ready"
+                and insight is not None
+            ):
+                raise InvalidInsightReference(
+                    "job is not an untouched duplicate of a ready scoped job"
+                )
+            if apply:
+                job.state = "complete"
+                job.completion_disposition = "no_new_learning"
+                job.error = reason
+                job.updated_at = _now()
+                self._write_job(row, job)
+            return job, apply
+
     def claim_job(self, now: datetime | None = None) -> InsightJob | None:
         current = _now(now)
         with self._Session.begin() as session:
