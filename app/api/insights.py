@@ -53,6 +53,8 @@ from app.services.insight_delivery import confirm_delivery, queue_delivery
 from app.services.insight_migration import (
     build_dry_run_inventory,
     validate_external_legacy_inventory,
+    validate_legacy_disposition_plan,
+    verify_legacy_preflight,
 )
 from app.services.insight_search import search_insights
 from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
@@ -274,6 +276,65 @@ class LegacyMigrationInventoryRecords(BaseModel):
     unresolved_count: int
     total_count: int
     records: list[dict[str, Any]]
+    next_offset: int | None
+
+
+class LegacyDispositionDecision(_Request):
+    original_system: str = Field(min_length=1)
+    original_type: str = Field(min_length=1)
+    original_id: str = Field(min_length=1)
+    source_hash: str | None = None
+    snapshot_revision: str | None = None
+    disposition: Literal[
+        "preserve_reference", "preserve_source", "preserve_decision",
+        "preserve_artifact", "rebuildable_projection", "defer_unresolved",
+    ]
+
+
+class LegacyDispositionPlanCreate(_Request):
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    review_reference: str = Field(min_length=1, max_length=2048)
+    decisions: list[LegacyDispositionDecision] = Field(min_length=1, max_length=100_000)
+
+
+class LegacyDispositionPlanAccepted(BaseModel):
+    plan_id: str
+    plan_hash: str
+    manifest_hash: str
+    record_count: int
+    deferred_count: int
+    state: Literal["recorded_unactivated"] = "recorded_unactivated"
+
+
+class LegacyPreflightReceipt(_Request):
+    inventory_id: str = Field(min_length=1)
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    plan_hash: str = Field(min_length=64, max_length=64)
+    checked_at: str = Field(min_length=1)
+    nonce: str = Field(min_length=32, max_length=32)
+    signature: str = Field(min_length=64, max_length=64)
+
+
+class LegacyImportRequest(_Request):
+    manifest_hash: str = Field(min_length=64, max_length=64)
+    plan_id: str = Field(min_length=1)
+    plan_hash: str = Field(min_length=64, max_length=64)
+    preflight: LegacyPreflightReceipt
+    batch_size: int = Field(default=100, ge=1, le=100)
+
+
+class LegacyImportAccepted(BaseModel):
+    inventory_id: str
+    plan_id: str
+    imported_count: int
+    complete: bool
+
+
+class LegacyAliasResults(BaseModel):
+    inventory_id: str
+    manifest_hash: str
+    total_count: int
+    aliases: list[dict[str, Any]]
     next_offset: int | None
 
 
@@ -725,6 +786,131 @@ async def list_legacy_migration_inventory_records(
     )
 
 
+def _legacy_plan_response(payload: dict[str, Any]) -> LegacyDispositionPlanAccepted:
+    return LegacyDispositionPlanAccepted(
+        plan_id=payload["inventory_id"],
+        plan_hash=payload["inventory_hash"],
+        manifest_hash=payload["source_manifest_hash"],
+        record_count=payload["record_count"],
+        deferred_count=payload["deferred_count"],
+    )
+
+
+@router.post(
+    "/insight-migration-inventories/legacy/{inventory_id}/plans",
+    response_model=LegacyDispositionPlanAccepted,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_legacy_disposition_plan(
+    inventory_id: str,
+    body: LegacyDispositionPlanCreate,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyDispositionPlanAccepted:
+    """Record a complete revision-bound proposal; this does not import it."""
+    inventory = _read_store(engine).get_migration_inventory(inventory_id)
+    if inventory is None or inventory.get("kind") != "legacy_external":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+    try:
+        payload = validate_legacy_disposition_plan(inventory, body.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    payload["inventory_id"] = str(uuid.uuid4())
+    stored = _store(engine).save_migration_inventory(
+        payload["inventory_id"], payload["inventory_hash"], payload
+    )
+    if stored.get("kind") != "legacy_disposition_plan" or (
+        stored.get("source_inventory_id") != inventory_id
+    ):
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="plan hash has another owner")
+    return _legacy_plan_response(stored)
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}/plans/{plan_id}",
+    response_model=LegacyDispositionPlanAccepted,
+)
+async def get_legacy_disposition_plan(
+    inventory_id: str,
+    plan_id: str,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyDispositionPlanAccepted:
+    stored = _read_store(engine).get_migration_inventory(plan_id)
+    if stored is None or stored.get("kind") != "legacy_disposition_plan" or (
+        stored.get("source_inventory_id") != inventory_id
+    ):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy plan not found")
+    return _legacy_plan_response(stored)
+
+
+@router.post(
+    "/insight-migration-inventories/legacy/{inventory_id}/imports",
+    response_model=LegacyImportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def import_legacy_disposition_plan(
+    inventory_id: str,
+    body: LegacyImportRequest,
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyImportAccepted:
+    """Import reviewed metadata only when the separate release flag is enabled."""
+    from config import settings
+
+    if not settings.INSIGHT_LEGACY_IMPORT_ENABLED:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Legacy import is disabled")
+    if settings.INSIGHT_LEGACY_APPROVED_PLAN_HASH != body.plan_hash:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Legacy disposition plan is not approved for import",
+        )
+    try:
+        verify_legacy_preflight(
+            body.preflight.model_dump(), settings.INSIGHT_LEGACY_PREFLIGHT_SECRET,
+            inventory_id=inventory_id, manifest_hash=body.manifest_hash,
+            plan_hash=body.plan_hash,
+        )
+        result = _store(engine).import_legacy_disposition_plan(
+            inventory_id, body.manifest_hash, body.plan_id, body.plan_hash,
+            batch_size=body.batch_size, preflight_signature=body.preflight.signature,
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return LegacyImportAccepted(
+        inventory_id=inventory_id,
+        plan_id=body.plan_id,
+        imported_count=int(result["imported_count"]),
+        complete=bool(result["complete"]),
+    )
+
+
+@router.get(
+    "/insight-migration-inventories/legacy/{inventory_id}/aliases",
+    response_model=LegacyAliasResults,
+)
+async def list_legacy_imported_aliases(
+    inventory_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    engine: PMEngine = Depends(get_engine),
+) -> LegacyAliasResults:
+    """Read imported metadata for reconciliation without changing the overlay."""
+    store = _read_store(engine)
+    inventory = store.get_migration_inventory(inventory_id)
+    if inventory is None or inventory.get("kind") != "legacy_external":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+    aliases = store.list_migration_aliases(inventory_id)
+    page = aliases[offset:offset + limit]
+    next_offset = offset + len(page) if offset + len(page) < len(aliases) else None
+    return LegacyAliasResults(
+        inventory_id=inventory_id,
+        manifest_hash=inventory["inventory_hash"],
+        total_count=len(aliases),
+        aliases=page,
+        next_offset=next_offset,
+    )
+
+
 @router.get(
     "/insight-migration-inventories/{inventory_id}",
     response_model=MigrationInventoryAccepted,
@@ -733,7 +919,7 @@ async def get_migration_inventory(
     inventory_id: str, engine: PMEngine = Depends(get_engine)
 ) -> MigrationInventoryAccepted:
     inventory = _read_store(engine).get_migration_inventory(inventory_id)
-    if inventory is None:
+    if inventory is None or inventory.get("kind") is not None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Migration inventory not found"
         )

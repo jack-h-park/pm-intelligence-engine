@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     INSIGHT_WRITES_ENABLED: bool = False
     DECISION_PIPELINE_V2_ENABLED: bool = False
     INSIGHT_MIGRATION_ACTIVATION_ENABLED: bool = False
+    # Historical cross-system aliases require a separate reviewed release step.
+    # Recording a disposition plan never enables import or the read overlay.
+    INSIGHT_LEGACY_IMPORT_ENABLED: bool = False
+    INSIGHT_LEGACY_APPROVED_PLAN_HASH: str = ""
+    INSIGHT_LEGACY_PREFLIGHT_SECRET: str = ""
     INSIGHT_PROJECTION_ENABLED: bool = False
     # A missing rate revision or allowance denies every paid operation.  Fixture
     # tests configure these explicitly; production defaults never spend.
