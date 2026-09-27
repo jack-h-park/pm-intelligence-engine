@@ -385,6 +385,9 @@ class InsightStore:
                     "plan_hash": plan_hash,
                     "llm_handling": "none",
                 })
+                if decision.get("suppress_legacy_reminder") is True:
+                    metadata["suppress_legacy_reminder"] = True
+                    metadata["replacement_insight_id"] = decision["replacement_insight_id"]
                 alias_identity = json.dumps([
                     inventory_id, key, entry.get("source_hash"),
                     entry.get("snapshot_revision"),
