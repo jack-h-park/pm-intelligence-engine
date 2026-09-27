@@ -133,6 +133,7 @@ def test_insight_operation_detail_exposes_only_sanitized_status(client, auth_hea
     assert response.json() == {
         "operation_id": operation_id,
         "triage_state": "complete",
+        "search_expansion_state": None,
         "has_triage_result": True,
         "reservation": {
             "reservation_id": reservation.reservation_id,
@@ -184,6 +185,7 @@ def test_insight_operation_detail_reports_reservation_without_triage(client, aut
     assert response.json() == {
         "operation_id": operation_id,
         "triage_state": None,
+        "search_expansion_state": None,
         "has_triage_result": False,
         "reservation": {
             "reservation_id": reservation.reservation_id,
@@ -1119,6 +1121,127 @@ def test_authenticated_insight_search_returns_stored_revision(
     assert client.get("/insight-operations", headers=auth_headers).json()["feedback"] == {
         "recorded": 1, "unknown": 0,
     }
+
+
+def test_korean_search_expands_once_under_a_separate_budget(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    from app.services.insight_search import search_expansion_hash
+    from config import settings
+
+    engine = app.dependency_overrides[get_engine]()
+    insight, _ = _seed_insight_with_evidence(
+        engine, candidate_payload, source_payload, bundle_payload
+    )
+
+    class FixtureLLM:
+        calls = 0
+
+        async def complete(self, messages, **kwargs):
+            self.calls += 1
+            return '{"terms":["Android"]}'
+
+    llm = FixtureLLM()
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda _: llm)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates-v1")
+
+    first = client.get("/insights/search?q=안드로이드", headers=auth_headers)
+    repeated = client.get("/insights/search?q=안드로이드", headers=auth_headers)
+    lexical = client.get("/insights/search?q=Android", headers=auth_headers)
+
+    assert first.status_code == repeated.status_code == lexical.status_code == 200
+    assert [item["insight_id"] for item in first.json()["items"]] == [insight.insight_id]
+    assert repeated.json()["items"] == first.json()["items"]
+    assert llm.calls == 1
+    status = client.get(
+        "/insight-operations/search-expansion:" + search_expansion_hash("안드로이드"),
+        headers=auth_headers,
+    )
+    assert status.status_code == 200
+    assert status.json()["search_expansion_state"] == "complete"
+    assert status.json()["reservation"]["state"] == "unknown"
+
+    # Unknown spend keeps the full allowance encumbered; a second unique query
+    # cannot create a second paid call in the same UTC budget window.
+    denied = client.get("/insights/search?q=휴대폰", headers=auth_headers)
+    assert denied.status_code == 200 and denied.json()["items"] == []
+    assert llm.calls == 1
+
+
+def test_search_expansion_is_off_without_an_allowance_and_fences_ambiguous_calls(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    from app.services.insight_search import search_expansion_hash
+    from config import settings
+
+    engine = app.dependency_overrides[get_engine]()
+    _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundle_payload)
+
+    class FailingLLM:
+        calls = 0
+
+        async def complete(self, messages, **kwargs):
+            self.calls += 1
+            raise RuntimeError("ambiguous transport failure")
+
+    llm = FailingLLM()
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda _: llm)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS", None)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS", None)
+    disabled = client.get("/insights/search?q=안드로이드", headers=auth_headers)
+    assert disabled.status_code == 200 and disabled.json()["items"] == []
+    assert llm.calls == 0
+    blank = client.get("/insights/search?q=%20", headers=auth_headers)
+    assert blank.status_code == 422 and llm.calls == 0
+
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates-v1")
+    first = client.get("/insights/search?q=안드로이드", headers=auth_headers)
+    repeated = client.get("/insights/search?q=안드로이드", headers=auth_headers)
+    assert first.status_code == repeated.status_code == 200
+    assert first.json()["items"] == repeated.json()["items"] == []
+    assert llm.calls == 1
+    assert engine.insight_store.claim_search_expansion(
+        search_expansion_hash("안드로이드")
+    )[0] == "terminal_unknown"
+    status = client.get(
+        "/insight-operations/search-expansion:" + search_expansion_hash("안드로이드"),
+        headers=auth_headers,
+    )
+    assert status.status_code == 200
+    assert status.json()["search_expansion_state"] == "terminal_unknown"
+    assert status.json()["reservation"]["state"] == "unknown"
+
+
+def test_search_expansion_does_not_answer_without_a_stored_match(
+    client, auth_headers, candidate_payload, source_payload, bundle_payload, monkeypatch
+):
+    from config import settings
+
+    engine = app.dependency_overrides[get_engine]()
+    _seed_insight_with_evidence(engine, candidate_payload, source_payload, bundle_payload)
+
+    class FixtureLLM:
+        calls = 0
+
+        async def complete(self, messages, **kwargs):
+            self.calls += 1
+            return '{"terms":["quantum"]}'
+
+    llm = FixtureLLM()
+    monkeypatch.setattr(insights_api, "build_s2k_llm_provider", lambda _: llm)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS", 100)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates-v1")
+
+    first = client.get("/insights/search?q=양자", headers=auth_headers)
+    repeated = client.get("/insights/search?q=양자", headers=auth_headers)
+    assert first.status_code == repeated.status_code == 200
+    assert first.json()["items"] == repeated.json()["items"] == []
+    assert llm.calls == 1
 
 
 def test_authenticated_insight_listing_returns_product_agnostic_revision(

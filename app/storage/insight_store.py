@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
-from sqlalchemy import Engine, and_, create_engine, or_, select, update
+from sqlalchemy import Engine, and_, create_engine, delete, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -40,6 +40,7 @@ from app.models.insights import (
     IntelligencePreparedContextRow,
     IntelligenceResearchRequestRow,
     IntelligenceResearchResultRow,
+    IntelligenceSearchExpansionRow,
     IntelligenceSourceRow,
     IntelligenceTriageReconciliationRow,
     IntelligenceTriageRow,
@@ -467,6 +468,62 @@ class InsightStore:
             ).all()
             return sorted({row[0] for row in rows})
 
+    def claim_search_expansion(self, query_hash: str) -> tuple[str, list[str] | None]:
+        """Serialize a query's first model attempt and replay only completed terms."""
+        with self._engine.connect() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            session = Session(bind=connection)
+            try:
+                row = session.get(IntelligenceSearchExpansionRow, query_hash)
+                if row is not None:
+                    terms = json.loads(row.terms_json) if row.state == "complete" else None
+                    connection.commit()
+                    return row.state, terms
+                session.add(IntelligenceSearchExpansionRow(
+                    query_hash=query_hash, state="running", terms_json="[]"
+                ))
+                session.flush()
+                connection.commit()
+                return "claimed", None
+            except Exception:
+                connection.rollback()
+                raise
+            finally:
+                session.close()
+
+    def abandon_search_expansion(self, query_hash: str) -> None:
+        """Release a claim only when no provider call could have occurred."""
+        with self._Session.begin() as session:
+            session.execute(delete(IntelligenceSearchExpansionRow).where(
+                IntelligenceSearchExpansionRow.query_hash == query_hash,
+                IntelligenceSearchExpansionRow.state == "running",
+            ))
+
+    def complete_search_expansion(self, query_hash: str, terms: list[str]) -> None:
+        with self._Session.begin() as session:
+            result = cast(CursorResult[Any], session.execute(
+                update(IntelligenceSearchExpansionRow)
+                .where(
+                    IntelligenceSearchExpansionRow.query_hash == query_hash,
+                    IntelligenceSearchExpansionRow.state == "running",
+                )
+                .values(state="complete", terms_json=json.dumps(terms, ensure_ascii=False))
+            ))
+            if result.rowcount != 1:
+                raise ValueError("search expansion is not running")
+
+    def mark_search_expansion_unknown(self, query_hash: str) -> None:
+        """Fence an ambiguous call; retry requires an explicit reconciliation."""
+        with self._Session.begin() as session:
+            session.execute(
+                update(IntelligenceSearchExpansionRow)
+                .where(
+                    IntelligenceSearchExpansionRow.query_hash == query_hash,
+                    IntelligenceSearchExpansionRow.state == "running",
+                )
+                .values(state="terminal_unknown")
+            )
+
     def claim_triage(self, operation_id: str) -> tuple[str, dict[str, Any] | None]:
         """Claim one triage operation before a model call; completed calls replay safely."""
         with self._Session.begin() as session:
@@ -513,12 +570,17 @@ class InsightStore:
         """Return only operation state and an allowlisted reservation projection."""
         with self._Session() as session:
             triage = session.get(IntelligenceTriageRow, operation_id)
+            search_expansion = None
+            if operation_id.startswith("search-expansion:"):
+                query_hash = operation_id.removeprefix("search-expansion:")
+                if len(query_hash) == 64 and all(c in "0123456789abcdef" for c in query_hash):
+                    search_expansion = session.get(IntelligenceSearchExpansionRow, query_hash)
             reservation_row = session.execute(
                 select(IntelligenceBudgetReservationRow).where(
                     IntelligenceBudgetReservationRow.operation_id == operation_id
                 )
             ).scalar_one_or_none()
-            if triage is None and reservation_row is None:
+            if triage is None and search_expansion is None and reservation_row is None:
                 return None
 
             reservation = None
@@ -535,6 +597,9 @@ class InsightStore:
             return {
                 "operation_id": operation_id,
                 "triage_state": triage.state if triage is not None else None,
+                "search_expansion_state": (
+                    search_expansion.state if search_expansion is not None else None
+                ),
                 "has_triage_result": triage is not None and triage.state == "complete",
                 "reservation": reservation,
             }

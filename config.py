@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     # latter.  Leave either unset to deny the operation rather than spend.
     INTELLIGENCE_KNOWLEDGE_ALLOWANCE_MICROS: int | None = None
     INTELLIGENCE_KNOWLEDGE_MAXIMUM_MICROS: int | None = None
+    # A lexical search miss can request one cached S2K query expansion only
+    # when both limits are set. Unknown usage encumbers the full reservation.
+    INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS: int | None = None
     KNOWLEDGE_RUBRIC_PATH: str | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires

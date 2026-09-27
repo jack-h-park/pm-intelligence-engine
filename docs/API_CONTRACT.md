@@ -568,6 +568,30 @@ point the operations client / dashboard move to `/decision`.
 
 ## Insight Retrieval
 
+### `GET /insights/search?q=<query>&limit=<1..100>`
+
+Searches current authoritative Insight revisions and returns `{ "items": [...] }`.
+The query is limited to 200 characters. A lexical match returns without a model
+call. On a miss, the Engine can request up to three English translations or
+exact synonyms through the isolated S2K provider and repeat the lexical search;
+the model does not generate an answer or certify an Insight. A second miss still
+returns an empty list. The caller retrieves passage-linked evidence with the
+revision-pinned evidence route below.
+
+Model expansion is **disabled by default**. Both
+`INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS` (UTC-day total) and
+`INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS` (per unique query), plus
+`INTELLIGENCE_RATE_REVISION`, must be configured before any expansion call.
+An authenticated search can then reserve budget and call a provider, even though
+the route uses GET; clients must not prefetch arbitrary search URLs. The Engine
+hashes the normalized query and caches a successful expansion, so retries do
+not call the model again. An ambiguous provider result is fenced as
+`terminal_unknown` and cannot be retried automatically. Billed cost across
+OAuth/fallback routes is not inferred from token counts: the full reservation
+remains `unknown` and encumbered for review. The sanitized
+`GET /insight-operations/search-expansion:<query-hash>` response exposes its
+state and reservation without disclosing query text or model output.
+
 ### `POST /insight-operations/{operation_id}/reconcile-unknown`
 
 This operator-only endpoint records `running → terminal_unknown` when an S2K
