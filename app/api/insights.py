@@ -56,7 +56,11 @@ from app.services.insight_migration import (
     validate_legacy_disposition_plan,
     verify_legacy_preflight,
 )
-from app.services.insight_search import search_insights
+from app.services.insight_search import (
+    SEARCH_EXPANSION_REVISION,
+    search_insights,
+    search_with_expansion,
+)
 from app.services.insight_sync import InsightListCursor, decode_cursor, encode_cursor
 from app.services.insight_triage import TriageBudgetDenied, TriageDecision, triage_with_reservation
 from app.services.product_connections import ProductConnectionAssessment, ProductConnectionService
@@ -87,6 +91,7 @@ class InsightOperationReservationStatus(BaseModel):
 class InsightOperationStatus(BaseModel):
     operation_id: str
     triage_state: str | None
+    search_expansion_state: Literal["running", "complete", "terminal_unknown"] | None
     has_triage_result: bool
     reservation: InsightOperationReservationStatus | None
 
@@ -1166,16 +1171,52 @@ async def get_job(job_id: str, engine: PMEngine = Depends(get_engine)) -> Insigh
 
 @router.get("/insights/search", response_model=InsightSearchResults)
 async def search(
-    q: str = Query(min_length=1),
+    q: str = Query(min_length=1, max_length=200),
     limit: int = Query(default=20, ge=1, le=100),
     engine: PMEngine = Depends(get_engine),
 ) -> InsightSearchResults:
+    q = q.strip()
+    if not q:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="search query must contain text",
+        )
     if engine.insight_store is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Insight storage is unavailable",
         )
-    return InsightSearchResults(items=search_insights(engine.insight_store, q)[:limit])
+    matches = search_insights(engine.insight_store, q)
+    if matches:
+        return InsightSearchResults(items=matches[:limit])
+    from config import settings
+
+    allowance = settings.INTELLIGENCE_RETRIEVAL_ALLOWANCE_MICROS or 0
+    maximum = settings.INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS or 0
+    if allowance <= 0 or maximum <= 0 or not settings.INTELLIGENCE_RATE_REVISION:
+        return InsightSearchResults(items=[])
+    matches = await search_with_expansion(
+        engine.insight_store,
+        q,
+        llm_factory=build_s2k_llm_provider,
+        budget=BudgetService(
+            engine.insight_store,
+            BudgetPolicy(
+                allowances_micros={"retrieval": allowance},
+                rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+            ),
+        ),
+        reservation_payload={
+            "operation_type": "search_expansion",
+            "policy_revision": SEARCH_EXPANSION_REVISION,
+            "provider": "s2k_hermes_route",
+            "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
+            "maximum_micros": maximum,
+            "allowance_class": "retrieval",
+            "budget_window": utc_day_window(),
+        },
+    )
+    return InsightSearchResults(items=matches[:limit])
 
 
 @router.get("/insights", response_model=InsightSearchResults)

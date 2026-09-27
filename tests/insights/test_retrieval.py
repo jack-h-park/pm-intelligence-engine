@@ -1,5 +1,5 @@
 from app.models.insights import InsightRevision, PreparedContext
-from app.services.insight_search import search_insights
+from app.services.insight_search import search_expansion_hash, search_insights
 
 
 def _saved_insight(store, candidate_payload, source_payload, bundle_payload):
@@ -47,3 +47,23 @@ def test_search_returns_no_answer_without_a_supported_match(
     _saved_insight(store_factory(), candidate_payload, source_payload, bundle_payload)
 
     assert search_insights(store_factory(), "unrelated quantum topic") == []
+
+
+def test_expansion_claim_survives_restart_and_never_replays_an_ambiguous_call(store_factory):
+    store = store_factory()
+    completed_hash = search_expansion_hash("안드로이드")
+    unknown_hash = search_expansion_hash("휴대폰")
+    assert completed_hash == search_expansion_hash(" 안드로이드 ")
+
+    assert store.claim_search_expansion(completed_hash) == ("claimed", None)
+    assert store.claim_search_expansion(completed_hash) == ("running", None)
+    store.complete_search_expansion(completed_hash, ["Android"])
+    assert store_factory().claim_search_expansion(completed_hash) == (
+        "complete", ["Android"]
+    )
+
+    assert store.claim_search_expansion(unknown_hash) == ("claimed", None)
+    store.mark_search_expansion_unknown(unknown_hash)
+    assert store_factory().claim_search_expansion(unknown_hash) == (
+        "terminal_unknown", None
+    )
