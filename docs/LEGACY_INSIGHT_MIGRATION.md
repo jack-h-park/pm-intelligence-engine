@@ -16,7 +16,12 @@ legacy inventory.
    source hash and snapshot revision, and selects a disposition. Missing-source
    records must remain deferred. `review_reference` records where the human
    review can be found; a caller-supplied string is not proof of approval.
-   Recording a plan creates no aliases or overlay.
+   A decision may explicitly set `suppress_legacy_reminder=true` only for a
+   resolved Gate 0 sensing file with `preserve_reference`, and must name its
+   `replacement_insight_id`. Both values are bound into the plan hash. Omitted
+   or false suppression leaves existing plan hashes unchanged. Recording a
+   plan creates no aliases or overlay, and the replacement ID is not yet
+   verified at plan-record time.
 4. `POST /insight-migration-inventories/legacy/{id}/imports` adds at most 100
    metadata aliases per call, keyed by inventory, origin, and revision. It
    requires the original manifest hash, the saved plan ID and hash, and a
@@ -47,7 +52,10 @@ The flag is an operational gate, not an E10 default-cutover authorization.
 
 The import writes only `intelligence_migration_aliases`. It does not create
 Insights, change source or decision records, send notifications, call a model,
-spend an allowance, or enable the migration overlay. The existing per-origin
+spend an allowance, or enable the migration overlay. An imported suppression
+decision remains inert until a separate release-gated overlay path validates
+the replacement Insight and enables consistent readers. That external overlay
+activation path is not implemented yet. The existing per-origin
 overlay and Candidate importer remain independent. Rollback disables readers
 and retains original records and alias receipts; it does not restore an old
 database over newer decisions.

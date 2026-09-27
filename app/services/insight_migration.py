@@ -192,14 +192,35 @@ def validate_legacy_disposition_plan(
                 raise ValueError("unresolved legacy origin must remain deferred")
         elif disposition not in {expected, "defer_unresolved"}:
             raise ValueError("legacy disposition conflicts with the origin type")
-        bound.append({
+        suppress = decision.get("suppress_legacy_reminder", False)
+        replacement = decision.get("replacement_insight_id")
+        if type(suppress) is not bool:
+            raise ValueError("legacy reminder suppression must be a boolean")
+        if suppress and not (
+            entry["original_system"] == "gate0_sensing"
+            and entry["original_type"] == "sensing_file"
+            and entry["migration_state"] != "unresolved"
+            and disposition == "preserve_reference"
+        ):
+            raise ValueError("legacy reminder suppression applies only to resolved sensing files")
+        if suppress:
+            if not isinstance(replacement, str) or not replacement.strip():
+                raise ValueError("legacy reminder suppression needs a replacement Insight ID")
+            replacement_id = replacement.strip()
+        if not suppress and replacement is not None:
+            raise ValueError("replacement Insight ID requires legacy reminder suppression")
+        row: dict[str, Any] = {
             "original_system": entry["original_system"],
             "original_type": entry["original_type"],
             "original_id": entry["original_id"],
             "source_hash": entry.get("source_hash"),
             "snapshot_revision": entry.get("snapshot_revision"),
             "disposition": disposition,
-        })
+        }
+        if suppress:
+            row["suppress_legacy_reminder"] = True
+            row["replacement_insight_id"] = replacement_id
+        bound.append(row)
     if by_identity:
         raise ValueError("legacy disposition plan contains an unknown origin")
 
@@ -219,6 +240,7 @@ def validate_legacy_disposition_plan(
         **canonical,
         "record_count": len(bound),
         "deferred_count": sum(row["disposition"] == "defer_unresolved" for row in bound),
+        "suppressed_count": sum(row.get("suppress_legacy_reminder", False) for row in bound),
     }
 
 

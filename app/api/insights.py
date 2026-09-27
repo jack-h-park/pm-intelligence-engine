@@ -323,6 +323,8 @@ class LegacyDispositionDecision(_Request):
         "preserve_reference", "preserve_source", "preserve_decision",
         "preserve_artifact", "rebuildable_projection", "defer_unresolved",
     ]
+    suppress_legacy_reminder: bool = Field(default=False, strict=True)
+    replacement_insight_id: str | None = None
 
 
 class LegacyDispositionPlanCreate(_Request):
@@ -337,6 +339,7 @@ class LegacyDispositionPlanAccepted(BaseModel):
     manifest_hash: str
     record_count: int
     deferred_count: int
+    suppressed_count: int = 0
     state: Literal["recorded_unactivated"] = "recorded_unactivated"
 
 
@@ -850,6 +853,7 @@ def _legacy_plan_response(payload: dict[str, Any]) -> LegacyDispositionPlanAccep
         manifest_hash=payload["source_manifest_hash"],
         record_count=payload["record_count"],
         deferred_count=payload["deferred_count"],
+        suppressed_count=payload.get("suppressed_count", 0),
     )
 
 

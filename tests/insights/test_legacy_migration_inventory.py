@@ -223,6 +223,58 @@ def test_legacy_plan_requires_complete_revision_bound_decisions():
         validate_legacy_disposition_plan(inventory, approved_missing)
 
 
+def test_legacy_reminder_suppression_is_explicit_revision_bound_and_sensing_only():
+    manifest = _manifest()
+    inventory = validate_external_legacy_inventory(manifest)
+    inventory["inventory_id"] = "inventory-1"
+    ordinary = _plan(manifest)
+    baseline = validate_legacy_disposition_plan(inventory, ordinary)
+    explicit_false = _plan(manifest)
+    explicit_false["decisions"][0]["suppress_legacy_reminder"] = False
+    assert (
+        validate_legacy_disposition_plan(inventory, explicit_false)["inventory_hash"]
+        == baseline["inventory_hash"]
+    )
+
+    selected = _plan(manifest)
+    selected["decisions"][0]["suppress_legacy_reminder"] = True
+    selected["decisions"][0]["replacement_insight_id"] = "insight-1"
+    plan = validate_legacy_disposition_plan(inventory, selected)
+    assert plan["inventory_hash"] != baseline["inventory_hash"]
+    assert plan["suppressed_count"] == 1
+    assert plan["records"][0]["suppress_legacy_reminder"] is True
+    assert "suppress_legacy_reminder" not in plan["records"][1]
+
+    unresolved = _plan(manifest)
+    unresolved["decisions"][1]["suppress_legacy_reminder"] = True
+    unresolved["decisions"][1]["replacement_insight_id"] = "insight-1"
+    with pytest.raises(ValueError, match="only.*resolved sensing files"):
+        validate_legacy_disposition_plan(inventory, unresolved)
+    wrong_type = _plan(manifest)
+    wrong_type["decisions"][0]["suppress_legacy_reminder"] = "true"
+    with pytest.raises(ValueError, match="boolean"):
+        validate_legacy_disposition_plan(inventory, wrong_type)
+    missing_replacement = _plan(manifest)
+    missing_replacement["decisions"][0]["suppress_legacy_reminder"] = True
+    with pytest.raises(ValueError, match="replacement Insight"):
+        validate_legacy_disposition_plan(inventory, missing_replacement)
+    non_sensing = _manifest()
+    non_sensing["entries"][0]["original_system"] = "pm_engine"
+    non_sensing["entries"][0]["original_type"] = "signal"
+    non_sensing["manifest_hash"] = hashlib.sha256(json.dumps(
+        {"entries": non_sensing["entries"], "snapshot": non_sensing["snapshot"]},
+        sort_keys=True, separators=(",", ":"),
+    ).encode()).hexdigest()
+    other_inventory = validate_external_legacy_inventory(non_sensing)
+    other_inventory["inventory_id"] = "inventory-other"
+    other = _plan(non_sensing)
+    other["decisions"][0]["disposition"] = "preserve_source"
+    other["decisions"][0]["suppress_legacy_reminder"] = True
+    other["decisions"][0]["replacement_insight_id"] = "insight-1"
+    with pytest.raises(ValueError, match="only.*resolved sensing files"):
+        validate_legacy_disposition_plan(other_inventory, other)
+
+
 def test_legacy_preflight_requires_fresh_signed_matching_receipt():
     secret = "fixture-preflight-secret-longer-than-32-characters"
     receipt = _preflight("inventory-1", "a" * 64, "b" * 64, secret)
@@ -307,6 +359,37 @@ def test_legacy_plan_import_is_flagged_bounded_and_restart_safe(tmp_path):
         )
 
 
+def test_reviewed_suppression_metadata_is_preserved_by_quiet_import(tmp_path):
+    store = InsightStore(f"sqlite:///{tmp_path}/legacy-suppression.db")
+    store.initialize_schema()
+    manifest = _manifest()
+    inventory = validate_external_legacy_inventory(manifest)
+    inventory["inventory_id"] = "inventory-1"
+    store.save_migration_inventory("inventory-1", inventory["inventory_hash"], inventory)
+    proposal = _plan(manifest)
+    proposal["decisions"][0].update(
+        suppress_legacy_reminder=True, replacement_insight_id="insight-1"
+    )
+    plan = validate_legacy_disposition_plan(inventory, proposal)
+    plan["inventory_id"] = "plan-1"
+    store.save_migration_inventory("plan-1", plan["inventory_hash"], plan)
+
+    result = store.import_legacy_disposition_plan(
+        "inventory-1", manifest["manifest_hash"], "plan-1", plan["inventory_hash"],
+        batch_size=100, preflight_signature="a" * 64,
+    )
+
+    assert result == {"imported_count": 2, "complete": True}
+    aliases = store.list_migration_aliases("inventory-1")
+    selected = next(row for row in aliases if row["original_id"] == "source.md")
+    assert selected["suppress_legacy_reminder"] is True
+    assert selected["replacement_insight_id"] == "insight-1"
+    assert "suppress_legacy_reminder" not in next(
+        row for row in aliases if row["original_id"] == "missing.md"
+    )
+    assert store.get_migration_overlay("inventory-1") is None
+
+
 def test_legacy_plan_api_requires_auth_and_import_flag(client, auth_headers, monkeypatch):
     from config import settings
 
@@ -316,11 +399,15 @@ def test_legacy_plan_api_requires_auth_and_import_flag(client, auth_headers, mon
     ).json()
     base = f"/insight-migration-inventories/legacy/{inventory['inventory_id']}"
     proposal = _plan(manifest)
+    proposal["decisions"][0].update(
+        suppress_legacy_reminder=True, replacement_insight_id="insight-1"
+    )
     assert client.post(base + "/plans", json=proposal).status_code == 401
     recorded = client.post(base + "/plans", json=proposal, headers=auth_headers)
     assert recorded.status_code == 201
     plan = recorded.json()
     assert plan["state"] == "recorded_unactivated"
+    assert plan["suppressed_count"] == 1
     assert client.post(base + "/plans", json=proposal, headers=auth_headers).json() == plan
     assert client.get(base + "/plans/" + plan["plan_id"], headers=auth_headers).json() == plan
     generic = f"/insight-migration-inventories/{plan['plan_id']}"
