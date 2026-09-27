@@ -49,6 +49,32 @@ def test_search_returns_no_answer_without_a_supported_match(
     assert search_insights(store_factory(), "unrelated quantum topic") == []
 
 
+def test_correction_replaces_current_search_result_but_preserves_old_record(
+    store_factory, candidate_payload, source_payload, bundle_payload
+):
+    store = store_factory()
+    old = _saved_insight(store, candidate_payload, source_payload, bundle_payload)
+    corrected_payload = old.model_dump(mode="json")
+    corrected_payload.update({
+        "insight_id": "corrected-profile-boundary",
+        "headline": "Corrected profile boundary",
+        "explanation": "The profile boundary has narrower scope.",
+        "actual_change": "The profile boundary changed.",
+        "takeaway": "Review profile behavior.",
+        "claims": [{
+            "text": "The profile boundary is narrower.", "passage_ids": ["passage-fixture-1"],
+        }],
+        "supersedes_insight_id": old.insight_id,
+    })
+    corrected = store.save_insight(corrected_payload)
+
+    assert search_insights(store_factory(), "administrative") == []
+    assert [item.insight_id for item in search_insights(store_factory(), "profile boundary")] == [
+        corrected.insight_id
+    ]
+    assert store_factory().get_insight(old.insight_id) == old
+
+
 def test_expansion_claim_survives_restart_and_never_replays_an_ambiguous_call(store_factory):
     store = store_factory()
     completed_hash = search_expansion_hash("안드로이드")
