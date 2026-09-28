@@ -146,8 +146,8 @@ async def test_judgment_uses_its_own_usage_stage(tmp_path, monkeypatch):
     rubric.write_text("# Four tests\nDurability and abstraction.", encoding="utf-8")
     stages: list[str] = []
 
-    async def fixture_complete_json(llm, messages, *, stage, run_id):
-        del llm, messages, run_id
+    async def fixture_complete_json(llm, messages, *, stage, run_id, completion_route_sink=None):
+        del llm, messages, run_id, completion_route_sink
         stages.append(stage)
         return {
             "decision": "leave_as_evidence",

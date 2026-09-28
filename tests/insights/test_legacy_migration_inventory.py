@@ -57,11 +57,18 @@ def _manifest():
             "alias_group_links": [],
         },
     ]
-    snapshot = {"coverage": "sensing_engine_wiki_references_with_outputs_artifacts_and_capture_rows"}
+    snapshot = {
+        "coverage": "sensing_engine_wiki_references_with_outputs_artifacts_and_capture_rows"
+    }
     digest = hashlib.sha256(json.dumps(
         {"entries": entries, "snapshot": snapshot}, sort_keys=True, separators=(",", ":")
     ).encode()).hexdigest()
-    return {"manifest_version": 4, "manifest_hash": digest, "entries": entries, "snapshot": snapshot}
+    return {
+        "manifest_version": 4,
+        "manifest_hash": digest,
+        "entries": entries,
+        "snapshot": snapshot,
+    }
 
 
 def _plan(manifest):
@@ -130,7 +137,9 @@ def test_legacy_batch_is_authenticated_idempotent_and_not_importable(client, aut
     unauthorized = client.post("/insight-migration-inventories/legacy", json=payload)
     assert unauthorized.status_code == 401
 
-    created = client.post("/insight-migration-inventories/legacy", json=payload, headers=auth_headers)
+    created = client.post(
+        "/insight-migration-inventories/legacy", json=payload, headers=auth_headers
+    )
     assert created.status_code == 201
     body = created.json()
     assert body["manifest_hash"] == payload["manifest_hash"]
