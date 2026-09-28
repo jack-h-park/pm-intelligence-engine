@@ -4,7 +4,7 @@ import json
 import uuid
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import CompletionRoute, LLMProvider
 from app.models.insights import EvidenceBundle, InsightClaim, InsightRevision
 from app.services.insight_context import PreparedContext
 
@@ -21,6 +21,7 @@ async def analyze_bundle(
         for passage in bundle.passages
     ]
     allowed_passage_ids = json.dumps(sorted(bundle.passage_ids))
+    completion_routes: list[CompletionRoute] = []
     payload = await complete_json(
         llm,
         [
@@ -56,6 +57,7 @@ async def analyze_bundle(
         ],
         stage="personal_insight",
         run_id=str(uuid.uuid4()),
+        completion_route_sink=completion_routes,
     )
     claims = [InsightClaim.model_validate(item) for item in payload.get("claims", [])]
     permitted = bundle.passage_ids
@@ -74,4 +76,5 @@ async def analyze_bundle(
         question_ids=list(context.question_ids),
         note_connections=[],
         context_revision=context.context_revision,
+        generation_model=completion_routes[0].model if completion_routes else None,
     )

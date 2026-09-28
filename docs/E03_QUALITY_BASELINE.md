@@ -28,6 +28,15 @@ The retained raw body and stage outputs do **not** establish the exact prompt, c
 
 ## Remaining E03 acceptance work
 
+New S2K responses carry their validated actual provider/model route alongside the
+completion text. The JSON parser retains only the route of the accepted response,
+including after JSON repair or fallback. Analysis and knowledge judgment persist
+that response's model separately; unknown token usage does not erase known route
+metadata. Providers returning plain strings remain compatible and supply no actual
+route. Existing immutable Insights are not backfilled from a configured primary
+model. This corrects metadata propagation; it does not establish semantic quality,
+known billing, or representative acceptance.
+
 1. Freeze a bounded set of actual selected and excluded candidates, including strong historical outputs and known important omissions. Store permitted source snapshots and old output versions with provenance. Keep the selection denominator and limits explicit.
 2. Generate cached candidate results for the 12 semantic cases in an isolated fixture path with notifications disabled, keeping same-evidence and enriched reading distinct. Record effective model, prompt revision, source/LLM cost, latency, and the evidence budget. Do not infer a comparison for missing historical inputs.
 3. Obtain independent human review against cited passages, then report each dimension, factual failures, omissions, and useful-output denominator. This is the gate for representative quality, not the mere existence of the evaluator.

@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from app.llm.protocol import LLMProvider, Message, Usage
+from app.llm.protocol import CompletionRoute, CompletionText, LLMProvider, Message, Usage
 from app.logging import emit_event
 
 _ROUTE_ORDER = ("openai-codex", "anthropic", "openai")
@@ -487,7 +487,7 @@ class S2KBridgeProvider:
                 "output_tokens": measured["output_tokens"] if measured is not None else None,
             },
         )
-        return text
+        return CompletionText(text, CompletionRoute(provider=provider, model=resolved_model))
 
 
 def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
