@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.models.insights import PreparedFact
+from app.models.insights import Passage, PreparedFact
 
 
 def _new_uuid() -> str:
@@ -43,6 +43,8 @@ class DecisionCase(BaseModel):
     source_references: list[str] = Field(default_factory=list)
     insight_references: list[InsightRevisionReference] = Field(default_factory=list)
     confirmed_facts: list[PreparedFact] = Field(default_factory=list)
+    # Source statements remain evidence, rather than automatically becoming facts.
+    evidence_passages: list[Passage] = Field(default_factory=list)
     hypotheses: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     deadline: datetime | None = None

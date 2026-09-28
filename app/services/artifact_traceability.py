@@ -32,6 +32,7 @@ def build_artifact_traceability(
     allowed_passage_ids = {
         passage_id for fact in case.confirmed_facts for passage_id in fact.passage_ids
     }
+    allowed_passage_ids.update(passage.passage_id for passage in case.evidence_passages)
     for link in requirement_links:
         if set(link.evidence_passage_ids) - allowed_passage_ids:
             raise ValueError("artifact references evidence outside the pinned decision case")

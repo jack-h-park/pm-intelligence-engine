@@ -612,6 +612,7 @@ async def create_decision_request(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Confirmed product must match product_id",
         )
+    selected_passage_ids: set[str] = set()
     for reference in body.insight_references:
         insight = insight_store.get_insight(reference.insight_id)
         if insight is None:
@@ -620,6 +621,26 @@ async def create_decision_request(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Insight revision changed"
             )
+        if insight.prepared_context_id != prepared.prepared_context_id:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="Selected Insight must use the selected prepared context",
+            )
+        selected_passage_ids.update(
+            passage_id for claim in insight.claims for passage_id in claim.passage_ids
+        )
+    bundle = insight_store.get_bundle(prepared.bundle_id)
+    if bundle is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence bundle not found")
+    evidence_passages = [
+        passage for passage in bundle.passages
+        if not body.insight_references or passage.passage_id in selected_passage_ids
+    ]
+    if selected_passage_ids - {passage.passage_id for passage in evidence_passages}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Selected Insight cites evidence outside the prepared bundle",
+        )
     _validate_product_exists(body.product_id, engine)
     if body.depth is not None:
         validate_mode_for_product(body.depth, body.product_id)
@@ -633,6 +654,7 @@ async def create_decision_request(
         options=body.options,
         confirmed_product_id=body.confirmed_product_id,
         confirmed_by_actor=_actor_fingerprint(authorization),
+        evidence_passages=evidence_passages,
     )
     try:
         result, stored_status = engine.store.create_idempotent_decision_request(
