@@ -55,6 +55,27 @@ The evaluation fixtures are examples only. Replace them with domain-appropriate
 fixtures before using the engine for production decisions. Do not commit API
 keys, generated databases, run archives, or private context repositories.
 
+## Ambiguous S2K job recovery
+
+S2K workers persist `inference_state=started` and `inference_started_at` before
+external inference. A failure or expired lease after that boundary fences the
+job as `state=exhausted`, `inference_state=terminal_unknown`; it never queues
+another call. Completed analysis changes the inference state to `complete`.
+Expired historical scoped-candidate jobs are fenced conservatively even when
+their older payload lacks the marker. Generic pre-call leases retain recovery.
+These fields live in the existing job JSON, requiring no schema migration.
+
+After verifying the original worker/bridge process is gone and its lease has
+expired, use authenticated `POST /insight-jobs/{job_id}/reconcile-unknown` with
+a JSON `reason` and `X-S2K-Reconciliation-Token`. This uses the existing dedicated
+`S2K_RECONCILIATION_TOKEN` and server-owned `S2K_RECONCILIATION_OPERATOR_ID`.
+The endpoint rejects active leases and completed jobs and records the original
+operator, reason, prior state, and time in the job. Repeating reconciliation
+preserves that first record. It does not replay inference, create an Insight,
+send a notification, release a reservation, or assert zero provider usage.
+The Engine checks lease/state eligibility; checking process liveness is the
+operator's prerequisite. Preserve uncertain billing and source evidence for review.
+
 ## Repository layout
 
 ```text

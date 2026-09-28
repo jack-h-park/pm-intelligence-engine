@@ -1388,8 +1388,9 @@ class InsightStore:
         now: datetime | None = None,
     ) -> InsightRevision:
         """Persist analysis and job completion in one transaction under the active lease."""
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             job_row = session.get(IntelligenceJobRow, job_id)
             if job_row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
@@ -1430,6 +1431,8 @@ class InsightStore:
             )
             job.prepared_context_id = prepared.prepared_context_id
             job.state = "complete"
+            if job.inference_state == "started":
+                job.inference_state = "complete"
             job.completion_disposition = "ready"
             job.lease_token = None
             job.lease_expires_at = None
@@ -1459,8 +1462,9 @@ class InsightStore:
         now: datetime | None = None,
     ) -> InsightJob:
         """Close an unanalysable job explicitly instead of stranding its lease."""
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             row = session.get(IntelligenceJobRow, job_id)
             if row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
@@ -1494,8 +1498,9 @@ class InsightStore:
         self, job_id: str, lease_token: str, reason: str, now: datetime | None = None
     ) -> InsightJob:
         """Close an explicit duplicate/stale result without creating an Insight."""
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             row = session.get(IntelligenceJobRow, job_id)
             if row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
@@ -1514,21 +1519,104 @@ class InsightStore:
     def fail_job_retryable(
         self, job_id: str, lease_token: str, error: str, now: datetime | None = None
     ) -> InsightJob:
-        """Release a failed worker lease so a bounded later tick can retry it."""
-        current = _now(now)
+        """Retry pre-call failures; fence ambiguity after external inference starts."""
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             row = session.get(IntelligenceJobRow, job_id)
             if row is None:
                 raise MissingInsightRecord(f"job {job_id} was not found")
             job = InsightJob.model_validate_json(row.payload_json)
             if job.state != "running" or job.lease_token != lease_token:
                 raise StaleLease("job lease is stale")
-            job.state = "retryable_failed"
+            if job.inference_state == "started":
+                self._fence_unknown_job(job, error, current)
+            else:
+                job.state = "retryable_failed"
+                job.lease_token = None
+                job.lease_expires_at = None
+                job.next_attempt_at = current
+                job.error = error[:1000]
+                job.updated_at = current
+            self._write_job(row, job)
+            return job
+
+    @staticmethod
+    def _lock_job_transition(session: Session) -> None:
+        """Acquire SQLite's write lock before reading a job transition's state."""
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+
+    def mark_job_inference_started(self, job_id: str, lease_token: str) -> None:
+        """Persist the ambiguity boundary before an external S2K call can start."""
+        with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now()
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if (
+                job.state != "running" or job.lease_token != lease_token
+                or job.lease_expires_at is None or job.lease_expires_at <= current
+            ):
+                raise StaleLease("job lease is stale")
+            if job.inference_state != "not_started":
+                raise InvalidInsightReference("job inference cannot be replayed")
+            job.inference_state = "started"
+            job.inference_started_at = current
+            job.updated_at = current
+            self._write_job(row, job)
+
+    @staticmethod
+    def _fence_unknown_job(job: InsightJob, reason: str, current: datetime) -> None:
+        job.state = "exhausted"
+        job.inference_state = "terminal_unknown"
+        job.lease_token = None
+        job.lease_expires_at = None
+        job.next_attempt_at = None
+        job.error = reason[:1000]
+        job.updated_at = current
+
+    def _recover_expired_job(self, job: InsightJob, current: datetime) -> None:
+        # Old scoped jobs have no start marker, so treat their expired lease as
+        # ambiguous too. Fixture/pre-call generic leases can still be recovered.
+        if job.inference_state == "started" or job.scoped_candidate_runner:
+            self._fence_unknown_job(
+                job, "Worker lease expired; external inference outcome is unknown", current
+            )
+        else:
+            job.state = "queued"
             job.lease_token = None
             job.lease_expires_at = None
             job.next_attempt_at = current
-            job.error = error[:1000]
+            job.error = "Worker lease expired before inference started"
             job.updated_at = current
+
+    def reconcile_unknown_job(
+        self, job_id: str, *, operator_id: str, reason: str, now: datetime | None = None
+    ) -> InsightJob:
+        """Fence an expired ambiguous job; preserve data and encumbered budgets."""
+        with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
+            row = session.get(IntelligenceJobRow, job_id)
+            if row is None:
+                raise MissingInsightRecord(f"job {job_id} was not found")
+            job = InsightJob.model_validate_json(row.payload_json)
+            if job.inference_state == "terminal_unknown" and job.inference_reconciliation:
+                return job
+            if job.inference_state != "terminal_unknown" and not (
+                job.state == "running" and job.lease_expires_at is not None
+                and job.lease_expires_at <= current
+                and (job.inference_state == "started" or job.scoped_candidate_runner)
+            ):
+                raise ValueError("job has no expired ambiguous inference to reconcile")
+            prior_state = job.state
+            self._fence_unknown_job(job, reason, current)
+            job.inference_reconciliation = {
+                "operator_id": operator_id, "reason": reason,
+                "prior_state": prior_state, "recorded_at": current.isoformat(),
+            }
             self._write_job(row, job)
             return job
 
@@ -1658,8 +1746,9 @@ class InsightStore:
             return job, apply
 
     def claim_job(self, now: datetime | None = None) -> InsightJob | None:
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             expired = (
                 session.execute(
                     select(IntelligenceJobRow).where(
@@ -1673,12 +1762,7 @@ class InsightStore:
             )
             for row in expired:
                 job = InsightJob.model_validate_json(row.payload_json)
-                job.state = "queued"
-                job.lease_token = None
-                job.lease_expires_at = None
-                job.error = "Worker lease expired before completion"
-                job.next_attempt_at = current
-                job.updated_at = current
+                self._recover_expired_job(job, current)
                 self._write_job(row, job)
             claimable = (
                 session.execute(
@@ -1710,8 +1794,9 @@ class InsightStore:
         self, backfill_id: str, now: datetime | None = None
     ) -> InsightJob | None:
         """Lease only the named evidence-backfill job, never the generic queue."""
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             backfill_row = session.get(IntelligenceEvidenceBackfillRow, backfill_id)
             if backfill_row is None:
                 raise MissingInsightRecord(f"backfill {backfill_id} was not found")
@@ -1725,12 +1810,7 @@ class InsightStore:
             if job.backfill_id != backfill_id:
                 raise InvalidInsightReference("backfill does not reference its evidence job")
             if job.state == "running" and job.lease_expires_at and job.lease_expires_at <= current:
-                job.state = "queued"
-                job.lease_token = None
-                job.lease_expires_at = None
-                job.error = "Scoped worker lease expired before completion"
-                job.next_attempt_at = current
-                job.updated_at = current
+                self._recover_expired_job(job, current)
                 self._write_job(job_row, job)
             if job.state not in {"queued", "retryable_failed"} or (
                 job.next_attempt_at is not None and job.next_attempt_at > current
@@ -1809,8 +1889,9 @@ class InsightStore:
         self, candidate_id: str, now: datetime | None = None
     ) -> InsightJob | None:
         """Lease only the named Candidate's marked job, never generic work."""
-        current = _now(now)
         with self._Session.begin() as session:
+            self._lock_job_transition(session)
+            current = _now(now)
             rows = session.execute(
                 select(IntelligenceJobRow).where(
                     IntelligenceJobRow.scoped_candidate_id == candidate_id
@@ -1821,12 +1902,7 @@ class InsightStore:
                 raise MissingInsightRecord(f"scoped job for candidate {candidate_id} was not found")
             job = InsightJob.model_validate_json(scoped_row.payload_json)
             if job.state == "running" and job.lease_expires_at and job.lease_expires_at <= current:
-                job.state = "queued"
-                job.lease_token = None
-                job.lease_expires_at = None
-                job.error = "Scoped candidate worker lease expired before completion"
-                job.next_attempt_at = current
-                job.updated_at = current
+                self._recover_expired_job(job, current)
                 self._write_job(scoped_row, job)
             if job.state not in {"queued", "retryable_failed"} or (
                 job.next_attempt_at is not None and job.next_attempt_at > current

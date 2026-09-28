@@ -102,6 +102,8 @@ async def _process_claimed_job(
             decision_context_root if decision_context_root is not None
             else settings.DECISION_CONTEXT_ROOT,
         )
+        if isinstance(llm, S2KBridgeProvider):
+            store.mark_job_inference_started(job.job_id, job.lease_token or "")
         insight = await analyze_bundle(bundle, prepared, llm)
     except Exception as exc:
         store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))

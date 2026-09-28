@@ -1402,6 +1402,38 @@ async def get_job(job_id: str, engine: PMEngine = Depends(get_engine)) -> Insigh
 
 
 @router.post(
+    "/insight-jobs/{job_id}/reconcile-unknown", response_model=InsightJob,
+)
+async def reconcile_unknown_job(
+    job_id: str,
+    body: ReconcileUnknownOperationRequest,
+    reconciliation_token: str | None = Header(
+        default=None, alias="X-S2K-Reconciliation-Token"
+    ),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightJob:
+    """Record an operator fence without replaying inference or releasing spend."""
+    from config import settings
+
+    expected = settings.S2K_RECONCILIATION_TOKEN
+    operator_id = settings.S2K_RECONCILIATION_OPERATOR_ID
+    if not expected or not operator_id:
+        raise HTTPException(status_code=503, detail="S2K reconciliation is not configured")
+    if not reconciliation_token or not secrets.compare_digest(reconciliation_token, expected):
+        raise HTTPException(status_code=401, detail="Invalid reconciliation credential")
+    if engine.insight_store is None:
+        raise HTTPException(status_code=503, detail="Insight storage is unavailable")
+    try:
+        return engine.insight_store.reconcile_unknown_job(
+            job_id, operator_id=operator_id, reason=body.reason
+        )
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=404, detail="Job not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post(
     "/insight-jobs/{job_id}/reconcile-native-supplier-duplicate",
     response_model=ReconciledNativeSupplierJob,
 )
