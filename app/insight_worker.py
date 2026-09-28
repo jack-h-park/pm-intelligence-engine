@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from app.factory import build_s2k_llm_provider
+from app.llm.json_call import MAX_REPAIR_ATTEMPTS
 from app.llm.protocol import LLMProvider
 from app.llm.s2k_bridge import S2KBridgeProvider
 from app.models.insights import InsightJob, InsightRevision
@@ -18,6 +19,23 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 
+def _job_lease_options(llm: LLMProvider) -> dict[str, float]:
+    """Cover analysis and knowledge judgment, including JSON repairs and saving.
+
+    The bridge enforces a parent bound per completion. Both stages can make an
+    initial completion plus MAX_REPAIR_ATTEMPTS repairs. Reserve another minute
+    for context preparation and the final transaction. This is a lease bound,
+    not permission to retry ambiguous inference or a provider spending cap.
+    """
+    if isinstance(llm, S2KBridgeProvider):
+        return {
+            "lease_seconds": max(
+                120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
+            )
+        }
+    return {}
+
+
 async def process_one(
     store: InsightStore, llm: LLMProvider, *, decision_context_root: str | None = None
 ) -> InsightRevision | None:
@@ -27,7 +45,8 @@ async def process_one(
     only processes a job after a bundle has been persisted by the engine.
     """
     return await _process_claimed_job(
-        store, store.claim_job(), llm, decision_context_root=decision_context_root
+        store, store.claim_job(**_job_lease_options(llm)), llm,
+        decision_context_root=decision_context_root,
     )
 
 
@@ -35,7 +54,9 @@ async def process_backfill_one(
     store: InsightStore, backfill_id: str, llm: LLMProvider
 ) -> InsightRevision | None:
     """Advance only the named backfill by one bounded worker step."""
-    return await _process_claimed_job(store, store.claim_backfill_job(backfill_id), llm)
+    return await _process_claimed_job(
+        store, store.claim_backfill_job(backfill_id, **_job_lease_options(llm)), llm
+    )
 
 
 async def process_scoped_candidate_one(
@@ -43,7 +64,9 @@ async def process_scoped_candidate_one(
 ) -> InsightRevision | None:
     """Advance one named Candidate without touching the generic job queue."""
     store.ensure_scoped_candidate_job(candidate_id)
-    return await _process_claimed_job(store, store.claim_scoped_candidate_job(candidate_id), llm)
+    return await _process_claimed_job(
+        store, store.claim_scoped_candidate_job(candidate_id, **_job_lease_options(llm)), llm
+    )
 
 
 async def _process_claimed_job(
@@ -179,10 +202,7 @@ async def run_oauth_backfill_worker_tick(
     store: InsightStore, backfill_id: str
 ) -> InsightRevision | None:
     """Run one S2K analysis step for exactly one explicitly named backfill."""
-    job = store.claim_backfill_job(backfill_id)
-    if job is None:
-        return None
-    return await _process_claimed_job(store, job, build_s2k_llm_provider())
+    return await process_backfill_one(store, backfill_id, build_s2k_llm_provider())
 
 
 async def run_oauth_scoped_candidate_worker_tick(

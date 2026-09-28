@@ -290,6 +290,11 @@ class S2KBridgeProvider:
         self._max_stdout_bytes = max_stdout_bytes
         self._operation_id = operation_id
 
+    @property
+    def completion_timeout_seconds(self) -> float:
+        """Expose the enforced parent bound for worker lease sizing."""
+        return self._timeout_seconds
+
     def bind_job_id(self, job_id: str) -> None:
         """Attribute a worker's later provider calls to its claimed Insight job."""
         if self._operation_id is not None:

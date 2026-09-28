@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import uuid
 from collections import Counter
 from collections.abc import Callable
@@ -101,6 +102,22 @@ def _dml_result(result: object) -> CursorResult[Any]:
     if not isinstance(result, CursorResult):
         raise TypeError(f"expected CursorResult from DML, got {type(result).__name__}")
     return result
+
+
+def _job_lease_duration(seconds: float) -> timedelta:
+    """Validate before claiming so an invalid duration cannot mutate a job."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise ValueError("job lease seconds must be finite and positive")
+    try:
+        valid = math.isfinite(seconds) and seconds > 0
+        if valid:
+            duration = timedelta(seconds=seconds)
+            if duration > timedelta(0):
+                return duration
+    except (OverflowError, ValueError):
+        pass
+    raise ValueError("job lease seconds must be finite, positive, and representable")
+
 
 class InsightStore:
     """A dedicated store that never reaches into ``SQLiteStore`` internals."""
@@ -1761,7 +1778,10 @@ class InsightStore:
                 self._write_job(row, job)
             return job, apply
 
-    def claim_job(self, now: datetime | None = None) -> InsightJob | None:
+    def claim_job(
+        self, now: datetime | None = None, *, lease_seconds: float = 120
+    ) -> InsightJob | None:
+        lease_duration = _job_lease_duration(lease_seconds)
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1800,16 +1820,17 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + timedelta(seconds=120)
+            job.lease_expires_at = current + lease_duration
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(claimable, job)
             return job
 
     def claim_backfill_job(
-        self, backfill_id: str, now: datetime | None = None
+        self, backfill_id: str, now: datetime | None = None, *, lease_seconds: float = 120
     ) -> InsightJob | None:
         """Lease only the named evidence-backfill job, never the generic queue."""
+        lease_duration = _job_lease_duration(lease_seconds)
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1835,7 +1856,7 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + timedelta(seconds=120)
+            job.lease_expires_at = current + lease_duration
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(job_row, job)
@@ -1902,9 +1923,10 @@ class InsightStore:
             return job
 
     def claim_scoped_candidate_job(
-        self, candidate_id: str, now: datetime | None = None
+        self, candidate_id: str, now: datetime | None = None, *, lease_seconds: float = 120
     ) -> InsightJob | None:
         """Lease only the named Candidate's marked job, never generic work."""
+        lease_duration = _job_lease_duration(lease_seconds)
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1927,7 +1949,7 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + timedelta(seconds=120)
+            job.lease_expires_at = current + lease_duration
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(scoped_row, job)
