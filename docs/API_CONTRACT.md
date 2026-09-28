@@ -736,3 +736,19 @@ operator intervention.
 | 503 | Server started without `PM_PLATFORM_API_TOKEN` set (fails closed) |
 
 All errors return `{ "detail": "human-readable message" }`.
+
+### One-time Insight transport permission
+
+`POST /insights/{insight_id}/delivery-attempts` accepts `{revision, channel}`
+(`telegram` or `discord`) under the normal bearer authentication. Engine mode
+must be `insights` and Insight writes enabled; otherwise it returns409. Only
+an exact current revision is accepted; missing/replaced revisions return404.
+The response includes the delivery receipt fields and `send_authorized`.
+Atomic insertion under the existing Insight/revision/channel unique constraint
+returns true only for a newly committed intent. Existing queued, unknown or sent
+intents return false, so a different client/journal cannot authorize a new send.
+The caller fences its local attempt, sends once only after true, and records
+confirmed or uncertain delivery through the existing delivery-receipt endpoint.
+This permission is deliberately not retryable after a crash: availability may
+require operator reconciliation, while blind duplicate transport is prevented.
+No schema or legacy delivery-receipt API change is required.

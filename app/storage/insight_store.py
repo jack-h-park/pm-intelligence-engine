@@ -12,6 +12,7 @@ from typing import Any, TypeVar, cast
 from pydantic import BaseModel
 from sqlalchemy import Engine, and_, create_engine, delete, or_, select, update
 from sqlalchemy.engine import CursorResult
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -1366,6 +1367,31 @@ class InsightStore:
                     ),
                 },
             }
+
+    def claim_delivery_once(self, insight_id: str, revision: int, channel: str) -> dict[str, Any]:
+        """Only insertion of a new durable channel intent grants transport permission."""
+        payload = {
+            "receipt_id": str(uuid.uuid4()), "insight_id": insight_id,
+            "revision": revision, "channel": channel, "state": "queued",
+        }
+        with self._Session.begin() as session:
+            insight = session.get(IntelligenceInsightRow, insight_id)
+            if insight is None or json.loads(insight.payload_json).get("revision") != revision:
+                raise MissingInsightRecord("Insight revision was not found")
+            result = session.execute(sqlite_insert(IntelligenceDeliveryReceiptRow).values(
+                **payload, payload_json=json.dumps(payload, sort_keys=True)
+            ).on_conflict_do_nothing(index_elements=["insight_id", "revision", "channel"]))
+            inserted = result.rowcount == 1
+            if not inserted:
+                existing = session.scalar(select(IntelligenceDeliveryReceiptRow).where(
+                    IntelligenceDeliveryReceiptRow.insight_id == insight_id,
+                    IntelligenceDeliveryReceiptRow.revision == revision,
+                    IntelligenceDeliveryReceiptRow.channel == channel,
+                ))
+                if existing is None:
+                    raise RuntimeError("Delivery intent conflict could not be read")
+                payload = json.loads(existing.payload_json)
+        return {**payload, "send_authorized": inserted}
 
     def save_delivery_receipt(
         self, insight_id: str, revision: int, channel: str, state: str
