@@ -10,7 +10,13 @@ MAX_PASSAGES_PER_SOURCE = 12
 
 def _passage_texts(material: str) -> list[str]:
     paragraphs = [part.strip() for part in re.split(r"\n\s*\n", material) if part.strip()]
-    return paragraphs[:MAX_PASSAGES_PER_SOURCE] if len(paragraphs) > 1 else [material.strip()]
+    if len(paragraphs) <= 1:
+        return [material.strip()]
+    group_size = (len(paragraphs) + MAX_PASSAGES_PER_SOURCE - 1) // MAX_PASSAGES_PER_SOURCE
+    return [
+        "\n\n".join(paragraphs[start:start + group_size])
+        for start in range(0, len(paragraphs), group_size)
+    ]
 
 
 def prepare_evidence(
@@ -31,6 +37,10 @@ def prepare_evidence(
         if not material.strip():
             continue
         texts = _passage_texts(material)
+        paragraph_count = len(
+            [part for part in re.split(r"\n\s*\n", material) if part.strip()]
+        )
+        group_size = max(1, (paragraph_count + MAX_PASSAGES_PER_SOURCE - 1) // MAX_PASSAGES_PER_SOURCE)
         locator = (
             source.excerpts[0].locator if source.excerpts and source.excerpts[0].locator else "body"
         )
@@ -39,14 +49,15 @@ def prepare_evidence(
                 Passage(
                     passage_id=f"{source.source_id}:{passage_index}",
                     source_id=source.source_id,
-                    locator=locator,
+                    locator=(
+                        f"{locator}:paragraphs:{passage_index * group_size + 1}-"
+                        f"{min((passage_index + 1) * group_size, paragraph_count)}"
+                        if paragraph_count > 1 else locator
+                    ),
                     text=text,
                     role="seed" if index == 0 else "enrichment",
                 )
             )
-        paragraph_count = len(
-            [part for part in re.split(r"\n\s*\n", material) if part.strip()]
-        )
         if paragraph_count == 1:
             gaps.append(
                 f"Source {source.source_id} is a coarse passage without paragraph boundaries."
@@ -54,7 +65,7 @@ def prepare_evidence(
         if paragraph_count > MAX_PASSAGES_PER_SOURCE:
             gaps.append(
                 f"Source {source.source_id} exceeded the passage limit; "
-                "later paragraphs were omitted."
+                "adjacent paragraphs were grouped without omitting source text."
             )
     if not passages:
         gaps.append("No usable source body was supplied for this candidate.")
