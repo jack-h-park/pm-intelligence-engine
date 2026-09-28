@@ -10,7 +10,7 @@ from typing import Any, get_args
 from pydantic import ValidationError
 
 from app.llm.json_call import complete_json
-from app.llm.protocol import LLMProvider
+from app.llm.protocol import CompletionRoute, LLMProvider
 from app.logging import emit_event
 from app.models.insights import KnowledgeVerdict
 from app.services.insight_budget import BudgetService
@@ -161,6 +161,7 @@ async def judge_knowledge(
             )
         reservation_id = reservation.reservation.reservation_id
     try:
+        completion_routes: list[CompletionRoute] = []
         payload = await complete_json(
             llm,
             [
@@ -189,12 +190,13 @@ async def judge_knowledge(
             ],
             stage="insight_knowledge_verdict",
             run_id=run_id,
+            completion_route_sink=completion_routes,
         )
         payload = _bound_reason(payload)
         for field in _ENGINE_OWNED_FIELDS:
             payload.pop(field, None)
         payload["rubric_revision"] = rubric_revision
-        payload["model"] = model
+        payload["model"] = completion_routes[0].model if completion_routes else model
         verdict = KnowledgeVerdict.model_validate(payload)
     except Exception as exc:
         detail: dict[str, Any] = {"exception_type": type(exc).__name__}

@@ -1,4 +1,24 @@
+from dataclasses import dataclass
 from typing import Literal, NotRequired, Protocol, TypedDict, runtime_checkable
+
+
+@dataclass(frozen=True)
+class CompletionRoute:
+    """Actual route of one successful response, independent of token availability."""
+
+    provider: str
+    model: str
+
+
+class CompletionText(str):
+    """String-compatible response carrying its own route, never provider-global state."""
+
+    route: CompletionRoute
+
+    def __new__(cls, text: str, route: CompletionRoute) -> "CompletionText":
+        value = super().__new__(cls, text)
+        value.route = route
+        return value
 
 
 class Message(TypedDict):

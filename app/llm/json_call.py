@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from app.llm.protocol import LLMProvider, Message, Usage
+from app.llm.protocol import CompletionRoute, CompletionText, LLMProvider, Message, Usage
 from app.logging import emit_event
 
 MAX_REPAIR_ATTEMPTS = 2
@@ -41,6 +41,7 @@ async def complete_json(
     run_id: str,
     max_repair_attempts: int = MAX_REPAIR_ATTEMPTS,
     usage_sink: list[Usage] | None = None,
+    completion_route_sink: list[CompletionRoute] | None = None,
     **llm_kwargs: Any,
 ) -> dict[str, Any]:
     """Call the LLM and parse its response as JSON, repairing on parse failure.
@@ -52,11 +53,21 @@ async def complete_json(
     If ``usage_sink`` is provided, every underlying LLM call (including each
     JSON-repair retry) appends its token usage — so the caller sees the true total
     cost of producing this stage's JSON, not just the final attempt.
+
+    ``completion_route_sink`` receives only the response whose JSON was accepted.
+    Plain string providers leave it empty; a configured route is never substituted
+    for missing response metadata. Token usage may be unknown independently.
     """
+    def accepted_json(response: str) -> dict[str, Any]:
+        parsed = parse_json(response)
+        if completion_route_sink is not None and isinstance(response, CompletionText):
+            completion_route_sink.append(response.route)
+        return parsed
+
     raw = await llm.complete(messages=messages, usage_sink=usage_sink, **llm_kwargs)
     for attempt in range(1, max_repair_attempts + 1):
         try:
-            return parse_json(raw)
+            return accepted_json(raw)
         except json.JSONDecodeError as exc:
             emit_event(
                 stage,
@@ -71,7 +82,7 @@ async def complete_json(
             ]
             raw = await llm.complete(messages=repair_messages, usage_sink=usage_sink, **llm_kwargs)
     try:
-        return parse_json(raw)
+        return accepted_json(raw)
     except json.JSONDecodeError as exc:
         emit_event(
             stage,
