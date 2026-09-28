@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import math
 import uuid
 from collections import Counter
 from collections.abc import Callable
@@ -101,6 +102,22 @@ def _dml_result(result: object) -> CursorResult[Any]:
     if not isinstance(result, CursorResult):
         raise TypeError(f"expected CursorResult from DML, got {type(result).__name__}")
     return result
+
+
+def _job_lease_duration(seconds: float) -> timedelta:
+    """Validate before the inference transition can mutate a job."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        raise ValueError("job lease seconds must be finite and positive")
+    try:
+        valid = math.isfinite(seconds) and seconds > 0
+        if valid:
+            duration = timedelta(seconds=seconds)
+            if duration > timedelta(0):
+                return duration
+    except (OverflowError, ValueError):
+        pass
+    raise ValueError("job lease seconds must be finite, positive, and representable")
+
 
 class InsightStore:
     """A dedicated store that never reaches into ``SQLiteStore`` internals."""
@@ -1562,8 +1579,15 @@ class InsightStore:
         """Acquire SQLite's write lock before reading a job transition's state."""
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
 
-    def mark_job_inference_started(self, job_id: str, lease_token: str) -> None:
-        """Persist the ambiguity boundary before an external S2K call can start."""
+    def mark_job_inference_started(
+        self, job_id: str, lease_token: str, *, lease_seconds: float | None = None
+    ) -> None:
+        """Persist the ambiguity boundary and bounded inference lease atomically.
+
+        The original claim must still be active. Never revive an expired claim;
+        calls without an explicit duration preserve the existing expiry.
+        """
+        duration = _job_lease_duration(lease_seconds) if lease_seconds is not None else None
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now()
@@ -1578,6 +1602,8 @@ class InsightStore:
                 raise StaleLease("job lease is stale")
             if job.inference_state != "not_started":
                 raise InvalidInsightReference("job inference cannot be replayed")
+            if duration is not None:
+                job.lease_expires_at = current + duration
             job.inference_state = "started"
             job.inference_started_at = current
             job.updated_at = current

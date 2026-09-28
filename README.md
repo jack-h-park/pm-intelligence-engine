@@ -88,3 +88,21 @@ docs/      API, architecture, and design contracts
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+### S2K worker lease and enclosing deadlines
+
+S2K workers extend their active job lease at the inference-start transaction from the bridge instance's enforced completion
+bound. Analysis and knowledge judgment each allow an initial completion and two
+JSON repairs: with a 210-second completion bound, the lease is
+`2 * 3 * 210 + 60 = 1320` seconds. The extra minute covers context preparation and
+saving. Generic, scoped Candidate, and evidence-backfill workers use this same
+calculation. Initial claims still last 120 seconds; expired claims cannot be
+revived. Other providers and direct storage claims keep the 120-second default.
+An expired lease after inference starts remains ambiguous and is fenced from
+automatic replay. This change grants neither new calls nor spending allowance.
+
+A longer lease does not extend an HTTP caller or the Hermes scheduler. The installed
+supplier's 330-second triage HTTP limit, 900-second supplier process limit,
+600-second worker HTTP limit, and ops profile's 900-second cron script limit
+must be reconciled before declaring the full intake deadline chain ready for
+cutover. No scheduler or caller change is included here.

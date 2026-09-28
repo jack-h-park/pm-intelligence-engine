@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from app.factory import build_s2k_llm_provider
+from app.llm.json_call import MAX_REPAIR_ATTEMPTS
 from app.llm.protocol import LLMProvider
 from app.llm.s2k_bridge import S2KBridgeProvider
 from app.models.insights import InsightJob, InsightRevision
@@ -16,6 +17,13 @@ from app.storage.insight_store import InsightStore
 from config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _s2k_inference_lease_seconds(llm: S2KBridgeProvider) -> float:
+    """Cover both JSON stages and persistence using the enforced parent bound."""
+    return max(
+        120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
+    )
 
 
 async def process_one(
@@ -103,7 +111,10 @@ async def _process_claimed_job(
             else settings.DECISION_CONTEXT_ROOT,
         )
         if isinstance(llm, S2KBridgeProvider):
-            store.mark_job_inference_started(job.job_id, job.lease_token or "")
+            store.mark_job_inference_started(
+                job.job_id, job.lease_token or "",
+                lease_seconds=_s2k_inference_lease_seconds(llm),
+            )
         insight = await analyze_bundle(bundle, prepared, llm)
     except Exception as exc:
         store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))
