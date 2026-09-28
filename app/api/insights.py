@@ -487,6 +487,15 @@ class DeliveryReceiptAccepted(BaseModel):
     state: str
 
 
+class DeliveryAttemptCreate(_Request):
+    revision: int = Field(ge=1)
+    channel: Literal["telegram", "discord"]
+
+
+class DeliveryAttemptAccepted(DeliveryReceiptAccepted):
+    send_authorized: bool
+
+
 class InsightFeedbackCreate(_Request):
     revision: int = Field(ge=1)
     label: Literal["useful", "already_known", "wrong", "weak_connection", "too_shallow"]
@@ -1958,6 +1967,22 @@ async def create_insight_review(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     response.status_code = stored_status
     return review
+
+
+@router.post("/insights/{insight_id}/delivery-attempts", response_model=DeliveryAttemptAccepted)
+async def claim_delivery_attempt(
+    insight_id: str, body: DeliveryAttemptCreate, engine: PMEngine = Depends(get_engine)
+) -> DeliveryAttemptAccepted:
+    """Atomically grant one transport attempt; existing intents never grant another."""
+    from config import settings
+
+    if normalize_insight_mode(settings.INTELLIGENCE_MODE) != "insights" or not settings.INSIGHT_WRITES_ENABLED:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="delivery_suppressed")
+    try:
+        result = _store(engine).claim_delivery_once(insight_id, body.revision, body.channel)
+    except MissingInsightRecord as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return DeliveryAttemptAccepted(**result)
 
 
 @router.post(
