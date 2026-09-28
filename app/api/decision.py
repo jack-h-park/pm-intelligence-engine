@@ -59,6 +59,11 @@ async def decide(
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
+    from app.api.direction import require_manual_scoped_direction
+
+    # Apply before dispatch: a delayed timeout must not deepen a scoped run
+    # that completed after the detector read it at Gate 1.
+    require_manual_scoped_direction(run_id, body.origin, engine)
     # Discriminate the run's state from the canonical (lifecycle, position, outcome)
     # columns (US-55 step 7d-1) rather than the retired `status` enum.
     lifecycle = run.get("lifecycle")
