@@ -376,6 +376,11 @@ class InsightJob(_Record):
         "queued", "running", "waiting_research", "retryable_failed", "complete", "exhausted"
     ] = "queued"
     attempt_count: int = 0
+    inference_state: Literal[
+        "not_started", "started", "complete", "terminal_unknown"
+    ] = "not_started"
+    inference_started_at: datetime | None = None
+    inference_reconciliation: dict[str, str] | None = None
     next_attempt_at: datetime | None = None
     lease_token: str | None = None
     lease_expires_at: datetime | None = None
