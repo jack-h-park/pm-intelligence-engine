@@ -2,7 +2,7 @@
 ## pm-intelligence-engine — File Write Ownership
 
 **Version:** 1.0  
-**Last updated:** 2026-05-24
+**Last updated:** 2026-09-27
 
 This document defines who writes what, when, and where. It is the canonical reference
 for understanding side-effect ownership at run completion.
@@ -17,7 +17,7 @@ Companion documents:
 
 | Artifact | Owner | Trigger | Destination |
 |----------|-------|---------|-------------|
-| decision-system run export | **pm-engine** | `completed` (decide mode only) | `archive/runs/<product_id>/<date>-<slug>/` |
+| run-archive export | **pm-engine** | `completed` at depth `note`/`structure`/`evaluate`/`decide` (never `archive`) | `archive/runs/<product_id>/<date>-<slug>/` (inside this repo) |
 | wiki executive summary sync | **Ops plane** | `completed` or `killed` event (ops plane polls) | `WIKI_ROOT/raw/from-pm-decision-context/{prds\|poc-upgrades\|kills}/` |
 | auto-triage archive | pm-engine (transitional, flaggable) → **ops plane** (target) | `auto_triaged` event | `WIKI_ROOT/raw/from-pm-decision-context/kills/auto-triaged/` |
 
@@ -25,23 +25,27 @@ Companion documents:
 
 ## Mode-by-Mode Export/Sync Table
 
-| Mode | decision-system export | wiki sync | auto-triage archive | Notes |
-|------|------------------------|-----------|---------------------|-------|
-| `decide` (completed) | ✅ pm-engine | ✅ Ops plane | — | Full artifact set: S6 + S7 output |
+| Depth | run-archive export | wiki sync | auto-triage archive | Notes |
+|-------|--------------------|-----------|---------------------|-------|
+| `decide` (completed) | ✅ pm-engine | ✅ Ops plane | — | Full artifact set: S1–S5, S6, and S7 (executive summary) |
 | `decide` (killed — reject) | — | ✅ Ops plane | — | Ops plane reads artifacts, syncs kill record |
 | `decide` (killed — routing kill confirmed) | — | ✅ Ops plane | — | Same as reject |
 | `decide` (routing override → completed) | ✅ pm-engine | ✅ Ops plane | — | override changes routing, export still triggered |
-| `file` (auto-triage) | — | — | ✅ (see below) | No LLM stages ran beyond S2 |
-| `brief` (completed) | — | — | — | Internal use; no external artifact sync |
-| `opportunity` (completed) | — | — | — | S3 output only; not synced externally |
-| `evaluate` (completed) | — | — | — | S4 output only; not synced externally |
+| `evaluate` (completed) | ✅ pm-engine | — | — | S1–S4 output; no S7 |
+| `structure` (completed) | ✅ pm-engine | — | — | S1–S3 output; no S7 |
+| `note` (completed) | ✅ pm-engine | — | — | S1–S2 output; no S7 |
+| `archive` (set aside / auto-triage) | — | — | ✅ auto-triaged only (see below) | Not pursued; produces no run artifact |
 
-> **Exportable modes:** `decide` only (and its routing variants `prd`, `poc`, `kill`).  
-> Non-decide modes (`file`, `brief`, `opportunity`, `evaluate`) never trigger decision-system export.
+> **Exportable depths:** `note`, `structure`, `evaluate`, `decide` — exactly
+> `_EXPORTABLE_MODES` in `app/services/run_finalizer.py`. Depth `archive` is the only
+> depth that never triggers run-archive export. Only `decide` runs reach S7, so
+> `s7-report.md` (and S5/S6 files) appear only in `decide` exports.
+> Legacy mode names `file`/`brief`/`opportunity` are normalized to
+> `archive`/`note`/`structure` (see `app/modes.py`).
 
 ---
 
-## Decision-System Export (pm-engine owned)
+## Run-Archive Export (pm-engine owned)
 
 ### What triggers it
 `run_finalizer.finalize_run()` is called with `status="completed"`. If the run's `mode`
@@ -65,14 +69,14 @@ archive/runs/<product_id>/<YYYY-MM-DD>-<slug>/
 > `archive/runs/` ≠ WIKI_ROOT.
 
 ### What it writes
+One markdown file per stage the run actually reached, so the set depends on depth:
 - `s1-signal.md`
 - `s2-insight.md`
-- `s3-opportunity.md`
-- `s4-evaluation.md`
-- `s4-evaluation-rubric-score.md`
-- `s5-prioritization.md`
-- `s6-poc-plan.md` or `s6-prd.md`
-- `s7-report.md`
+- `s3-opportunity.md` (`structure` and deeper)
+- `s4-evaluation.md` (`evaluate` and deeper)
+- `s5-prioritization.md` (`decide` only)
+- `s6-poc-plan.md` or `s6-prd.md` (`decide` only, by routing)
+- `s7-report.md` (`decide` only)
 
 ### Failure behavior
 Export failures are **non-fatal**: if the archive destination is not writable, the event
