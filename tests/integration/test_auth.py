@@ -68,6 +68,8 @@ def test_health_requires_no_token_and_attests_started_process(client, monkeypatc
     assert len(payload["source_revision"]) == 40
     assert isinstance(payload["source_modified"], bool)
     assert payload["started_at"].endswith("Z")
+    assert payload["llm"]["credential"] == "api-key"
+    assert set(payload["llm"]) == {"provider", "credential", "model", "fallback", "s2k_bridge"}
 
     def should_not_reread_git():
         raise AssertionError("health must report startup state, not current checkout state")

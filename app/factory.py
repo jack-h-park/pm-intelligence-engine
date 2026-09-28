@@ -85,6 +85,46 @@ def _build_raw_llm_provider() -> LLMProvider:
         )
 
 
+def describe_llm_config() -> dict[str, object]:
+    """The LLM call path this process was configured with, for GET /health.
+
+    Declared values only — never a key. The console renders this beside the
+    Hermes profiles' chains so the engine's own API-key path is visible in the
+    same place; it reads it from here rather than restating the fallback map.
+    """
+    from pathlib import Path
+
+    from app.llm.tiered_fallback import _FALLBACK_MODELS
+    from config import settings
+
+    provider = settings.LLM_PROVIDER.lower()
+    if provider == "claude":
+        model, fallback = settings.ANTHROPIC_MODEL, None
+    else:
+        model = settings.OPENAI_MODEL
+        fallback_model = _FALLBACK_MODELS.get(model)
+        fallback = (
+            {
+                "provider": "anthropic",
+                "model": fallback_model,
+                "on": "transient failure after retries",
+            }
+            if fallback_model
+            else None
+        )
+    s2k_home = settings.S2K_COMPLETION_PROFILE_HOME
+    return {
+        "provider": provider,
+        "credential": "api-key",
+        "model": model,
+        "fallback": fallback,
+        "s2k_bridge": {
+            "enabled": bool(settings.S2K_COMPLETION_COMMAND and s2k_home),
+            "profile": Path(s2k_home).name if s2k_home else None,
+        },
+    }
+
+
 def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
     """Build the fixture-bounded S2K transport provider for scoped Insight work."""
     from app.llm.s2k_bridge import build_s2k_llm_provider as build_provider

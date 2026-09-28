@@ -98,3 +98,70 @@ def test_engine_defaults_select_sol_with_sonnet_fallback(monkeypatch):
     assert provider._default_model == "gpt-6-sol"
     assert provider._primary._default_model == "gpt-6-sol"
     assert provider._fallback._default_model == "claude-sonnet-5"
+
+
+def _settings(monkeypatch, **overrides):
+    import config
+
+    settings = config.Settings(
+        _env_file=None,
+        OPENAI_API_KEY="test-openai",
+        ANTHROPIC_API_KEY="test-anthropic",
+        **overrides,
+    )
+    monkeypatch.setattr(config, "settings", settings)
+    return settings
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("primary_model", ["gpt-6-sol", "gpt-6-luna", "gpt-custom"])
+async def test_described_fallback_is_the_one_the_provider_takes(monkeypatch, primary_model):
+    from app.factory import describe_llm_config
+
+    _settings(monkeypatch, LLM_PROVIDER="openai", OPENAI_MODEL=primary_model)
+    described = describe_llm_config()
+    assert described["provider"] == "openai"
+    assert described["credential"] == "api-key"
+    assert described["model"] == primary_model
+
+    primary = Provider(error=RuntimeError("OpenAI request failed"))
+    primary.error.__cause__ = _rate_limit_error()
+    fallback = Provider()
+    provider = TieredFallbackProvider(primary, fallback, default_model=primary_model)
+    try:
+        await provider.complete([{"role": "user", "content": "hi"}])
+    except RuntimeError:
+        pass
+
+    if described["fallback"] is None:
+        assert fallback.calls == []
+    else:
+        assert described["fallback"]["provider"] == "anthropic"
+        assert fallback.calls == [described["fallback"]["model"]]
+
+
+def test_claude_provider_is_described_without_a_fallback(monkeypatch):
+    from app.factory import describe_llm_config
+
+    _settings(monkeypatch, LLM_PROVIDER="claude", ANTHROPIC_MODEL="claude-sonnet-5")
+
+    described = describe_llm_config()
+
+    assert described["model"] == "claude-sonnet-5"
+    assert described["fallback"] is None
+
+
+def test_s2k_bridge_is_described_by_profile_name_never_by_path(monkeypatch):
+    from app.factory import describe_llm_config
+
+    _settings(monkeypatch)
+    assert describe_llm_config()["s2k_bridge"] == {"enabled": False, "profile": None}
+
+    _settings(
+        monkeypatch,
+        S2K_COMPLETION_COMMAND="/usr/bin/python3 /opt/s2k_completion.py",
+        S2K_COMPLETION_PROFILE_HOME="/Users/someone/.hermes/profiles/researcher",
+    )
+    described = describe_llm_config()
+    assert described["s2k_bridge"] == {"enabled": True, "profile": "researcher"}
+    assert "/Users/" not in str(described)
