@@ -105,7 +105,7 @@ def _dml_result(result: object) -> CursorResult[Any]:
 
 
 def _job_lease_duration(seconds: float) -> timedelta:
-    """Validate before claiming so an invalid duration cannot mutate a job."""
+    """Validate before the inference transition can mutate a job."""
     if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
         raise ValueError("job lease seconds must be finite and positive")
     try:
@@ -1579,8 +1579,15 @@ class InsightStore:
         """Acquire SQLite's write lock before reading a job transition's state."""
         session.connection().exec_driver_sql("BEGIN IMMEDIATE")
 
-    def mark_job_inference_started(self, job_id: str, lease_token: str) -> None:
-        """Persist the ambiguity boundary before an external S2K call can start."""
+    def mark_job_inference_started(
+        self, job_id: str, lease_token: str, *, lease_seconds: float | None = None
+    ) -> None:
+        """Persist the ambiguity boundary and bounded inference lease atomically.
+
+        The original claim must still be active. Never revive an expired claim;
+        calls without an explicit duration preserve the existing expiry.
+        """
+        duration = _job_lease_duration(lease_seconds) if lease_seconds is not None else None
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now()
@@ -1595,6 +1602,8 @@ class InsightStore:
                 raise StaleLease("job lease is stale")
             if job.inference_state != "not_started":
                 raise InvalidInsightReference("job inference cannot be replayed")
+            if duration is not None:
+                job.lease_expires_at = current + duration
             job.inference_state = "started"
             job.inference_started_at = current
             job.updated_at = current
@@ -1778,10 +1787,7 @@ class InsightStore:
                 self._write_job(row, job)
             return job, apply
 
-    def claim_job(
-        self, now: datetime | None = None, *, lease_seconds: float = 120
-    ) -> InsightJob | None:
-        lease_duration = _job_lease_duration(lease_seconds)
+    def claim_job(self, now: datetime | None = None) -> InsightJob | None:
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1820,17 +1826,16 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + lease_duration
+            job.lease_expires_at = current + timedelta(seconds=120)
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(claimable, job)
             return job
 
     def claim_backfill_job(
-        self, backfill_id: str, now: datetime | None = None, *, lease_seconds: float = 120
+        self, backfill_id: str, now: datetime | None = None
     ) -> InsightJob | None:
         """Lease only the named evidence-backfill job, never the generic queue."""
-        lease_duration = _job_lease_duration(lease_seconds)
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1856,7 +1861,7 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + lease_duration
+            job.lease_expires_at = current + timedelta(seconds=120)
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(job_row, job)
@@ -1923,10 +1928,9 @@ class InsightStore:
             return job
 
     def claim_scoped_candidate_job(
-        self, candidate_id: str, now: datetime | None = None, *, lease_seconds: float = 120
+        self, candidate_id: str, now: datetime | None = None
     ) -> InsightJob | None:
         """Lease only the named Candidate's marked job, never generic work."""
-        lease_duration = _job_lease_duration(lease_seconds)
         with self._Session.begin() as session:
             self._lock_job_transition(session)
             current = _now(now)
@@ -1949,7 +1953,7 @@ class InsightStore:
             job.state = "running"
             job.attempt_count += 1
             job.lease_token = str(uuid.uuid4())
-            job.lease_expires_at = current + lease_duration
+            job.lease_expires_at = current + timedelta(seconds=120)
             job.next_attempt_at = None
             job.updated_at = current
             self._write_job(scoped_row, job)

@@ -91,12 +91,13 @@ MIT — see [LICENSE](LICENSE).
 
 ### S2K worker lease and enclosing deadlines
 
-S2K workers size their job lease from the bridge instance's enforced completion
+S2K workers extend their active job lease at the inference-start transaction from the bridge instance's enforced completion
 bound. Analysis and knowledge judgment each allow an initial completion and two
 JSON repairs: with a 210-second completion bound, the lease is
 `2 * 3 * 210 + 60 = 1320` seconds. The extra minute covers context preparation and
 saving. Generic, scoped Candidate, and evidence-backfill workers use this same
-calculation; other providers and direct storage claims keep the 120-second default.
+calculation. Initial claims still last 120 seconds; expired claims cannot be
+revived. Other providers and direct storage claims keep the 120-second default.
 An expired lease after inference starts remains ambiguous and is fenced from
 automatic replay. This change grants neither new calls nor spending allowance.
 
