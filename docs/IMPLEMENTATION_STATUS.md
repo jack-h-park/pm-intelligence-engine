@@ -167,3 +167,27 @@ as Blocking in R04/R07 that historical Claude runs treated as Informing.
 2. Export retry remains event-based only — repeated export overwrite behavior is now contract-tested, but no automatic retry/backoff exists
 
 Sequencing is tracked in the operator's own backlog, not in this repo.
+
+## S2K decision evidence continuity — 2026-09-28
+
+Status: implementation and isolated rehearsal verified; live runner and comparative quality acceptance pending.
+
+The production GitHub review-stage Insight `e8ec3877-9a9f-49b7-b63a-b78580f1c867`
+has seven cited claims but its PreparedContext contains no confirmed facts. The
+previous bridge retained its identifiers while losing the quoted source text from
+decision prompts. DecisionCase now pins selected source passages separately from
+confirmed facts. Requests reject a mismatched Insight context or a citation outside
+the prepared bundle. Prompts identify the excerpts as untrusted source statements;
+artifact provenance can refer only to evidence pinned to the case. Historical cases
+use an empty default and are not rewritten.
+
+An isolated snapshot rehearsal preserved the exact source text SHA-256
+`7b741544bbe1349dcf0fc684a3bac92af9d2610a40845edb48b9c09393c49220`,
+rendered the passage and its ID, retained zero confirmed facts, and replayed the
+same durable request after reopening the store. No production writes or model
+calls occurred. Compilation and whitespace checks passed; independent source
+review found no material issue. No test suite was run or extended for this change.
+The baseline storage rehearsal covered five depth values plus unspecified depth;
+this does not prove their runner exits or human gates. In particular, `general`
+supports only archive/note through the HTTP product boundary. Actual PRD/PoC
+quality and a valid product-specific deep run remain unverified.
