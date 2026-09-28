@@ -7,7 +7,7 @@
 
 This platform is the **workflow execution engine** for a personal PM intelligence system.
 It is intentionally narrow: it runs stages, persists state, manages human gates, and exports
-artifacts to the decision-system. Signal harvesting, wiki sync, and operational scheduling are
+completed-run artifacts to its in-repo run archive (`archive/runs/`). Signal harvesting, wiki sync, and operational scheduling are
 owned by a separate **external operations plane**.
 
 The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
@@ -29,7 +29,7 @@ by the operations plane's notification agent, which polls the gate queues; pm-en
 │                                             │                           │
 │                                   run_finalizer.py                      │
 │                                      ├─ completed_at stamp              │
-│                                      └─ decision-system export          │
+│                                      └─ run-archive export              │
 │                                             │                           │
 │                          gate queues (HTTP API)                         │
 │                           lifecycle=paused (position s2/s4/s5)          │
@@ -70,7 +70,7 @@ pm-intelligence-engine API             product-management-wiki repo/
 | Stage execution (S1–S7) | pm-engine | Background tasks, async |
 | Human gate state machine | pm-engine | 3 gates (pause @ s2/s4/s5), one `POST /runs/{id}/decision` endpoint (US-55) |
 | Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
-| decision-system export | pm-engine | `run_finalizer` triggers on decide-mode completion |
+| Run-archive export | pm-engine | `run_finalizer` triggers on completion at depth note/structure/evaluate/decide (not `archive`); writes the in-repo `archive/runs/` |
 | Wiki sync | Ops plane | Polls for completed/killed events, writes to WIKI_ROOT |
 | Gate/result notification delivery | Ops plane | The ops plane's notification agent polls the gate queues and terminal statuses, composes and delivers all production messages. pm-engine exposes state + review payloads only; built-in `notifier.py` is a local/dev fallback (`GATE_NOTIFICATIONS_ENABLED=false` in prod). See `docs/NOTIFICATION_CONTRACT.md` |
 | Operational scheduling | Ops plane | Cron/harvest jobs |
@@ -175,7 +175,8 @@ app/
 │   ├── context_loader.py  Loads 3-layer context from DECISION_SYSTEM_ROOT
 │   ├── template_service.py Loads and renders prompt templates from /prompts/
 │   ├── run_finalizer.py   Single exit point for terminal transitions; triggers export
-│   ├── run_exporter.py    Writes completed runs to DECISION_SYSTEM_ROOT format
+│   ├── run_exporter.py    Renders completed runs as per-stage markdown into the in-repo
+│   │                      archive/runs/<product_id>/<date>-<slug>/ (not DECISION_SYSTEM_ROOT)
 │   ├── notifier.py        FanoutNotifier: local/dev-only gate alerts (prod delivery is ops-plane-owned)
 │   │                      Gate 2 alert includes link to /runs/{id}/review (see Section 11)
 │   └── wiki_sync.py       Utility adapter (canonical paths); not called from completion paths
@@ -335,9 +336,9 @@ the run is paused or killed before S7 completes.
 
 **Terminal states and `completed_at` policy:**
 
-| Status | `completed_at` | Export to decision-system |
+| Status | `completed_at` | Export to run archive (`archive/runs/`) |
 |--------|---------------|--------------------------|
-| `completed` | ✅ auto-stamped | decide mode only (via `run_finalizer`) |
+| `completed` | ✅ auto-stamped | depth note/structure/evaluate/decide; never `archive` (via `run_finalizer`) |
 | `killed` | ✅ auto-stamped | never |
 | `failed` | ❌ intentionally unset | never |
 
@@ -543,7 +544,7 @@ GET /runs/{id}/review   (served by iMac over Tailscale)
         ▼
 POST /runs/{id}/approve
   → S5 → S6 → S7 → completed
-  → run_finalizer exports to DECISION_SYSTEM_ROOT
+  → run_finalizer exports to archive/runs/ (in this repo)
         │
         ▼ [Ops plane polls GET /runs?status=completed]
 Ops plane reads artifacts → writes to WIKI_ROOT (ops-plane-owned)

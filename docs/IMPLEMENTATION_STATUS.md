@@ -103,7 +103,7 @@ The decision artifact pipeline is implemented and unit-tested from S5 routing th
 
 ### Summary
 
-Export to the decision-system format is wired via `run_finalizer`. Wiki sync ownership is resolved:
+Run-archive export (in-repo `archive/runs/`, depths note/structure/evaluate/decide) is wired via `run_finalizer`. Wiki sync ownership is resolved:
 pm-engine is NOT the wiki sync owner. Wiki writes are ops-plane-owned.
 The `wiki_sync.py` module is retained as a utility adapter with canonical paths documented and contract-tested.
 
@@ -111,7 +111,7 @@ The `wiki_sync.py` module is retained as a utility adapter with canonical paths 
 
 | Story | Status | Evidence | Gap / Notes |
 |---|---|---|---|
-| US-18 | Implemented, Verified | `app/services/run_exporter.py` + `app/services/run_finalizer.py`; `tests/unit/test_run_finalizer.py` | `finalize_run()` triggers `_maybe_export()` for decide-mode completions only |
+| US-18 | Implemented, Verified | `app/services/run_exporter.py` + `app/services/run_finalizer.py`; `tests/unit/test_run_finalizer.py` | `finalize_run()` triggers `_maybe_export()` for completions at depth note/structure/evaluate/decide (`_EXPORTABLE_MODES`); depth `archive` is excluded |
 | US-19 | Implemented | `archive_auto_triaged()` in `app/services/wiki_sync.py`; call site in `app/api/runs.py` | Path is `raw/from-pm-decision-context/kills/auto-triaged/`; transitioning to the ops plane |
 | US-20 | Deferred to ops plane | `sync_executive_summary()` in `app/services/wiki_sync.py` (utility, not called from completion) | Wiki sync is ops-plane-owned; canonical paths documented in `EXPORT_AND_SYNC_CONTRACT.md` |
 
@@ -119,7 +119,7 @@ The `wiki_sync.py` module is retained as a utility adapter with canonical paths 
 
 | Artifact | Owner | When triggered |
 |----------|-------|----------------|
-| decision-system export | pm-engine | On `completed` for decide-mode runs (via `run_finalizer`) |
+| Run-archive export | pm-engine | On `completed` at depth note/structure/evaluate/decide, written to in-repo `archive/runs/` (via `run_finalizer`) |
 | wiki sync | Ops plane | On terminal run events, independently |
 | auto-triage archive | pm-engine (utility) → ops plane (planned) | On `auto_triaged` event |
 
@@ -140,7 +140,7 @@ and contract tests verify ownership boundaries. Eval harness exists structurally
 | US-22 | Implemented, Verified | `tests/integration/test_approval_flow.py`, `test_context_loader.py`, `test_general_run_modes.py`, `test_artifacts_api.py` | 46 integration tests passing; approve/revise/reject/routing-review paths and signal lifecycle contracts verified |
 | US-23 | Implemented, Verified | `eval/runner.py`, `eval/scenarios.json`, `eval/rubrics/`, `tests/unit/test_eval_runner.py`; live run 2026-05-24 | Eval execution is model-agnostic. `gpt-4o` routing drift on R04/R07 is documented as model-specific variance, and eval output now reports provider/model explicitly. |
 | US-24 | Moved to ops plane | Scheduling/harvesting is ops-plane-owned; `signal_collector.py` is not in-process | pm-engine exposes `POST /signals`; the ops plane submits signals on schedule |
-| US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; signal lifecycle synchronized on terminal states; export triggered only for decide mode; `tests/unit/test_run_finalizer.py` | wiki sync removed from pm-engine completion path; `failed` intentionally does NOT receive `completed_at` and returns the signal to `pending` |
+| US-25 | Implemented, Verified | `app/services/run_finalizer.py` — single exit point; `completed_at` auto-stamped for completed/killed; signal lifecycle synchronized on terminal states; export triggered for depths note/structure/evaluate/decide (not `archive`); `tests/unit/test_run_finalizer.py` | wiki sync removed from pm-engine completion path; `failed` intentionally does NOT receive `completed_at` and returns the signal to `pending` |
 
 ### Eval harness runtime reporting
 

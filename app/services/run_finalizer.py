@@ -3,7 +3,8 @@
 Every path that completes, kills, or fails a run must call finalize_run().
 This guarantees:
   - completed_at is stamped for completed/killed runs (via the store layer)
-  - decision-system export fires for eligible runs (decide mode only)
+  - run-archive export fires for completed runs at an exportable depth
+    (note/structure/evaluate/decide; see Export policy below)
   - terminal events are emitted uniformly
 
 Export policy
@@ -130,7 +131,7 @@ async def finalize_run(
     action = event_action if event_action is not None else status
     emit_event("run", action, run_id, event_detail or {})
 
-    # Export to decision-system for eligible completed runs.
+    # Export eligible completed runs to the in-repo run archive.
     if status == "completed":
         _maybe_export(run_id, engine)
 
@@ -178,7 +179,11 @@ def _sum_run_tokens(run_id: str, engine: PMEngine) -> dict[str, Any]:
 
 
 def _maybe_export(run_id: str, engine: PMEngine) -> None:
-    """Export run artifacts to DECISION_SYSTEM_ROOT when policy allows."""
+    """Export run artifacts to the in-repo run archive when policy allows.
+
+    Destination is ``archive/runs/<product_id>/<date>-<slug>/`` inside this repo
+    (see ``run_exporter._canonical_archive_root``), not DECISION_SYSTEM_ROOT.
+    """
     from app.logging import emit_event
     from app.services.run_exporter import export_run
     from config import settings
@@ -198,7 +203,8 @@ def _maybe_export(run_id: str, engine: PMEngine) -> None:
             "canonical_path": str(path),
         })
     except OSError:
-        # decision_system_root not mounted — non-fatal.
+        # Archive destination not writable — non-fatal. The event payload keeps
+        # its historical field names for existing consumers.
         emit_event("run_exporter", "export_skipped", run_id, {
             "reason": "decision_system_root not writable",
             "decision_system_root": settings.decision_system_root,
