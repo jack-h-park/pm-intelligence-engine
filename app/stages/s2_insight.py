@@ -11,6 +11,7 @@ from app.llm.json_call import complete_json
 from app.llm.protocol import LLMProvider, Usage
 from app.logging import emit_event
 from app.models.stages import RunContext, S2Input, S2Output, S2OutputData, StageMetadata
+from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
 from app.storage.protocol import PMWorkflowStore
 
@@ -108,6 +109,20 @@ async def run(
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"
         f"{context.pm_identity}"
     )
+    decision_evidence = (
+        "\n## Selected Decision Case\n" + render_decision_case(context.decision_case)
+        + "\nFor this explicit decision input, treat the question as a question, "
+        "not an external change. Source excerpts may support signal claims; "
+        "retain their attribution and uncertainty. If no external change is "
+        "supported, say so rather than inventing one.\n"
+        if context.decision_case is not None else ""
+    )
+    signal_claim_rule = (
+        'a statement in the Stage 1 Signal Output or the selected case source evidence; '
+        'attribute quoted source statements and do not relabel them as confirmed facts.'
+        if context.decision_case is not None
+        else 'a fact stated in the Stage 1 Signal Output above.'
+    )
 
     user_message = f"""## Stage 2 Framework
 {template}
@@ -124,6 +139,7 @@ Title: {input.s1_output.title}
 Category: {input.s1_output.category}
 Summary:
 {input.s1_output.summary}
+{decision_evidence}
 
 ---
 
@@ -141,7 +157,7 @@ Rules:
 - "pillar_references" must contain at least one pillar name drawn from the Strategy Pillars section of the product context.
 - "what_changed" must describe a concrete, specific external change drawn ONLY from the signal — not a trend, a feeling, or a product-specific claim. Do not name the product here.
 - "claims" explains why the signal matters, as a list of single-provenance claims. Each claim carries exactly one "source":
-  - "signal": a fact stated in the Stage 1 Signal Output above.
+  - "signal": {signal_claim_rule}
   - "product_context": a fact drawn from the Product Context above.
   - "inference": a conclusion you derive — it MUST list in "grounds" the 1-based positions of the signal/product_context claims it rests on.
   - Include at least one "inference" claim. Never mix provenances within a single claim — split them into separate claims instead.
