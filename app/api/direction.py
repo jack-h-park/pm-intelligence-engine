@@ -33,6 +33,17 @@ _VALID_MODES = set(pipeline.depths())  # single source of truth (app/pipeline.py
 AUTOMATED_ORIGINS = {"gate1-timeout": "timeout"}
 
 
+def require_manual_scoped_direction(
+    run_id: str, origin: str | None, engine: PMEngine
+) -> None:
+    """A pinned decision case never treats Gate 1 silence as authorization."""
+    if origin in AUTOMATED_ORIGINS and engine.store.get_decision_case(run_id) is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="Scoped decision runs require an explicit human direction; timeout is excluded",
+        )
+
+
 class DirectionRequest(BaseModel):
     # `depth` is canonical (US-43); `mode` accepted as a deprecated alias.
     model_config = ConfigDict(populate_by_name=True)
@@ -73,6 +84,8 @@ async def set_direction(
     run = engine.store.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run not found")
+
+    require_manual_scoped_direction(run_id, body.origin, engine)
 
     validate_mode_for_product(body.depth, run["product_id"])
 
