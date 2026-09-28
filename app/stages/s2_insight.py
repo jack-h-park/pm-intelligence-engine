@@ -123,6 +123,23 @@ async def run(
         if context.decision_case is not None
         else 'a fact stated in the Stage 1 Signal Output above.'
     )
+    change_rule = (
+        '"what_changed" must describe only a change supported by the selected case '
+        'source evidence. If none is supported, state that explicitly. The decision '
+        'question is not an external change. Do not name the product here.'
+        if context.decision_case is not None
+        else '"what_changed" must describe a concrete, specific external change drawn '
+        'ONLY from the signal — not a trend, a feeling, or a product-specific claim. '
+        'Do not name the product here.'
+    )
+    response_schema = (
+        _JSON_SCHEMA.replace(
+            '<concrete external change — what is different now vs before. Facts from '
+            'the signal ONLY; do not name the product or make product-specific claims here>',
+            '<source-supported external change, or explicit statement that no such '
+            'change is supported; do not treat the question as an external change>',
+        ) if context.decision_case is not None else _JSON_SCHEMA
+    )
 
     user_message = f"""## Stage 2 Framework
 {template}
@@ -151,11 +168,11 @@ Summary:
 Apply the Stage 2 framework to the signal above.
 Respond with a single JSON object matching this schema exactly — no markdown, no commentary:
 
-{_JSON_SCHEMA}
+{response_schema}
 
 Rules:
 - "pillar_references" must contain at least one pillar name drawn from the Strategy Pillars section of the product context.
-- "what_changed" must describe a concrete, specific external change drawn ONLY from the signal — not a trend, a feeling, or a product-specific claim. Do not name the product here.
+- {change_rule}
 - "claims" explains why the signal matters, as a list of single-provenance claims. Each claim carries exactly one "source":
   - "signal": {signal_claim_rule}
   - "product_context": a fact drawn from the Product Context above.
