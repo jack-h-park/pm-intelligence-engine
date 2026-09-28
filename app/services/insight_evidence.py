@@ -40,7 +40,9 @@ def prepare_evidence(
         paragraph_count = len(
             [part for part in re.split(r"\n\s*\n", material) if part.strip()]
         )
-        group_size = max(1, (paragraph_count + MAX_PASSAGES_PER_SOURCE - 1) // MAX_PASSAGES_PER_SOURCE)
+        group_size = max(
+            1, (paragraph_count + MAX_PASSAGES_PER_SOURCE - 1) // MAX_PASSAGES_PER_SOURCE
+        )
         locator = (
             source.excerpts[0].locator if source.excerpts and source.excerpts[0].locator else "body"
         )
