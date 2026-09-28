@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     # have been provisioned; the factory fails closed when either is missing.
     S2K_COMPLETION_COMMAND: str = ""
     S2K_COMPLETION_PROFILE_HOME: str = ""
-    S2K_COMPLETION_TIMEOUT_SECONDS: float = 90.0
+    S2K_COMPLETION_TIMEOUT_SECONDS: float = 210.0
     S2K_COMPLETION_MAX_STDOUT_BYTES: int = 1_048_576
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"

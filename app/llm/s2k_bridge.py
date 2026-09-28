@@ -343,6 +343,8 @@ class S2KBridgeProvider:
                     "max_tokens": max_tokens,
                     "temperature": temperature,
                     "request_id": request_id,
+                    # Leave time for child cleanup/serialization before the parent kills it.
+                    "timeout_seconds": self._timeout_seconds * 0.9,
                 },
                 ensure_ascii=False,
                 separators=(",", ":"),
