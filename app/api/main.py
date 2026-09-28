@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.agents.explorer import ExplorerAgent
     from app.agents.skeptic import SkepticAgent
     from app.agents.strategist import StrategistAgent
-    from app.factory import build_engine
+    from app.factory import build_engine, describe_llm_config
     from app.services.template_service import TemplateService
 
     # Tracing, if an exporter is configured. Deliberately before the preflight
@@ -97,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.engine = engine
     app.state.health_metadata = {
         **_source_provenance(),
+        "llm": describe_llm_config(),
         "started_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
     }
     yield
