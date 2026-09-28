@@ -90,6 +90,18 @@ def _now(value: datetime | None = None) -> datetime:
     return value or datetime.now(UTC)
 
 
+
+def _dml_result(result: object) -> CursorResult[Any]:
+    """Narrow an ORM UPDATE/DELETE result to the cursor result that has rowcount.
+
+    SQLAlchemy 2.0 types ``Session.execute`` of a DML statement as ``CursorResult``
+    while 2.1 types it as ``Result``, so a ``cast`` is redundant on one and required
+    on the other. Taking ``object`` keeps strict mypy clean on both.
+    """
+    if not isinstance(result, CursorResult):
+        raise TypeError(f"expected CursorResult from DML, got {type(result).__name__}")
+    return result
+
 class InsightStore:
     """A dedicated store that never reaches into ``SQLiteStore`` internals."""
 
@@ -250,7 +262,9 @@ class InsightStore:
         if not isinstance(stored, dict):
             raise ValueError("stored migration inventory is invalid")
         if stored.get("kind") is not None:
-            raise ValueError("historical inventory or plan requires the dedicated legacy import path")
+            raise ValueError(
+                "historical inventory or plan requires the dedicated legacy import path"
+            )
         return cast(list[dict[str, Any]], stored.get("records", []))
 
     def import_migration_inventory(
@@ -402,7 +416,9 @@ class InsightStore:
                     ),
                 ))
             session.add(IntelligenceMigrationInventoryRow(
-                inventory_id=str(uuid.uuid5(uuid.NAMESPACE_URL, "legacy-preflight:" + preflight_signature)),
+                inventory_id=str(uuid.uuid5(
+                    uuid.NAMESPACE_URL, "legacy-preflight:" + preflight_signature
+                )),
                 inventory_hash=receipt_hash,
                 payload_json=json.dumps({
                     "kind": "legacy_preflight_consumed",
@@ -744,12 +760,12 @@ class InsightStore:
                     content_hash for content_hash, candidate_json in rows
                     if interest_id in Candidate.model_validate_json(candidate_json).question_ids
                 })
-            rows = session.execute(
+            hash_rows = session.execute(
                 select(IntelligenceSourceRow.content_hash).where(
                     IntelligenceSourceRow.content_hash.in_(content_hashes)
                 )
             ).all()
-            return sorted({row[0] for row in rows})
+            return sorted({row[0] for row in hash_rows})
 
     def claim_search_expansion(self, query_hash: str) -> tuple[str, list[str] | None]:
         """Serialize a query's first model attempt and replay only completed terms."""
@@ -784,7 +800,7 @@ class InsightStore:
 
     def complete_search_expansion(self, query_hash: str, terms: list[str]) -> None:
         with self._Session.begin() as session:
-            result = cast(CursorResult[Any], session.execute(
+            result = _dml_result(session.execute(
                 update(IntelligenceSearchExpansionRow)
                 .where(
                     IntelligenceSearchExpansionRow.query_hash == query_hash,
@@ -820,7 +836,7 @@ class InsightStore:
 
     def complete_triage(self, operation_id: str, payload: dict[str, Any]) -> None:
         with self._Session.begin() as session:
-            result = cast(CursorResult[Any], session.execute(
+            result = _dml_result(session.execute(
                 update(IntelligenceTriageRow)
                 .where(
                     IntelligenceTriageRow.operation_id == operation_id,
@@ -895,7 +911,7 @@ class InsightStore:
             # Make the conditional state transition the transaction's first DB
             # statement. This acquires the SQLite write lock before any reads;
             # concurrent reconcilers serialize, and only one can claim running.
-            transition = cast(CursorResult[Any], session.execute(
+            transition = _dml_result(session.execute(
                 update(IntelligenceTriageRow)
                 .where(
                     IntelligenceTriageRow.operation_id == operation_id,

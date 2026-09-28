@@ -631,7 +631,9 @@ async def create_decision_request(
         )
     bundle = insight_store.get_bundle(prepared.bundle_id)
     if bundle is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Evidence bundle not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Evidence bundle not found"
+        )
     evidence_passages = [
         passage for passage in bundle.passages
         if not body.insight_references or passage.passage_id in selected_passage_ids
@@ -842,13 +844,17 @@ async def create_legacy_migration_inventory(
     try:
         payload = validate_external_legacy_inventory(body.model_dump(exclude={"generated_at"}))
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     payload["inventory_id"] = str(uuid.uuid4())
     stored = _store(engine).save_migration_inventory(
         payload["inventory_id"], payload["inventory_hash"], payload
     )
     if stored.get("kind") != "legacy_external":
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="inventory hash has another owner")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="inventory hash has another owner"
+        )
     return _legacy_inventory_response(stored)
 
 
@@ -928,11 +934,15 @@ async def create_legacy_disposition_plan(
     """Record a complete revision-bound proposal; this does not import it."""
     inventory = _read_store(engine).get_migration_inventory(inventory_id)
     if inventory is None or inventory.get("kind") != "legacy_external":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
     try:
         payload = validate_legacy_disposition_plan(inventory, body.model_dump())
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     payload["inventory_id"] = str(uuid.uuid4())
     stored = _store(engine).save_migration_inventory(
         payload["inventory_id"], payload["inventory_hash"], payload
@@ -940,7 +950,9 @@ async def create_legacy_disposition_plan(
     if stored.get("kind") != "legacy_disposition_plan" or (
         stored.get("source_inventory_id") != inventory_id
     ):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="plan hash has another owner")
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="plan hash has another owner"
+        )
     return _legacy_plan_response(stored)
 
 
@@ -975,7 +987,9 @@ async def import_legacy_disposition_plan(
     from config import settings
 
     if not settings.INSIGHT_LEGACY_IMPORT_ENABLED:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Legacy import is disabled")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Legacy import is disabled"
+        )
     if settings.INSIGHT_LEGACY_APPROVED_PLAN_HASH != body.plan_hash:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1017,7 +1031,9 @@ async def list_legacy_imported_aliases(
     store = _read_store(engine)
     inventory = store.get_migration_inventory(inventory_id)
     if inventory is None or inventory.get("kind") != "legacy_external":
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Legacy inventory not found"
+        )
     aliases = store.list_migration_aliases(inventory_id)
     page = aliases[offset:offset + limit]
     next_offset = offset + len(page) if offset + len(page) < len(aliases) else None

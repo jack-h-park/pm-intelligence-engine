@@ -1049,6 +1049,9 @@ def test_primary_search_reservation_is_default_off_and_one_call_only(
     headers = {**auth_headers, "Idempotency-Key": operation_id}
     path = "/insight-budget/search-reservations"
 
+    # Pin the first window too: with only the later one pinned, a run on the
+    # real UTC day 2026-09-28 put both reservations in the same daily window.
+    monkeypatch.setattr(budget_api, "utc_day_window", lambda: "2026-09-27")
     denied = client.post(path, json=payload, headers=headers)
     assert denied.status_code == 409
     assert denied.json()["detail"] == "budget_denied"

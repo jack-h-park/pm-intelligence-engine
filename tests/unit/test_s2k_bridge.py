@@ -129,7 +129,11 @@ print(json.dumps({_success()!r}))
         "TEMP",
         "TMP",
         "HERMES_HOME",
+        # Set by the child process itself, not passed by the bridge: macOS adds
+        # __CF_USER_TEXT_ENCODING, and Python's C-locale coercion (PEP 538) adds
+        # LC_CTYPE when the filtered environment carries no LANG/LC_ALL.
         "__CF_USER_TEXT_ENCODING",
+        "LC_CTYPE",
     }
     assert usage == [
         {
