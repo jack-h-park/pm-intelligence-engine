@@ -119,8 +119,14 @@ def test_off_stage_span_is_a_no_op(telemetry):
 
 
 def test_setup_is_off_without_keys(telemetry, monkeypatch):
+    """Unsetting the PROCESS environment is not what turns tracing off here —
+    the keys come from settings, so that is what this clears."""
+    from config import settings
+
     monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
     monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "", raising=False)
     assert telemetry.setup_tracing() is False
     assert telemetry.tracing_enabled() is False
 
@@ -247,3 +253,57 @@ def test_stage_span_omits_the_session_when_there_is_no_origin(tracing_on):
 
     (span,) = exporter.get_finished_spans()
     assert "langfuse.session.id" not in span.attributes
+
+
+# ── the keys have to come from where the engine keeps configuration ──────────
+# The service is launched by launchd with only LANG and PATH in its environment
+# and no wrapper: `.env` reaches the process through pydantic-settings, which
+# reads the FILE and never exports to `os.environ`. Read on the ops host with the
+# service's own interpreter and working directory:
+#
+#     os.environ has LANGFUSE_PUBLIC_KEY: False
+#     os.environ has OPENAI_API_KEY    : False
+#     settings sees OPENAI_API_KEY     : True
+#
+# So an `os.environ` lookup here finds nothing however correct `.env` is, and
+# tracing fails open — the symptom is zero traces and no error, on a deployment
+# that looks fully configured. These drive the real function against settings.
+
+
+def test_setup_reads_the_keys_from_settings_not_the_process_environment(telemetry, monkeypatch):
+    """With keys in settings and NOTHING in os.environ, setup must still see them.
+
+    It cannot complete without the optional dependencies, so this asserts on how
+    far it gets: past the key gate. `_keys()` is that gate.
+    """
+    from config import settings
+
+    monkeypatch.delenv("LANGFUSE_PUBLIC_KEY", raising=False)
+    monkeypatch.delenv("LANGFUSE_SECRET_KEY", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "pk-from-settings", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "sk-from-settings", raising=False)
+
+    assert telemetry._keys() == ("pk-from-settings", "sk-from-settings")
+
+
+def test_blank_settings_leave_tracing_off(telemetry, monkeypatch):
+    from config import settings
+
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "  ", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "", raising=False)
+
+    assert telemetry._keys() == ("", "")
+    assert telemetry.setup_tracing() is False
+    assert telemetry.tracing_enabled() is False
+
+
+def test_the_host_is_configurable_and_defaults_to_nothing_implicit(telemetry):
+    """The vendor client defaults to its EU endpoint when no host is given, and
+    these projects are on US — a default that silently fails to authenticate.
+    The engine therefore has to pass the host it was configured with, and
+    `.env.example` documents it."""
+    from config import settings
+
+    assert hasattr(settings, "LANGFUSE_HOST")
+    # No implicit default: an unset host must not quietly become a region.
+    assert type(settings).model_fields["LANGFUSE_HOST"].default == ""

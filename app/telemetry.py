@@ -31,7 +31,6 @@ untouched after recording it.
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
@@ -48,6 +47,22 @@ def tracing_enabled() -> bool:
     return _TRACER is not None
 
 
+def _keys() -> tuple[str, str]:
+    """The configured key pair, or a pair of empty strings.
+
+    Read through ``config.settings`` and not ``os.environ``: launchd starts this
+    service with only LANG and PATH, so `.env` arrives via pydantic-settings,
+    which reads the file without exporting it. Checked BEFORE any optional
+    import, so a host without the telemetry extra still starts.
+    """
+    from config import settings
+
+    return (
+        (getattr(settings, "LANGFUSE_PUBLIC_KEY", "") or "").strip(),
+        (getattr(settings, "LANGFUSE_SECRET_KEY", "") or "").strip(),
+    )
+
+
 def setup_tracing() -> bool:
     """Attach an exporter if one is configured. Returns whether tracing is on.
 
@@ -59,13 +74,12 @@ def setup_tracing() -> bool:
     if _TRACER is not None:
         return True
 
-    public_key = os.environ.get("LANGFUSE_PUBLIC_KEY", "").strip()
-    secret_key = os.environ.get("LANGFUSE_SECRET_KEY", "").strip()
+    public_key, secret_key = _keys()
     if not (public_key and secret_key):
         return False
 
     try:
-        from langfuse import get_client
+        from langfuse import Langfuse
         from opentelemetry import trace
         from opentelemetry.sdk.trace import TracerProvider
     except ImportError as exc:
@@ -80,7 +94,19 @@ def setup_tracing() -> bool:
         # Building the client is what registers the span processor; the
         # returned handle is deliberately unused here, because everything this
         # module emits goes through the OTel API rather than the vendor's.
-        get_client()
+        #
+        # The credentials are PASSED rather than left to the client's own env
+        # lookup: it reads `os.environ`, which this service's `.env` never
+        # reaches (see config.py). Host likewise — the client's default is its
+        # EU endpoint, and a US project does not authenticate there.
+        from config import settings
+
+        kwargs: dict[str, Any] = {"public_key": public_key, "secret_key": secret_key}
+        if getattr(settings, "LANGFUSE_HOST", ""):
+            kwargs["host"] = settings.LANGFUSE_HOST.strip()
+        if getattr(settings, "LANGFUSE_TIMEOUT", 0):
+            kwargs["timeout"] = settings.LANGFUSE_TIMEOUT
+        Langfuse(**kwargs)
         provider = trace.get_tracer_provider()
         if not isinstance(provider, TracerProvider):  # pragma: no cover - env dependent
             logger.warning("No OpenTelemetry TracerProvider is installed; tracing stays off.")
