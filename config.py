@@ -136,6 +136,28 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: str = ""
     SLACK_WEBHOOK_URL: str = ""  # Incoming Webhook URL from Slack App settings
 
+    # Span export to a Langfuse project (telemetry plan P3). Off unless both keys
+    # are set; the service runs identically without them, and the optional
+    # `telemetry` extra is what makes them usable.
+    #
+    # These live here rather than being read from `os.environ` because launchd
+    # starts the service with only LANG and PATH and no wrapper: `.env` reaches
+    # the process through pydantic-settings, which reads the FILE and never
+    # exports to the environment. An `os.environ` lookup finds nothing however
+    # correct `.env` is, and tracing fails open — zero traces, no error, on a
+    # deployment that looks configured.
+    LANGFUSE_PUBLIC_KEY: str = ""
+    LANGFUSE_SECRET_KEY: str = ""
+    # No implicit default: the vendor client falls back to its EU endpoint, and
+    # these projects are on US, where the EU host does not authenticate. Empty
+    # means "do not pass a host", which surfaces as the vendor's own default
+    # rather than one this file invented.
+    LANGFUSE_HOST: str = ""
+    # Seconds. The export timeout is spent inline once per turn while the backend
+    # is unreachable, so the default of 5 is the outage tax; 2 was the measured
+    # compromise for the fleet canary. 0 means "use the SDK default".
+    LANGFUSE_TIMEOUT: int = 2
+
     # Master switch for pm-engine's built-in gate push (US-48). Default True
     # (local/dev/test). Set False in a deployment that hands gate + terminal
     # messaging to an external operations service (which polls the queues and composes
