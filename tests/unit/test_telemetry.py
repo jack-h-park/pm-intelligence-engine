@@ -307,3 +307,28 @@ def test_the_host_is_configurable_and_defaults_to_nothing_implicit(telemetry):
     assert hasattr(settings, "LANGFUSE_HOST")
     # No implicit default: an unset host must not quietly become a region.
     assert type(settings).model_fields["LANGFUSE_HOST"].default == ""
+
+
+def test_startup_records_the_tracing_state_where_the_service_log_shows_it(
+    tracing_on, monkeypatch
+):
+    """`logger.info` does not reach the service log — under uvicorn the app
+    loggers sit at WARNING, so the line announcing tracing was swallowed and a
+    clean startup looked identical whether tracing was on or off. That is exactly
+    the state this module's failure mode hides in, so the state goes through
+    `emit_event`, the channel the notifier's own startup line uses."""
+    telemetry, _ = tracing_on
+    from config import settings
+
+    events: list[tuple] = []
+    monkeypatch.setattr(telemetry, "_TRACER", None)
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "", raising=False)
+    import app.logging as applog
+
+    monkeypatch.setattr(applog, "emit_event", lambda *a, **k: events.append(a))
+
+    assert telemetry.setup_tracing() is False
+    assert events and events[0][:2] == ("telemetry", "tracing_off_no_keys"), (
+        "an operator reading the log has to be able to tell tracing is off"
+    )

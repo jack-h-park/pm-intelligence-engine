@@ -74,8 +74,14 @@ def setup_tracing() -> bool:
     if _TRACER is not None:
         return True
 
+    from app.logging import emit_event
+    from config import settings
+
     public_key, secret_key = _keys()
     if not (public_key and secret_key):
+        # Recorded rather than silent: an operator should not have to infer the
+        # state from the absence of a line.
+        emit_event("telemetry", "tracing_off_no_keys", "-")
         return False
 
     try:
@@ -99,8 +105,6 @@ def setup_tracing() -> bool:
         # lookup: it reads `os.environ`, which this service's `.env` never
         # reaches (see config.py). Host likewise — the client's default is its
         # EU endpoint, and a US project does not authenticate there.
-        from config import settings
-
         kwargs: dict[str, Any] = {"public_key": public_key, "secret_key": secret_key}
         if getattr(settings, "LANGFUSE_HOST", ""):
             kwargs["host"] = settings.LANGFUSE_HOST.strip()
@@ -116,7 +120,20 @@ def setup_tracing() -> bool:
         logger.warning("Tracing setup failed (%s); continuing without it.", exc)
         return False
 
-    logger.info("Tracing enabled.")
+    # Structured, not logger.info: under uvicorn the app loggers sit at WARNING,
+    # so the one line that tells an operator tracing came up was swallowed — the
+    # service log showed a clean startup whether tracing was on or off, which is
+    # the state this module's whole failure mode hides in. `emit_event` is the
+    # channel the notifier's own startup line uses, and that one does appear.
+    emit_event(
+        "telemetry",
+        "tracing_enabled",
+        "-",
+        {
+            "host": getattr(settings, "LANGFUSE_HOST", "") or "vendor default",
+            "timeout_s": getattr(settings, "LANGFUSE_TIMEOUT", 0) or "sdk default",
+        },
+    )
     return True
 
 
