@@ -112,6 +112,15 @@ version bump.
 ### `POST /signals`
 Submit a new signal for processing.
 
+In `INTELLIGENCE_MODE=insights`, this endpoint accepts only explicit manual
+Product Decision input (`source_type=manual`, no `source_ref`). Legacy external
+intake (`web`, `rss`, `file_watch`, or any supplied `source_ref`) returns **409**
+before source-file lookup or persistence. New external material enters through
+S2K Candidate admission. Existing signal reads, annotations, refreshes and
+explicit workflow actions are retained. The sensing-file URL fallback remains
+available only for `legacy`/`shadow` intake during rollback; this is not authority
+to resume a retired scheduler.
+
 **Request body:**
 ```json
 {

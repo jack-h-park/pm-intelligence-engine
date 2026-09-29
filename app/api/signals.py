@@ -139,6 +139,22 @@ async def create_signal(
     body: SignalCreate,
     engine: PMEngine = Depends(get_engine),
 ) -> SignalResponse:
+    from config import settings
+
+    if settings.INTELLIGENCE_MODE not in {"legacy", "shadow", "insights"}:
+        raise HTTPException(status_code=503, detail="Engine intake policy is unavailable")
+
+    # S2K owns external source admission after cutover. Retain explicit manual
+    # Product Decision input and historical readers without reopening Gate 0.
+    if settings.INTELLIGENCE_MODE == "insights" and (
+        body.source_ref is not None or body.source_type != SourceType.manual
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Legacy source intake is retired in insights mode. Use S2K "
+            "Candidate admission; explicit manual Product Decision input must "
+            "use source_type=manual without source_ref.",
+        )
     if body.source_ref:
         _check_gate0_skip(body.source_ref)
     # Backfill the live source URL from the sensing file when the (LLM-composed)
