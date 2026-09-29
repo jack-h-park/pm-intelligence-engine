@@ -57,15 +57,18 @@ def test_one_clear_product_is_shown_when_allowed():
     insight = _insight("i1")
     result = evaluate(insight, is_current=True, assessment=_assessment("candidates"),
                       referenced=set(), store=_Store(insight), allows=True)
-    assert (result.would_suggest, result.state, result.product_id) == (
-        True, "shown", "example-mobile-product")
+    assert (result.would_suggest, result.state) == (True, "shown")
+    assert [p.model_dump() for p in result.products] == [
+        {"product_id": "example-mobile-product", "product_title": "Example Mobile Product",
+         "level": None, "item_kind": None}]
 
 
 def test_withheld_when_the_switch_does_not_allow():
     insight = _insight("i1")
     result = evaluate(insight, is_current=True, assessment=_assessment("candidates"),
                       referenced=set(), store=_Store(insight), allows=False)
-    assert (result.would_suggest, result.state, result.product_id) == (True, "withheld", None)
+    assert (result.would_suggest, result.state) == (True, "withheld")
+    assert [p.product_id for p in result.products] == ["example-mobile-product"]
 
 
 @pytest.mark.parametrize("kind", ["ambiguous", "no_clear_connection"])
@@ -97,5 +100,66 @@ def test_a_non_goal_candidate_is_never_suggested():
     for allows in (True, False):
         result = evaluate(insight, is_current=True, assessment=assessment,
                           referenced=set(), store=_Store(insight), allows=allows)
-        assert (result.would_suggest, result.state, result.product_id) == (False, "none", None)
+        assert (result.would_suggest, result.state, result.products) == (False, "none", [])
         assert result.reason == "Links to a stated non-goal; not suggested"
+
+
+def _linked(*specs):
+    """specs: (product_id, level, item_kind)"""
+    candidates = [SimpleNamespace(product_id=pid, product_title=pid.title(), level=level,
+                                  item_kind=kind) for pid, level, kind in specs]
+    return SimpleNamespace(assessment="candidates", candidates=candidates, reason="fixture linked")
+
+
+def _run(assessment, allows=True):
+    insight = _insight("i1")
+    return evaluate(insight, is_current=True, assessment=assessment, referenced=set(),
+                    store=_Store(insight), allows=allows)
+
+
+def test_two_direct_links_are_shown_in_order():
+    result = _run(_linked(("android-enterprise", "direct", "goal"),
+                          ("example-mobile-product", "direct", "goal")))
+    assert result.state == "shown"
+    assert [p.product_id for p in result.products] == [
+        "android-enterprise", "example-mobile-product"]
+    assert result.products[0].level == "direct"
+
+
+def test_direct_and_related_lists_both():
+    result = _run(_linked(("android-enterprise", "direct", "goal"),
+                          ("example-mobile-product", "related", "goal")))
+    assert [(p.product_id, p.level) for p in result.products] == [
+        ("android-enterprise", "direct"), ("example-mobile-product", "related")]
+
+
+def test_only_related_links_are_never_suggested():
+    result = _run(_linked(("android-enterprise", "related", "goal")))
+    assert (result.would_suggest, result.state, result.reason) == (
+        False, "none", "No direct product link")
+    assert result.products == []
+
+
+def test_a_non_goal_direct_plus_related_is_never_suggested():
+    result = _run(_linked(("android-enterprise", "direct", "non_goal"),
+                          ("example-mobile-product", "related", "goal")))
+    assert (result.state, result.reason) == ("none", "Links to a stated non-goal; not suggested")
+
+
+def test_a_non_goal_direct_plus_another_direct_is_shown():
+    result = _run(_linked(("android-enterprise", "direct", "non_goal"),
+                          ("example-mobile-product", "direct", "goal")))
+    assert result.state == "shown"
+    assert [p.item_kind for p in result.products] == ["non_goal", "goal"]
+
+
+def test_several_anchor_candidates_are_not_suggested():
+    assessment = _linked(("android-enterprise", None, None),
+                         ("example-mobile-product", None, None))
+    assert _run(assessment).state == "none"
+
+
+def test_withheld_lists_the_products_for_review():
+    result = _run(_linked(("android-enterprise", "direct", "goal")), allows=False)
+    assert (result.would_suggest, result.state) == (True, "withheld")
+    assert [p.product_id for p in result.products] == ["android-enterprise"]
