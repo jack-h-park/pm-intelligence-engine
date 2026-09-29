@@ -111,7 +111,7 @@ def _resolve(
     if not isinstance(payload, dict):
         return "", "", [], ["payload"]
     decision = payload.get("decision")
-    if decision not in _DECISIONS:
+    if not isinstance(decision, str) or decision not in _DECISIONS:
         failures.append("decision")
     reason = payload.get("reason")
     if not isinstance(reason, str) or not reason.strip():
@@ -131,11 +131,12 @@ def _resolve(
         if not isinstance(raw, dict) or set(raw) != _LINK_KEYS:
             failures.append(where)
             continue
-        product = by_id.get(raw["product_id"])
+        product_id, item_ref = raw["product_id"], raw["item_ref"]
+        product = by_id.get(product_id) if isinstance(product_id, str) else None
         if product is None:
             failures.append(f"{where}.product_id")
             continue
-        resolved = items.get(raw["item_ref"])
+        resolved = items.get(item_ref) if isinstance(item_ref, str) else None
         if resolved is None or resolved[0].product_id != product.product_id:
             failures.append(f"{where}.item_ref")
             continue
@@ -264,10 +265,10 @@ async def judge_relevance(
             completion_route_sink=routes,
         )
     except Exception as exc:
-        emit_event(STAGE, "model_output_unavailable", run_id,
-                   {"exception_type": type(exc).__name__})
         if reservation_id is not None and budget is not None:
             _finalize_unknown(budget, reservation_id)
+        emit_event(STAGE, "model_output_unavailable", run_id,
+                   {"exception_type": type(exc).__name__})
         return not_judged(
             "product relevance model output was unavailable", rubric_revision=rubric.revision
         )
@@ -281,14 +282,25 @@ async def judge_relevance(
             return not_judged(
                 "product relevance budget was unavailable", rubric_revision=rubric.revision
             )
-    decision, reason, links, failures = _resolve(payload, products, cited)
+    try:
+        decision, reason, links, failures = _resolve(payload, products, cited)
+        if not failures:
+            verdict = ProductRelevance(
+                decision=decision,  # type: ignore[arg-type]
+                reason=reason, links=links, rubric_revision=rubric.revision, model=model,
+            )
+    except Exception as exc:
+        failures = [type(exc).__name__]
+        sink.update({"status": "validation_failed", "failures": failures})
+        emit_event(STAGE, "model_output_invalid", run_id, {"exception_type": failures[0]})
+        return not_judged(VALIDATION_FAILED, rubric_revision=rubric.revision).model_copy(
+            update={"model": model}
+        )
     if failures:
         sink.update({"status": "validation_failed", "failures": failures})
         emit_event(STAGE, "model_output_invalid", run_id, {"failures": failures})
-        verdict = not_judged(VALIDATION_FAILED, rubric_revision=rubric.revision)
-        return verdict.model_copy(update={"model": model})
+        return not_judged(VALIDATION_FAILED, rubric_revision=rubric.revision).model_copy(
+            update={"model": model}
+        )
     sink["status"] = "succeeded"
-    return ProductRelevance(
-        decision=decision,  # type: ignore[arg-type]
-        reason=reason, links=links, rubric_revision=rubric.revision, model=model,
-    )
+    return verdict

@@ -226,3 +226,16 @@ async def test_the_model_sees_items_cited_passages_and_the_non_goal_rule(rubric)
         "section": "Non-goals", "text": "1. Scan personal apps.",
     }
     assert user["rubric"].startswith("---")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"decision": ["relevant"], "reason": "r", "links": []},
+    {"decision": "relevant", "reason": "r", "links": [{**_link(), "product_id": ["x"]}]},
+    {"decision": "relevant", "reason": "r", "links": [{**_link(), "item_ref": {}}]},
+])
+async def test_unhashable_model_values_are_not_judged_not_raised(rubric, payload):
+    diagnostics: dict = {}
+    verdict, _ = await _judge(payload, rubric, diagnostics=diagnostics)
+    assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)
+    assert diagnostics["status"] == "validation_failed"
