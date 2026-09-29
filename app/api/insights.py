@@ -750,8 +750,10 @@ async def get_intelligence_runtime_status() -> IntelligenceRuntimeStatus:
     """Expose effective cutover switches to authenticated release readers."""
     from config import settings
 
+    if settings.INTELLIGENCE_MODE not in {"legacy", "shadow", "insights"}:
+        raise HTTPException(status_code=503, detail="Engine intake policy is unavailable")
     return IntelligenceRuntimeStatus(
-        mode=normalize_insight_mode(settings.INTELLIGENCE_MODE),
+        mode=settings.INTELLIGENCE_MODE,
         insight_writes_enabled=settings.INSIGHT_WRITES_ENABLED,
         decision_v2_enabled=settings.DECISION_PIPELINE_V2_ENABLED,
         migration_activation_enabled=settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED,

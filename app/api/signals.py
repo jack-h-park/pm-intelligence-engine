@@ -141,6 +141,9 @@ async def create_signal(
 ) -> SignalResponse:
     from config import settings
 
+    if settings.INTELLIGENCE_MODE not in {"legacy", "shadow", "insights"}:
+        raise HTTPException(status_code=503, detail="Engine intake policy is unavailable")
+
     # S2K owns external source admission after cutover. Retain explicit manual
     # Product Decision input and historical readers without reopening Gate 0.
     if settings.INTELLIGENCE_MODE == "insights" and (
