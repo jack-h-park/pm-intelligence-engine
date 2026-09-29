@@ -2,7 +2,8 @@
 
 A product-connection `candidates` assessment says an Insight is relevant to one product.
 It does not say a decision is needed; this module only reports the relevance and whether
-the release switch lets it be shown. It never starts, counts or records anything.
+the release switch lets it be shown.
+A link to a stated non-goal is never suggested. It never starts, counts or records anything.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 _LINEAGE_LIMIT = 100
+NON_GOAL_REASON = "Links to a stated non-goal; not suggested"
 
 
 class DecisionSuggestionPreview(BaseModel):
@@ -65,6 +67,9 @@ def evaluate(
     if assessment.assessment != "candidates" or len(assessment.candidates) != 1:
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason=assessment.reason)
+    if getattr(assessment.candidates[0], "item_kind", None) == "non_goal":
+        return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
+                                         reason=NON_GOAL_REASON)
     if lineage_ids(insight, store) & referenced:
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason="A decision was already requested for this Insight")

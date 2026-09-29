@@ -88,3 +88,14 @@ def test_a_superseded_revision_is_never_suggested():
     result = evaluate(insight, is_current=False, assessment=_assessment("candidates"),
                       referenced=set(), store=_Store(insight), allows=True)
     assert result.state == "none"
+
+
+def test_a_non_goal_candidate_is_never_suggested():
+    insight = _insight("i1")
+    assessment = _assessment("candidates")
+    assessment.candidates[0].item_kind = "non_goal"
+    for allows in (True, False):
+        result = evaluate(insight, is_current=True, assessment=assessment,
+                          referenced=set(), store=_Store(insight), allows=allows)
+        assert (result.would_suggest, result.state, result.product_id) == (False, "none", None)
+        assert result.reason == "Links to a stated non-goal; not suggested"
