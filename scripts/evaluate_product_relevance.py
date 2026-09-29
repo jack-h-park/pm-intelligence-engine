@@ -14,6 +14,7 @@ import asyncio
 import sqlite3
 import sys
 import tempfile
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -27,7 +28,11 @@ COST_NOTE = "not reported: the bridge route records provider and model only"
 
 
 async def evaluate(store: Any, decision_context_root: str, rubric: Rubric, llm: Any) -> list[dict]:
-    products = build_product_inputs(ContextLoader(decision_context_root), rubric.eligible)
+    loaded = build_product_inputs(ContextLoader(decision_context_root), rubric.eligible)
+    if loaded.missing:
+        listed = ", ".join(f"{pid} ({reason})" for pid, reason in loaded.missing)
+        raise ValueError(f"refusing to judge a partial product set: {listed}")
+    products = loaded.products
     rows: list[dict] = []
     for insight in store.list_current_insights():
         # Same readability rule as the decision suggestion preview.
@@ -39,15 +44,28 @@ async def evaluate(store: Any, decision_context_root: str, rubric: Rubric, llm: 
             continue
         passages = {p.passage_id: p.text for p in bundle.passages}
         diagnostics: dict[str, Any] = {}
+        started = time.monotonic()
         verdict = await judge_relevance(
             insight=insight, bundle=bundle, products=products, rubric=rubric, llm=llm,
             diagnostics=diagnostics,
         )
+        elapsed = time.monotonic() - started
+        cited: list[tuple[str, str]] = []
+        for claim in insight.claims:
+            for passage_id in claim.passage_ids:
+                if passage_id in passages and all(passage_id != seen for seen, _ in cited):
+                    cited.append((passage_id, passages[passage_id]))
         rows.append({
             "insight_id": insight.insight_id,
             "headline": insight.headline,
             "decision": verdict.decision,
             "reason": verdict.reason,
+            "reason_truncated": bool(diagnostics.get("reason_truncated")),
+            "reason_original_length": diagnostics.get("reason_original_length"),
+            "actual_change": insight.actual_change,
+            "takeaway": insight.takeaway,
+            "cited_passages": cited,
+            "elapsed_seconds": elapsed,
             "links": [{
                 "product_id": link.product_id,
                 "item_kind": link.item_kind,
@@ -90,10 +108,20 @@ def render(rows: list[dict], *, rubric_revision: str) -> str:
             f"- Insight: `{row['insight_id']}`",
             f"- Decision: {row['decision']}",
             f"- Reason: {row['reason']}",
+        ]
+        if row["reason_truncated"]:
+            original = row["reason_original_length"]
+            lines.append(f"- Note: reason truncated (original {original} chars)")
+        lines += [
+            f"- Actual change: {row['actual_change']}",
+            f"- Takeaway: {row['takeaway']}",
             f"- Provider / model: {row['provider'] or '?'} / {row['model'] or '?'}",
             f"- Call status: {row['status']}{failures}",
+            f"- Elapsed: {row['elapsed_seconds']:.2f}s",
             f"- Cost: {row['cost']}",
         ]
+        for passage_id, text in row["cited_passages"]:
+            lines.append(f"- Cited passage ({passage_id}): {text}")
         for link in row["links"]:
             lines += [
                 f"- Link: {link['product_id']} / {link['item_kind']} / {link['item_section']}",
@@ -134,6 +162,12 @@ def main(argv: list[str] | None = None) -> int:
     rubric = load_rubric(args.rubric)
     if rubric is None:
         print("rubric could not be read or has no eligible_products", file=sys.stderr)
+        return 2
+
+    unavailable = build_product_inputs(ContextLoader(args.decision_context), rubric.eligible)
+    if unavailable.missing:
+        for product_id, reason in unavailable.missing:
+            print(f"product context unavailable: {product_id} ({reason})", file=sys.stderr)
         return 2
 
     from app.factory import build_s2k_llm_provider

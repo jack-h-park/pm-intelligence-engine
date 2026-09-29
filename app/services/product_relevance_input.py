@@ -135,20 +135,37 @@ def _revision(items: list[ContextItem]) -> str:
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
-def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> list[ProductInput]:
-    """Inputs for allowlisted products that exist and yield items, in allowlist order."""
+@dataclass(frozen=True)
+class ProductInputs:
+    """Loaded products, plus every allowlisted product that could not be loaded.
+
+    `missing` holds (product_id, reason) with reason `missing`, `unreadable` or `no_items`. A
+    caller must not judge relevance while `missing` is non-empty: comparing a partial set turns
+    a tie into a confident answer.
+    """
+
+    products: list[ProductInput]
+    missing: list[tuple[str, str]]
+
+
+def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> ProductInputs:
+    """Inputs for allowlisted products, in allowlist order, and what could not be loaded."""
     inputs: list[ProductInput] = []
+    missing: list[tuple[str, str]] = []
     for product_id in eligible:
         resolved = loader.resolve_product(product_id)
         if resolved is None:
+            missing.append((product_id, "missing"))
             continue
         canonical, directory = resolved
         try:
             content = loader.load_product_context(canonical)
         except (OSError, UnicodeDecodeError):
+            missing.append((product_id, "unreadable"))
             continue
         items = extract_items(canonical, content)
         if not items:
+            missing.append((product_id, "no_items"))
             continue
         title, _overview = _extract_overview(content)
         # The manifest's display name, not the context H1: real contexts are headed
@@ -157,4 +174,4 @@ def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> list[Pro
         inputs.append(
             ProductInput(canonical, display or title or canonical, tuple(items), _revision(items))
         )
-    return inputs
+    return ProductInputs(inputs, missing)

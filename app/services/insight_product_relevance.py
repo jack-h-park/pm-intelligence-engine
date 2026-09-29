@@ -32,6 +32,8 @@ from app.services.product_relevance_input import ContextItem, ProductInput
 STAGE = "insight_product_relevance"
 VALIDATION_FAILED = "model output failed validation"
 _DECISIONS = {"relevant", "ambiguous", "not_relevant"}
+_REASON_LIMIT = 200
+_TOP_KEYS = {"decision", "reason", "links"}
 _LINK_KEYS = {"product_id", "item_ref", "evidence"}
 _EVIDENCE_KEYS = {"passage_id", "quote"}
 
@@ -110,14 +112,16 @@ def _resolve(
     failures: list[str] = []
     if not isinstance(payload, dict):
         return "", "", [], ["payload"]
-    decision = payload.get("decision")
+    if set(payload) != _TOP_KEYS:
+        return "", "", [], ["payload.keys"]
+    decision = payload["decision"]
     if not isinstance(decision, str) or decision not in _DECISIONS:
         failures.append("decision")
-    reason = payload.get("reason")
+    reason = payload["reason"]
     if not isinstance(reason, str) or not reason.strip():
         failures.append("reason")
         reason = ""
-    raw_links = payload.get("links", [])
+    raw_links = payload["links"]
     if not isinstance(raw_links, list):
         failures.append("links")
         raw_links = []
@@ -179,7 +183,7 @@ def _resolve(
             or (decision == "not_relevant" and links)
         ):
             failures.append("links.count")
-    return str(decision), reason.strip()[:200], links, failures
+    return str(decision), reason.strip(), links, failures
 
 
 def _finalize_unknown(budget: BudgetService, reservation_id: str) -> None:
@@ -284,7 +288,13 @@ async def judge_relevance(
             )
     try:
         decision, reason, links, failures = _resolve(payload, products, cited)
+        truncated = len(reason) > _REASON_LIMIT
         if not failures:
+            if truncated:
+                sink["reason_original_length"] = len(reason)
+                emit_event(STAGE, "reason_truncated", run_id, {"original_length": len(reason)})
+                reason = reason[:_REASON_LIMIT]
+            sink["reason_truncated"] = truncated
             verdict = ProductRelevance(
                 decision=decision,  # type: ignore[arg-type]
                 reason=reason, links=links, rubric_revision=rubric.revision, model=model,

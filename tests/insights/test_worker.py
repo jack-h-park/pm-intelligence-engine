@@ -1041,6 +1041,33 @@ async def test_disabled_makes_no_call_and_a_missing_budget_is_not_judged(
     assert llm.relevance_calls == 0
 
 
+@pytest.mark.asyncio
+async def test_a_missing_allowlisted_product_is_not_judged_and_makes_no_call(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    from config import settings
+
+    _relevance_setup(monkeypatch, tmp_path)
+    rubric = tmp_path / "relevance-rubric.md"
+    rubric.write_text(
+        "---\neligible_products:\n  - android-enterprise\n  - example-mobile-product\n---\n# R\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "PRODUCT_RELEVANCE_RUBRIC_PATH", str(rubric))
+    store, job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
+    llm = _RelevanceLLM({"decision": "not_relevant", "reason": "r", "links": []})
+
+    completed = await process_one(store, llm)
+
+    relevance = completed.product_relevance
+    assert relevance.decision == "not_judged"
+    assert "example-mobile-product (missing)" in relevance.reason
+    assert relevance.rubric_revision
+    assert llm.relevance_calls == 0
+    assert store.get_job(job.job_id).state == "complete"
+    assert store.get_insight(completed.insight_id) == completed
+
+
 def test_s2k_lease_gains_one_stage_when_relevance_is_enabled(monkeypatch):
     from types import SimpleNamespace
 

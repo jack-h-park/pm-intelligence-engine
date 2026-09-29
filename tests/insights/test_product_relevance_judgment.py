@@ -239,3 +239,61 @@ async def test_unhashable_model_values_are_not_judged_not_raised(rubric, payload
     verdict, _ = await _judge(payload, rubric, diagnostics=diagnostics)
     assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)
     assert diagnostics["status"] == "validation_failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"decision": "not_relevant", "reason": "r"},
+    {"decision": "not_relevant", "reason": "r", "links": [], "extra": 1},
+    {"decision": "not_relevant", "reason": "   ", "links": []},
+    {"decision": "not_relevant", "reason": 5, "links": []},
+])
+async def test_response_shape_is_strict(rubric, payload):
+    diagnostics: dict = {}
+    verdict, _ = await _judge(payload, rubric, diagnostics=diagnostics)
+    assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)
+    assert diagnostics["failures"]
+
+
+@pytest.mark.asyncio
+async def test_shape_failure_coordinates(rubric):
+    diagnostics: dict = {}
+    await _judge({"decision": "not_relevant", "reason": "r"}, rubric, diagnostics=diagnostics)
+    assert "payload.keys" in diagnostics["failures"]
+    diagnostics = {}
+    await _judge({"decision": "not_relevant", "reason": " ", "links": []}, rubric,
+                 diagnostics=diagnostics)
+    assert diagnostics["failures"] == ["reason"]
+
+
+@pytest.mark.asyncio
+async def test_an_overlong_reason_is_truncated_and_recorded(rubric, monkeypatch):
+    import app.services.insight_product_relevance as module
+
+    events: list = []
+    monkeypatch.setattr(module, "emit_event", lambda *args: events.append(args))
+    diagnostics: dict = {}
+    verdict, _ = await _judge(
+        {"decision": "not_relevant", "reason": "x" * 250, "links": []}, rubric,
+        diagnostics=diagnostics,
+    )
+    assert verdict.decision == "not_relevant" and verdict.reason == "x" * 200
+    assert diagnostics["reason_truncated"] is True
+    assert diagnostics["reason_original_length"] == 250
+    assert [(e[0], e[1], e[3]) for e in events] == [
+        ("insight_product_relevance", "reason_truncated", {"original_length": 250})
+    ]
+
+    diagnostics = {}
+    await _judge({"decision": "not_relevant", "reason": "short", "links": []}, rubric,
+                 diagnostics=diagnostics)
+    assert diagnostics["reason_truncated"] is False
+    assert "reason_original_length" not in diagnostics
+
+
+@pytest.mark.asyncio
+async def test_a_truncated_reason_still_needs_every_other_check(rubric):
+    verdict, _ = await _judge(
+        {"decision": "relevant", "reason": "x" * 250, "links": []}, rubric
+    )
+    assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)

@@ -7,6 +7,7 @@ from app.factory import build_s2k_llm_provider
 from app.llm.json_call import MAX_REPAIR_ATTEMPTS
 from app.llm.protocol import LLMProvider
 from app.llm.s2k_bridge import S2KBridgeProvider
+from app.logging import emit_event
 from app.models.insights import EvidenceBundle, InsightJob, InsightRevision
 from app.services.context_loader import ContextLoader
 from app.services.insight_analysis import analyze_bundle
@@ -203,15 +204,26 @@ async def _attach_product_relevance(
         return insight
     rubric = load_rubric(settings.PRODUCT_RELEVANCE_RUBRIC_PATH)
     try:
-        products = (
+        loaded = (
             build_product_inputs(ContextLoader(decision_context_root), rubric.eligible)
-            if rubric is not None else []
+            if rubric is not None else None
         )
     except Exception:
         return insight.model_copy(update={"product_relevance": not_judged(
             "product context could not be read",
             rubric_revision=rubric.revision if rubric else None,
         )})
+    if rubric is not None and loaded is not None and loaded.missing:
+        # A partial product set makes a tie read as relevance to whichever product loaded.
+        emit_event(
+            "insight_product_relevance", "product_context_unavailable", job.job_id,
+            {"missing": [list(entry) for entry in loaded.missing]},
+        )
+        listed = ", ".join(f"{pid} ({reason})" for pid, reason in loaded.missing)
+        return insight.model_copy(update={"product_relevance": not_judged(
+            f"product context unavailable: {listed}", rubric_revision=rubric.revision,
+        )})
+    products = loaded.products if loaded is not None else []
     relevance = await judge_relevance(
         insight=insight, bundle=bundle, products=products, rubric=rubric, llm=llm,
         budget=BudgetService(

@@ -87,12 +87,14 @@ def test_build_inputs_follows_the_allowlist_and_hashes_the_items(tmp_path):
     _write(tmp_path, "unlisted-product", "# Unlisted\n\n## Product Overview\nU.\n")
     _write(tmp_path, "empty-product", "# Empty\n\n## Update Log\n- nothing\n")
 
-    inputs = build_product_inputs(
+    result = build_product_inputs(
         ContextLoader(str(tmp_path)),
         ["example-mobile-product", "android-enterprise", "empty-product", "missing-product"],
     )
+    inputs = result.products
 
     assert [p.product_id for p in inputs] == ["example-mobile-product", "android-enterprise"]
+    assert result.missing == [("empty-product", "no_items"), ("missing-product", "missing")]
     mobile = inputs[0]
     assert mobile.title == "Example Mobile Product"
     serialized = json.dumps(
@@ -108,7 +110,9 @@ def test_manifest_display_name_wins_over_the_context_heading(tmp_path):
     (tmp_path / "products" / "example-mobile-product" / "product.yaml").write_text(
         "id: example-mobile-product\ndisplay_name: Example Mobile Product\n", encoding="utf-8"
     )
-    [product] = build_product_inputs(ContextLoader(str(tmp_path)), ["example-mobile-product"])
+    [product] = build_product_inputs(
+        ContextLoader(str(tmp_path)), ["example-mobile-product"]
+    ).products
     assert product.title == "Example Mobile Product"
 
 
@@ -128,16 +132,24 @@ def test_subheading_title_prefixes_its_bullets():
     ]
 
 
-def test_unreadable_product_file_is_skipped(tmp_path):
+def test_each_unavailable_reason_is_reported(tmp_path):
     _write(tmp_path, "android-enterprise", "# Android Enterprise\n\n## Product Overview\nA.\n")
     directory = tmp_path / "products" / "example-mobile-product"
     directory.mkdir(parents=True)
     (directory / "context.md").write_bytes(b"\xff\xfe# Bad")
 
-    inputs = build_product_inputs(
-        ContextLoader(str(tmp_path)), ["example-mobile-product", "android-enterprise"]
+    _write(tmp_path, "empty-product", "# Empty\n\n## Update Log\n- nothing\n")
+
+    result = build_product_inputs(
+        ContextLoader(str(tmp_path)),
+        ["example-mobile-product", "android-enterprise", "empty-product", "absent-product"],
     )
-    assert [p.product_id for p in inputs] == ["android-enterprise"]
+    assert [p.product_id for p in result.products] == ["android-enterprise"]
+    assert result.missing == [
+        ("example-mobile-product", "unreadable"),
+        ("empty-product", "no_items"),
+        ("absent-product", "missing"),
+    ]
 
 
 def test_alternate_headings_and_first_present_wins():
