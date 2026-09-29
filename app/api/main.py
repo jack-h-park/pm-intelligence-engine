@@ -58,6 +58,23 @@ def _warn_incomplete_knowledge_budget_configuration() -> None:
         )
 
 
+def _warn_incomplete_product_relevance_budget_configuration() -> None:
+    """Make an allowance-only deployment visible without changing startup behavior."""
+    from app.logging import emit_event
+    from config import settings
+
+    if (
+        settings.INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS is not None
+        and settings.INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS is None
+    ):
+        emit_event(
+            "insight_product_relevance",
+            "incomplete_budget_configuration",
+            "startup",
+            {"allowance_configured": True, "maximum_configured": False},
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from app.agents.builder import BuilderAgent
@@ -76,6 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     setup_tracing()
     _warn_incomplete_knowledge_budget_configuration()
+    _warn_incomplete_product_relevance_budget_configuration()
 
     # Preflight: persona prompts live in decision-context (US-37). Fail fast at
     # boot if that checkout is stale rather than crashing mid-run at S4.

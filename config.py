@@ -74,6 +74,12 @@ class Settings(BaseSettings):
     INTELLIGENCE_SEARCH_MAXIMUM_MICROS: int | None = None
     INTELLIGENCE_SEARCH_RATE_REVISION: str = ""
     KNOWLEDGE_RUBRIC_PATH: str | None = None
+    # Product relevance judgment for new Insight revisions (off by default). It never
+    # starts a run; a failure is stored as not_judged. Both budget values must be set.
+    INSIGHT_PRODUCT_RELEVANCE_ENABLED: bool = False
+    PRODUCT_RELEVANCE_RUBRIC_PATH: str | None = None
+    INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS: int | None = None
+    INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS: int | None = None
 
     # Server-side API authentication. Every endpoint except GET /health requires
     # an `Authorization: Bearer <PM_PLATFORM_API_TOKEN>` header. The same token is
