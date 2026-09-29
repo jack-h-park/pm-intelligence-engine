@@ -5,11 +5,11 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from app.models.insights import InsightRevision
+from app.models.insights import InsightRevision, ItemKind, ProductRelevance
 from app.services.context_loader import ContextLoader, ProductProfile
 from app.storage.insight_store import InsightStore, MissingInsightRecord
 
@@ -20,6 +20,7 @@ class ProductConnectionCandidate(BaseModel):
     confidence: Literal["medium"] = "medium"
     rationale: str
     passage_ids: list[str] = Field(min_length=1)
+    item_kind: ItemKind | None = None
 
 
 class ProductConnectionAlternative(BaseModel):
@@ -36,6 +37,65 @@ class ProductConnectionAssessment(BaseModel):
     candidates: list[ProductConnectionCandidate] = Field(default_factory=list)
     alternatives: list[ProductConnectionAlternative] = Field(default_factory=list)
     reason: str
+
+
+_NO_REVISION = "0" * 64
+
+
+def _lead(link: Any) -> str:
+    if link.item_kind == "non_goal":
+        return f"Bears on a stated non-goal — not a planned feature: {link.item_text}"
+    return f"Bears on {link.item_section}: {link.item_text}"
+
+
+def _from_verdict(
+    insight: InsightRevision, verdict: ProductRelevance
+) -> ProductConnectionAssessment:
+    base: dict[str, Any] = {
+        "insight_id": insight.insight_id,
+        "revision": insight.revision,
+        "profile_revision": verdict.rubric_revision or _NO_REVISION,
+    }
+    if verdict.decision == "relevant":
+        link = verdict.links[0]
+        lead = _lead(link)
+        return ProductConnectionAssessment(
+            **base,
+            assessment="candidates",
+            candidates=[
+                ProductConnectionCandidate(
+                    product_id=link.product_id,
+                    product_title=link.product_title,
+                    rationale=f"{lead} {verdict.reason}",
+                    passage_ids=sorted({e.passage_id for e in link.evidence}),
+                    item_kind=link.item_kind,
+                )
+            ],
+            reason=verdict.reason,
+        )
+    if verdict.decision == "ambiguous":
+        seen: dict[str, ProductConnectionAlternative] = {}
+        for link in verdict.links:
+            seen.setdefault(
+                link.product_id,
+                ProductConnectionAlternative(
+                    product_id=link.product_id,
+                    product_title=link.product_title,
+                    reason=_lead(link),
+                ),
+            )
+        return ProductConnectionAssessment(
+            **base,
+            assessment="ambiguous",
+            alternatives=list(seen.values()),
+            reason=verdict.reason,
+        )
+    reason = (
+        verdict.reason
+        if verdict.decision == "not_relevant"
+        else f"Relevance was not judged: {verdict.reason}"
+    )
+    return ProductConnectionAssessment(**base, assessment="no_clear_connection", reason=reason)
 
 
 def _normalise(value: str) -> str:
@@ -71,6 +131,9 @@ class ProductConnectionService:
         bundle = store.get_bundle(prepared.bundle_id)
         if bundle is None:
             raise MissingInsightRecord(f"evidence bundle {prepared.bundle_id} was not found")
+
+        if insight.product_relevance is not None:
+            return _from_verdict(insight, insight.product_relevance)
 
         passage_text = {passage.passage_id: passage.text for passage in bundle.passages}
         cited_passages: dict[str, str] = {}

@@ -931,3 +931,175 @@ async def test_successful_retry_clears_the_previous_job_error(
     saved = store.get_job(job.job_id)
     assert saved.state == "complete"
     assert saved.error is None
+
+
+_ANALYSIS = {
+    "headline": "A fixture insight", "explanation": "Bounded evidence.",
+    "actual_change": "A source was supplied.", "why_now": "The job is queued.",
+    "personal_relevance": "It answers the question.", "takeaway": "Test it.",
+    "claims": [{"text": "The source was supplied.", "passage_ids": ["passage-fixture-1"]}],
+    "uncertainties": [],
+}
+
+
+def _relevance_setup(monkeypatch, tmp_path, *, enabled=True, allowance=10):
+    from config import settings
+
+    root = Path(settings.DECISION_CONTEXT_ROOT)
+    product = root / "products" / "android-enterprise"
+    product.mkdir(parents=True, exist_ok=True)
+    (product / "context.md").write_text(
+        "# Android Enterprise\n\n## Strategy Pillars\n- Keep work data isolated.\n",
+        encoding="utf-8",
+    )
+    rubric = tmp_path / "relevance-rubric.md"
+    rubric.write_text("---\neligible_products:\n  - android-enterprise\n---\n# R\n",
+                      encoding="utf-8")
+    monkeypatch.setattr(settings, "INSIGHT_PRODUCT_RELEVANCE_ENABLED", enabled)
+    monkeypatch.setattr(settings, "PRODUCT_RELEVANCE_RUBRIC_PATH", str(rubric))
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS", allowance)
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS", 5)
+    monkeypatch.setattr(settings, "INTELLIGENCE_RATE_REVISION", "fixture-rates")
+
+
+class _RelevanceLLM:
+    """Answers analysis, then relevance; counts relevance calls by their unique input key."""
+
+    def __init__(self, relevance):
+        self.relevance = relevance
+        self.relevance_calls = 0
+
+    async def complete(self, messages, **kwargs):
+        content = messages[-1]["content"]
+        if '"cited_passages"' in content:
+            self.relevance_calls += 1
+            if isinstance(self.relevance, str):
+                return self.relevance
+            return json.dumps(self.relevance)
+        if '"evidence"' in content:
+            return json.dumps(_ANALYSIS)
+        return "not JSON"  # the knowledge verdict is unconfigured here and makes no call
+
+
+def _queued_job(store_factory, candidate_payload, source_payload, bundle_payload):
+    store = store_factory()
+    candidate = store.save_candidate(candidate_payload)
+    source = store.save_source({**source_payload, "candidate_id": candidate.candidate_id})
+    bundle = store.save_bundle(bundle_payload(candidate.candidate_id, source.source_id))
+    job = store.create_job({**_job_payload(candidate.candidate_id), "bundle_id": bundle.bundle_id})
+    return store, job
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_a_relevant_verdict(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    _relevance_setup(monkeypatch, tmp_path)
+    store, _job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
+    llm = _RelevanceLLM({"decision": "relevant", "reason": "Bears on isolation.", "links": [{
+        "product_id": "android-enterprise", "item_ref": "android-enterprise/pillar/1",
+        "evidence": [{"passage_id": "passage-fixture-1", "quote": "managed work profile"}],
+    }]})
+
+    completed = await process_one(store, llm)
+
+    assert completed.product_relevance.decision == "relevant"
+    assert completed.product_relevance.links[0].item_text == "Keep work data isolated."
+    assert store.get_insight(completed.insight_id) == completed
+
+
+@pytest.mark.asyncio
+async def test_relevance_failure_still_persists_the_insight_as_not_judged(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    _relevance_setup(monkeypatch, tmp_path)
+    store, job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
+
+    completed = await process_one(store, _RelevanceLLM("not JSON"))
+
+    assert completed.product_relevance.decision == "not_judged"
+    assert store.get_job(job.job_id).state == "complete"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("enabled", "allowance", "expected"), [
+    (False, 10, None),
+    (True, None, "not_judged"),
+])
+async def test_disabled_makes_no_call_and_a_missing_budget_is_not_judged(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+    enabled, allowance, expected,
+):
+    _relevance_setup(monkeypatch, tmp_path, enabled=enabled, allowance=allowance)
+    store, _job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
+    llm = _RelevanceLLM({"decision": "not_relevant", "reason": "r", "links": []})
+
+    completed = await process_one(store, llm)
+
+    decision = completed.product_relevance.decision if completed.product_relevance else None
+    assert decision == expected
+    assert llm.relevance_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_a_missing_allowlisted_product_is_not_judged_and_makes_no_call(
+    store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
+):
+    from config import settings
+
+    _relevance_setup(monkeypatch, tmp_path)
+    rubric = tmp_path / "relevance-rubric.md"
+    rubric.write_text(
+        "---\neligible_products:\n  - android-enterprise\n  - example-mobile-product\n---\n# R\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(settings, "PRODUCT_RELEVANCE_RUBRIC_PATH", str(rubric))
+    store, job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
+    llm = _RelevanceLLM({"decision": "not_relevant", "reason": "r", "links": []})
+
+    completed = await process_one(store, llm)
+
+    relevance = completed.product_relevance
+    assert relevance.decision == "not_judged"
+    assert "example-mobile-product (missing)" in relevance.reason
+    assert relevance.rubric_revision
+    assert llm.relevance_calls == 0
+    assert store.get_job(job.job_id).state == "complete"
+    assert store.get_insight(completed.insight_id) == completed
+
+
+def test_s2k_lease_gains_one_stage_when_relevance_is_enabled(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.llm.json_call import MAX_REPAIR_ATTEMPTS
+    from config import settings
+
+    stub = SimpleNamespace(completion_timeout_seconds=100)
+    monkeypatch.setattr(settings, "INSIGHT_PRODUCT_RELEVANCE_ENABLED", False)
+    disabled = insight_worker._s2k_inference_lease_seconds(stub)
+    monkeypatch.setattr(settings, "INSIGHT_PRODUCT_RELEVANCE_ENABLED", True)
+    enabled = insight_worker._s2k_inference_lease_seconds(stub)
+
+    assert disabled == max(120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * 100 + 60)
+    assert enabled - disabled == (1 + MAX_REPAIR_ATTEMPTS) * 100
+
+
+@pytest.mark.parametrize(("allowance", "maximum", "emitted"), [
+    (10, None, True), (10, 5, False), (None, None, False),
+])
+def test_incomplete_product_relevance_budget_warning(monkeypatch, allowance, maximum, emitted):
+    import app.logging as app_logging
+    from app.api.main import _warn_incomplete_product_relevance_budget_configuration
+    from config import settings
+
+    events = []
+    monkeypatch.setattr(app_logging, "emit_event", lambda *a, **k: events.append(a))
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS", allowance)
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS", maximum)
+
+    _warn_incomplete_product_relevance_budget_configuration()
+
+    assert bool(events) is emitted
+    if emitted:
+        assert events[0][:3] == (
+            "insight_product_relevance", "incomplete_budget_configuration", "startup")

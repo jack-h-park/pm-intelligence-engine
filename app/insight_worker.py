@@ -7,12 +7,16 @@ from app.factory import build_s2k_llm_provider
 from app.llm.json_call import MAX_REPAIR_ATTEMPTS
 from app.llm.protocol import LLMProvider
 from app.llm.s2k_bridge import S2KBridgeProvider
-from app.models.insights import InsightJob, InsightRevision
+from app.logging import emit_event
+from app.models.insights import EvidenceBundle, InsightJob, InsightRevision
+from app.services.context_loader import ContextLoader
 from app.services.insight_analysis import analyze_bundle
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import load_prepared_context
 from app.services.insight_knowledge_verdict import judge_knowledge
+from app.services.insight_product_relevance import judge_relevance, load_rubric, not_judged
 from app.services.insight_projection import reconcile_store_projections
+from app.services.product_relevance_input import build_product_inputs
 from app.storage.insight_store import InsightStore
 from config import settings
 
@@ -20,9 +24,14 @@ logger = logging.getLogger(__name__)
 
 
 def _s2k_inference_lease_seconds(llm: S2KBridgeProvider) -> float:
-    """Cover both JSON stages and persistence using the enforced parent bound."""
+    """Cover every JSON stage that will run, plus persistence, using the parent bound.
+
+    Analysis and the knowledge verdict always count; the product relevance
+    judgment adds a third stage when it is enabled.
+    """
+    stages = 3 if settings.INSIGHT_PRODUCT_RELEVANCE_ENABLED else 2
     return max(
-        120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
+        120.0, stages * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
     )
 
 
@@ -122,6 +131,11 @@ async def _process_claimed_job(
     if job.supersedes_insight_id:
         insight = insight.model_copy(update={"supersedes_insight_id": job.supersedes_insight_id})
     insight = await _attach_knowledge_verdict(store, job, insight, llm)
+    insight = await _attach_product_relevance(
+        store, job, insight, bundle, llm,
+        decision_context_root if decision_context_root is not None
+        else settings.DECISION_CONTEXT_ROOT,
+    )
     completed = store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
     if settings.INSIGHT_PROJECTION_ENABLED:
         try:
@@ -179,6 +193,63 @@ async def _attach_knowledge_verdict(
         },
     )
     return insight.model_copy(update={"knowledge_verdict": verdict})
+
+
+async def _attach_product_relevance(
+    store: InsightStore, job: InsightJob, insight: InsightRevision, bundle: EvidenceBundle,
+    llm: LLMProvider, decision_context_root: str,
+) -> InsightRevision:
+    """Attach a non-blocking relevance verdict; off leaves the field null."""
+    if not settings.INSIGHT_PRODUCT_RELEVANCE_ENABLED:
+        return insight
+    rubric = load_rubric(settings.PRODUCT_RELEVANCE_RUBRIC_PATH)
+    try:
+        loaded = (
+            build_product_inputs(ContextLoader(decision_context_root), rubric.eligible)
+            if rubric is not None else None
+        )
+    except Exception:
+        return insight.model_copy(update={"product_relevance": not_judged(
+            "product context could not be read",
+            rubric_revision=rubric.revision if rubric else None,
+        )})
+    if rubric is not None and loaded is not None and loaded.missing:
+        # A partial product set makes a tie read as relevance to whichever product loaded.
+        emit_event(
+            "insight_product_relevance", "product_context_unavailable", job.job_id,
+            {"missing": [list(entry) for entry in loaded.missing]},
+        )
+        listed = ", ".join(f"{pid} ({reason})" for pid, reason in loaded.missing)
+        return insight.model_copy(update={"product_relevance": not_judged(
+            f"product context unavailable: {listed}", rubric_revision=rubric.revision,
+        )})
+    products = loaded.products if loaded is not None else []
+    relevance = await judge_relevance(
+        insight=insight, bundle=bundle, products=products, rubric=rubric, llm=llm,
+        budget=BudgetService(
+            store,
+            BudgetPolicy(
+                allowances_micros={
+                    "product_relevance":
+                        settings.INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS or 0
+                },
+                rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+            ),
+        ),
+        reservation_payload={
+            "operation_id": f"product-relevance:{job.job_id}",
+            "operation_type": "product_relevance",
+            "candidate_id": job.candidate_id,
+            "job_id": job.job_id,
+            "policy_revision": "product-relevance-v1",
+            "provider": "insight_oauth",
+            "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
+            "maximum_micros": settings.INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS or 0,
+            "allowance_class": "product_relevance",
+            "budget_window": utc_day_window(),
+        },
+    )
+    return insight.model_copy(update={"product_relevance": relevance})
 
 
 async def process_one_oauth(store: InsightStore) -> InsightRevision | None:
