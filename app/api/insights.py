@@ -2097,9 +2097,21 @@ def _suggestion_preview(
     from config import settings
 
     lineage = engine.insight_store.insight_lineage(insight.insight_id)
+    is_current = bool(lineage and lineage[0])
+    if is_current:
+        # Same readability rule as GET /insights/latest (list_current_insights_page).
+        prepared = engine.insight_store.get_prepared_context(insight.prepared_context_id)
+        if prepared is None or prepared.validation_status != "valid":
+            return DecisionSuggestionPreview(
+                insight_id=insight.insight_id,
+                revision=insight.revision,
+                would_suggest=False,
+                state="none",
+                reason="Insight is not shown on reading surfaces",
+            )
     return evaluate_decision_suggestion(
         insight,
-        is_current=bool(lineage and lineage[0]),
+        is_current=is_current,
         assessment=ProductConnectionService(engine.context_loader).assess(
             insight, engine.insight_store
         ),

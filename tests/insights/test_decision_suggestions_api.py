@@ -84,3 +84,41 @@ def test_list_route_reports_would_suggest_in_every_state(client_for, mode):
     client, insight, _ = client_for(mode=mode)
     items = client.get("/insight-decision-suggestions", headers=H).json()["items"]
     assert [(i["insight_id"], i["would_suggest"]) for i in items] == [(insight.insight_id, True)]
+
+
+def _save_needs_evidence_insight(engine, insight):
+    prepared = engine.insight_store.get_prepared_context(insight.prepared_context_id)
+    engine.insight_store.save_prepared_context(
+        prepared.model_copy(
+            update={
+                "prepared_context_id": "prepared-needs-evidence",
+                "validation_status": "needs_evidence",
+            }
+        ).model_dump(mode="json")
+    )
+    return engine.insight_store.save_insight(
+        insight.model_copy(
+            update={
+                "insight_id": "insight-needs-evidence",
+                "prepared_context_id": "prepared-needs-evidence",
+            }
+        ).model_dump(mode="json")
+    )
+
+
+def test_an_insight_the_reading_surfaces_hide_answers_none(client_for):
+    client, insight, engine = client_for(mode="on")
+    hidden = _save_needs_evidence_insight(engine, insight)
+    body = client.get(f"/insights/{hidden.insight_id}/decision-suggestion", headers=H).json()
+    assert body["state"] == "none"
+    assert body["product_id"] is None
+
+
+def test_list_route_does_not_suggest_a_hidden_insight(client_for):
+    client, insight, engine = client_for(mode="on")
+    hidden = _save_needs_evidence_insight(engine, insight)
+    items = client.get("/insight-decision-suggestions", headers=H).json()["items"]
+    by_id = {i["insight_id"]: i for i in items}
+    assert by_id[hidden.insight_id]["would_suggest"] is False
+    assert "reading surfaces" in by_id[hidden.insight_id]["reason"]
+    assert by_id[insight.insight_id]["would_suggest"] is True
