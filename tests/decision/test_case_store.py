@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from app.models.decision_case import DecisionCase
+from app.models.decision_case import DecisionCase, InsightRevisionReference
 from app.services.run_context import load_run_context
 from app.storage.sqlite_store import SQLiteStore
 
@@ -196,3 +196,28 @@ def test_insight_backed_request_is_not_labeled_as_direct_input(tmp_path):
     result = store.create_decision_request_run(case)
 
     assert store.get_signal(result["signal_id"])["title"] == "Insight-backed product decision input"
+
+
+def _case(case_id, refs):
+    return DecisionCase(
+        case_id=case_id,
+        revision=1,
+        prepared_context_id=f"prepared-{case_id}",
+        prepared_context_revision=1,
+        product_id="example-mobile-product",
+        decision_question="Should this be examined?",
+        input_origins=["insight"] if refs else ["direct"],
+        authorized_depth="evaluate",
+        insight_references=[InsightRevisionReference(insight_id=i, revision=1) for i in refs],
+    )
+
+
+def test_referenced_insight_ids_collects_every_case(tmp_path):
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    assert store.referenced_insight_ids() == set()
+
+    store.create_decision_request_run(_case("case-a", ["insight-a"]))
+    store.create_decision_request_run(_case("case-b", ["insight-b", "insight-c"]))
+    store.create_decision_request_run(_case("case-direct", []))
+
+    assert store.referenced_insight_ids() == {"insight-a", "insight-b", "insight-c"}

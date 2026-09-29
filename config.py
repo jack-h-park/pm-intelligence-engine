@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     INTELLIGENCE_MODE: str = "legacy"
     INSIGHT_WRITES_ENABLED: bool = False
     DECISION_PIPELINE_V2_ENABLED: bool = False
+    # Optional decision suggestions (control plane docs: insight-decision-suggestions
+    # design). off | trial | on; unknown reads as off. Never gates explicit requests.
+    INSIGHT_DECISION_SUGGESTIONS: str = "off"
+    INSIGHT_DECISION_SUGGESTION_TRIAL_IDS: str = ""
     INSIGHT_MIGRATION_ACTIVATION_ENABLED: bool = False
     # Historical cross-system aliases require a separate reviewed release step.
     # Recording a disposition plan never enables import or the read overlay.
