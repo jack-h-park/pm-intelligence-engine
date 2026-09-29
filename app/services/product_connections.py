@@ -42,6 +42,12 @@ class ProductConnectionAssessment(BaseModel):
 _NO_REVISION = "0" * 64
 
 
+def _lead(link: Any) -> str:
+    if link.item_kind == "non_goal":
+        return f"Bears on a stated non-goal — not a planned feature: {link.item_text}"
+    return f"Bears on {link.item_section}: {link.item_text}"
+
+
 def _from_verdict(
     insight: InsightRevision, verdict: ProductRelevance
 ) -> ProductConnectionAssessment:
@@ -52,10 +58,7 @@ def _from_verdict(
     }
     if verdict.decision == "relevant":
         link = verdict.links[0]
-        if link.item_kind == "non_goal":
-            lead = f"Bears on a stated non-goal — not a planned feature: {link.item_text}"
-        else:
-            lead = f"Bears on {link.item_section}: {link.item_text}"
+        lead = _lead(link)
         return ProductConnectionAssessment(
             **base,
             assessment="candidates",
@@ -78,7 +81,7 @@ def _from_verdict(
                 ProductConnectionAlternative(
                     product_id=link.product_id,
                     product_title=link.product_title,
-                    reason=f"Bears on {link.item_section}: {link.item_text}",
+                    reason=_lead(link),
                 ),
             )
         return ProductConnectionAssessment(

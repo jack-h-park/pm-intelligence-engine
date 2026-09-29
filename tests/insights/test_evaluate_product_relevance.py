@@ -59,3 +59,12 @@ def test_out_inside_the_repository_is_refused(tmp_path):
     ])
     assert code == 2
     assert not (repo / "relevance-review.md").exists()
+
+
+def test_out_in_a_missing_directory_is_refused_before_anything_else(tmp_path, capsys):
+    code = main([
+        "--database", str(tmp_path / "x.db"), "--decision-context", str(tmp_path),
+        "--rubric", str(tmp_path / "r.md"), "--out", str(tmp_path / "missing" / "out.md"),
+    ])
+    assert code == 2
+    assert "output directory does not exist" in capsys.readouterr().err

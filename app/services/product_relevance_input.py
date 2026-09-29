@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 
 from app.models.insights import ItemKind
-from app.services.context_loader import ContextLoader, _extract_overview
+from app.services.context_loader import ContextLoader, _extract_overview, _read_manifest
 
 ITEM_LIMIT = 600
 SECTION_LIMIT = 2000
@@ -142,7 +142,7 @@ def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> list[Pro
         resolved = loader.resolve_product(product_id)
         if resolved is None:
             continue
-        canonical = resolved[0]
+        canonical, directory = resolved
         try:
             content = loader.load_product_context(canonical)
         except (OSError, UnicodeDecodeError):
@@ -151,5 +151,10 @@ def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> list[Pro
         if not items:
             continue
         title, _overview = _extract_overview(content)
-        inputs.append(ProductInput(canonical, title or canonical, tuple(items), _revision(items)))
+        # The manifest's display name, not the context H1: real contexts are headed
+        # "Product Context — <name>", and the title is stored in immutable revisions.
+        display = _read_manifest(directory).get("display_name")
+        inputs.append(
+            ProductInput(canonical, display or title or canonical, tuple(items), _revision(items))
+        )
     return inputs

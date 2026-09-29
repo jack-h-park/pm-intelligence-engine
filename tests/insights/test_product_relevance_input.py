@@ -102,6 +102,16 @@ def test_build_inputs_follows_the_allowlist_and_hashes_the_items(tmp_path):
     assert mobile.revision == hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
+def test_manifest_display_name_wins_over_the_context_heading(tmp_path):
+    _write(tmp_path, "example-mobile-product",
+           "# Product Context \u2014 Something Else\n\n## Product Overview\nA.\n")
+    (tmp_path / "products" / "example-mobile-product" / "product.yaml").write_text(
+        "id: example-mobile-product\ndisplay_name: Example Mobile Product\n", encoding="utf-8"
+    )
+    [product] = build_product_inputs(ContextLoader(str(tmp_path)), ["example-mobile-product"])
+    assert product.title == "Example Mobile Product"
+
+
 def test_subheading_title_prefixes_its_bullets():
     context = (
         "# P\n\n## Strategy Pillars\n\n"

@@ -1,5 +1,8 @@
 """Offline product relevance evaluation: one review table, nothing persisted.
 
+Run as `python -m scripts.evaluate_product_relevance ...` from the engine repo root; running the
+file path directly fails to import `app`.
+
 Run on the ops host against a copy of the engine database. Every call goes through the real
 S2K bridge, so this spends model calls; it is run only when authorized.
 """
@@ -124,6 +127,9 @@ def main(argv: list[str] | None = None) -> int:
     if out.is_relative_to(REPO_ROOT.resolve()):
         print("refusing to write the review table inside this public repository",
               file=sys.stderr)
+        return 2
+    if not out.parent.is_dir():
+        print(f"output directory does not exist: {out.parent}", file=sys.stderr)
         return 2
     rubric = load_rubric(args.rubric)
     if rubric is None:

@@ -136,6 +136,21 @@ def test_ambiguous_verdict_lists_each_product(tmp_path, engine_with_insight):
     assert assessment.candidates == []
 
 
+def test_ambiguous_alternative_for_a_non_goal_says_so(tmp_path, engine_with_insight):
+    engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
+    verdict = ProductRelevance(
+        decision="ambiguous", reason="Both equally.",
+        links=[_link(kind="non_goal", section="Non-goals", text="1. Scan personal apps."),
+               _link("example-mobile-product")],
+        rubric_revision=REV,
+    )
+    alternatives = _with_verdict(engine, insight, verdict).alternatives
+    assert alternatives[0].reason.startswith(
+        "Bears on a stated non-goal — not a planned feature: 1. Scan personal apps."
+    )
+    assert alternatives[1].reason.startswith("Bears on Strategy Pillars:")
+
+
 @pytest.mark.parametrize(("decision", "prefix"), [
     ("not_relevant", "Only a shared theme."),
     ("not_judged", "Relevance was not judged: Only a shared theme."),
