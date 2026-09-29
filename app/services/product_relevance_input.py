@@ -78,11 +78,13 @@ def _blocks(lines: list[str]) -> list[str]:
     blocks: list[list[str]] = []
     current: list[str] | None = None
     in_subheading = False
+    heading: str | None = None
     for line in lines:
         stripped = line.strip()
         subheading = re.match(r"^###\s+(.+?)\s*$", stripped)
         if subheading:
-            current = [subheading.group(1) + ":"]
+            heading = subheading.group(1)
+            current = [heading + ":"]
             blocks.append(current)
             in_subheading = True
             continue
@@ -94,6 +96,8 @@ def _blocks(lines: list[str]) -> list[str]:
             continue
         if re.match(r"^([-*]|\d+\.)\s+", line):
             text = re.sub(r"^[-*]\s+", "", stripped)
+            if heading is not None:
+                text = f"{heading}: {text}"
             current = [text]
             blocks.append(current)
             in_subheading = False
@@ -141,7 +145,7 @@ def build_product_inputs(loader: ContextLoader, eligible: list[str]) -> list[Pro
         canonical = resolved[0]
         try:
             content = loader.load_product_context(canonical)
-        except FileNotFoundError:
+        except (OSError, UnicodeDecodeError):
             continue
         items = extract_items(canonical, content)
         if not items:

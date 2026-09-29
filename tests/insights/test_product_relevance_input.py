@@ -100,3 +100,46 @@ def test_build_inputs_follows_the_allowlist_and_hashes_the_items(tmp_path):
         separators=(",", ":"), ensure_ascii=False,
     )
     assert mobile.revision == hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def test_subheading_title_prefixes_its_bullets():
+    context = (
+        "# P\n\n## Strategy Pillars\n\n"
+        "### Enterprise\n\nEnterprise positioning emphasizes:\n\n"
+        "- Integrates with device management\n- Simple setup\n\n"
+        "### Small business\n\nSmall business positioning emphasizes:\n\n"
+        "- Simple setup\n"
+    )
+    texts = [i.text for i in extract_items("p", context)]
+    assert texts == [
+        "Enterprise: Integrates with device management",
+        "Enterprise: Simple setup",
+        "Small business: Simple setup",
+    ]
+
+
+def test_unreadable_product_file_is_skipped(tmp_path):
+    _write(tmp_path, "android-enterprise", "# Android Enterprise\n\n## Product Overview\nA.\n")
+    directory = tmp_path / "products" / "example-mobile-product"
+    directory.mkdir(parents=True)
+    (directory / "context.md").write_bytes(b"\xff\xfe# Bad")
+
+    inputs = build_product_inputs(
+        ContextLoader(str(tmp_path)), ["example-mobile-product", "android-enterprise"]
+    )
+    assert [p.product_id for p in inputs] == ["android-enterprise"]
+
+
+def test_alternate_headings_and_first_present_wins():
+    alt = extract_items(
+        "p", "# P\n\n## Strategic Principles\n- Keep it simple.\n\n## Target Customers\n- Admins.\n"
+    )
+    assert [(i.kind, i.section) for i in alt] == [
+        ("pillar", "Strategic Principles"),
+        ("target_user", "Target Customers"),
+    ]
+    both = extract_items(
+        "p",
+        "# P\n\n## Strategic Principles\n- Other.\n\n## Strategy Pillars\n- Chosen.\n",
+    )
+    assert [(i.section, i.text) for i in both] == [("Strategy Pillars", "Chosen.")]
