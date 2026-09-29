@@ -68,6 +68,7 @@ async def evaluate(store: Any, decision_context_root: str, rubric: Rubric, llm: 
             "elapsed_seconds": elapsed,
             "links": [{
                 "product_id": link.product_id,
+                "level": link.level,
                 "item_kind": link.item_kind,
                 "item_section": link.item_section,
                 "item_text": link.item_text,
@@ -90,6 +91,10 @@ def _counts(counter: Counter) -> str:
     return ", ".join(f"{key}: {value}" for key, value in sorted(counter.items())) or "none"
 
 
+def _linked_bucket(count: int) -> str:
+    return "3+" if count >= 3 else str(count)
+
+
 def render(rows: list[dict], *, rubric_revision: str) -> str:
     lines = [
         "# Product relevance offline evaluation",
@@ -97,6 +102,14 @@ def render(rows: list[dict], *, rubric_revision: str) -> str:
         f"Rubric revision: `{rubric_revision}`",
         f"Insights: {len(rows)}",
         "Decisions: " + _counts(Counter(row["decision"] for row in rows)),
+        "Rows by linked products: " + ", ".join(
+            f"{bucket}: {sum(1 for row in rows if _linked_bucket(len(row['links'])) == bucket)}"
+            for bucket in ("0", "1", "2", "3+")
+        ),
+        "Links by level: " + ", ".join(
+            f"{level}: {sum(1 for row in rows for link in row['links'] if link['level'] == level)}"
+            for level in ("direct", "related")
+        ),
         "Call status: " + _counts(Counter(row["status"] for row in rows)),
         "",
     ]
@@ -124,7 +137,8 @@ def render(rows: list[dict], *, rubric_revision: str) -> str:
             lines.append(f"- Cited passage ({passage_id}): {text}")
         for link in row["links"]:
             lines += [
-                f"- Link: {link['product_id']} / {link['item_kind']} / {link['item_section']}",
+                f"- Link: {link['product_id']} · {link['level']} · {link['item_kind']}"
+                f" · {link['item_section']}",
                 f"  - Item: {link['item_text']}",
             ]
             for evidence in link["evidence"]:
@@ -132,10 +146,14 @@ def render(rows: list[dict], *, rubric_revision: str) -> str:
                     f"  - Quote ({evidence['passage_id']}): {evidence['quote']}",
                     f"  - Passage: {evidence['passage_text']}",
                 ]
+            lines += [
+                "  - Review: right / overreach",
+                "  - Quote supports the link? yes / no",
+            ]
         lines += [
             "",
-            "Review: right / overreach / missed",
-            "Link supported by the quoted passage? yes / no",
+            "Products that should be linked but are not:",
+            "Is any level wrong? yes / no",
         ]
         if any(link["item_kind"] == "non_goal" for link in row["links"]):
             lines.append("Reads as a feature to build? yes / no")

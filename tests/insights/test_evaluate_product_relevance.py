@@ -10,8 +10,8 @@ from scripts.evaluate_product_relevance import evaluate, main, render
 
 class FixtureLLM:
     async def complete(self, messages, **kwargs):
-        return json.dumps({"decision": "relevant", "reason": "It changes isolation.", "links": [{
-            "product_id": "android-enterprise", "item_ref": "android-enterprise/overview/1",
+        return json.dumps({"decision": "linked", "reason": "It changes isolation.", "links": [{
+            "product_id": "android-enterprise", "level": "direct", "item_ref": "android-enterprise/overview/1",
             "evidence": [{"passage_id": "passage-connection", "quote": "managed work profile"}],
         }]})
 
@@ -37,15 +37,23 @@ async def test_rows_carry_evidence_status_and_cost_and_nothing_is_persisted(
 
     assert [row["insight_id"] for row in rows] == [insight.insight_id]
     row = rows[0]
-    assert (row["decision"], row["status"]) == ("relevant", "succeeded")
+    assert (row["decision"], row["status"]) == ("linked", "succeeded")
     assert row["links"][0]["item_text"] == "Managed Android."
     assert row["links"][0]["evidence"][0]["passage_text"].startswith("A managed work profile")
     assert row["cost"].startswith("not reported")
     assert engine.insight_store.get_insight(insight.insight_id).product_relevance is None
 
     table = render(rows, rubric_revision=rubric.revision)
-    assert rubric.revision in table and "relevant: 1" in table
-    assert "Link supported by the quoted passage? yes / no" in table
+    assert row["links"][0]["level"] == "direct"
+    assert rubric.revision in table and "linked: 1" in table
+    assert "Rows by linked products: 0: 0, 1: 1, 2: 0, 3+: 0" in table
+    assert "Links by level: direct: 1, related: 0" in table
+    assert "Link: android-enterprise · direct · overview · " in table
+    assert "Review: right / overreach" in table
+    assert "Quote supports the link? yes / no" in table
+    assert "Products that should be linked but are not:" in table
+    assert "Is any level wrong? yes / no" in table
+    assert "Review: right / overreach / missed" not in table
     assert "Reads as a feature to build?" not in table
 
 
@@ -100,6 +108,11 @@ async def test_every_row_carries_the_change_takeaway_cited_passages_and_timing(
         assert pid in table and text in table
     assert "reason truncated (original 250 chars)" in table
     assert "Elapsed" in table
+    assert "Products that should be linked but are not:" in table
+    assert "Is any level wrong? yes / no" in table
+    assert "Rows by linked products: 0: 1, 1: 0, 2: 0, 3+: 0" in table
+    assert "Links by level: direct: 0, related: 0" in table
+    assert "Quote supports the link?" not in table
 
 
 @pytest.mark.asyncio
