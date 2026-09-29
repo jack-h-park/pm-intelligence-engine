@@ -75,6 +75,8 @@ class PMWorkflowStore(Protocol):
 
     def get_decision_case(self, run_id: str) -> DecisionCase | None: ...
 
+    def referenced_insight_ids(self) -> set[str]: ...
+
     def create_run(
         self,
         product_id: str,

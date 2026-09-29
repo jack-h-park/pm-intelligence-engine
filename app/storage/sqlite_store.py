@@ -2,7 +2,7 @@ import json
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from sqlalchemy import Table, create_engine, inspect, text
+from sqlalchemy import Table, create_engine, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -586,6 +586,23 @@ class SQLiteStore:
                 {"case_id": link.case_id, "revision": link.case_revision},
             )
             return DecisionCase.model_validate_json(record.payload_json) if record else None
+
+    def referenced_insight_ids(self) -> set[str]:
+        """Insight IDs named by any stored DecisionCase revision.
+
+        Read for decision suggestions: an Insight that already fed a case is not suggested
+        again. Case volume is small (one production case on 2026-09-29), so a scan of the
+        payloads is simpler than a new column and cannot drift from the payload.
+        """
+        from app.models.decision_case import DecisionCase
+
+        with self._Session() as session:
+            payloads = session.execute(select(DecisionCaseRecord.payload_json)).scalars().all()
+        found: set[str] = set()
+        for payload in payloads:
+            case = DecisionCase.model_validate_json(payload)
+            found.update(reference.insight_id for reference in case.insight_references)
+        return found
 
     def create_run(
         self,
