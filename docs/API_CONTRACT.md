@@ -674,6 +674,15 @@ consumer must not keep a second ledger of Insight IDs.
 The full item is an `InsightRevision`. No Product Decision, delivery, source
 acquisition, or workflow state is included or changed by this read endpoint.
 
+### `GET /insights/latest?limit=<1..100>`
+
+Returns current, valid Insights newest-first by `(created_at, insight_id)` for
+bounded reading surfaces such as the Console homepage. The default limit is 20.
+Superseded Insights and invalid prepared contexts are excluded before limiting.
+The response uses the same `items` shape with `next_cursor: null`; this endpoint
+is not an incremental synchronization boundary. Existing `/insights` cursor
+ordering remains unchanged. The read performs no model calls or writes.
+
 ### `GET /insights/{id}/evidence?revision=<n>`
 
 The revision-pinned evidence response shape is fixed:
