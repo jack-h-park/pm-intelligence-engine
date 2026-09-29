@@ -61,7 +61,7 @@ The assessment is not a mapping. It is neither a product field nor a workflow tr
   ],
   "alternatives": [
     {
-      "product_id": "samsung-knox-mtd",
+      "product_id": "example-mobile-product",
       "reason": "Related mobile security concern, but the Insight does not cite a threat-detection mechanism."
     }
   ]

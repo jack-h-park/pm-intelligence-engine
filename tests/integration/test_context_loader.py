@@ -1,5 +1,7 @@
 """Integration tests for ContextLoader — reads from the real DECISION_SYSTEM_ROOT."""
 
+from pathlib import Path
+
 import pytest
 
 from app.services.context_loader import ContextLoader
@@ -11,6 +13,23 @@ pytestmark = pytest.mark.integration
 @pytest.fixture
 def loader() -> ContextLoader:
     return ContextLoader(settings.decision_system_root)
+
+
+@pytest.fixture
+def known_product_id() -> str:
+    """First real product in the checkout whose context carries strategy pillars.
+
+    Discovered rather than named: product ids in the decision-context checkout
+    are private and do not belong in this repository.
+    """
+    products = Path(settings.decision_system_root) / "products"
+    for product_dir in sorted(products.iterdir()):
+        if product_dir.name in {"_template", "general"}:
+            continue
+        context = product_dir / "context.md"
+        if context.is_file() and "Strategy Pillars" in context.read_text(encoding="utf-8"):
+            return product_dir.name
+    pytest.fail(f"no product with a Strategy Pillars section under {products}")
 
 
 def test_load_pm_identity(loader: ContextLoader):
@@ -25,8 +44,8 @@ def test_load_company_context(loader: ContextLoader):
     assert len(text) > 100
 
 
-def test_load_product_context_known_product(loader: ContextLoader):
-    text = loader.load_product_context("samsung-knox-lockdown-mode")
+def test_load_product_context_known_product(loader: ContextLoader, known_product_id: str):
+    text = loader.load_product_context(known_product_id)
     assert text
     assert "Strategy Pillars" in text or "strategy" in text.lower()
 
@@ -36,12 +55,12 @@ def test_load_product_context_missing_product(loader: ContextLoader):
         loader.load_product_context("nonexistent-product-xyz")
 
 
-def test_load_full_context(loader: ContextLoader):
-    ctx = loader.load_full_context("samsung-knox-lockdown-mode")
+def test_load_full_context(loader: ContextLoader, known_product_id: str):
+    ctx = loader.load_full_context(known_product_id)
     assert ctx.pm_identity
     assert ctx.company_context
     assert ctx.product_context
-    assert ctx.product_id == "samsung-knox-lockdown-mode"
+    assert ctx.product_id == known_product_id
 
 
 def test_load_product_context_general(loader: ContextLoader):
