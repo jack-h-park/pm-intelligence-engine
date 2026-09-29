@@ -76,7 +76,7 @@
         "s2k_disposition": "ready",
         "connection_assessment": "candidates",
         "candidate_product_ids": [
-          "samsung-knox-mtd"
+          "example-mobile-product"
         ],
         "required_passage_ids": [
           "security-product-strong-connection:0"
