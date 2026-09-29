@@ -82,10 +82,10 @@ def _with_verdict(engine, insight, verdict):
 
 
 def _link(product="android-enterprise", kind="pillar", section="Strategy Pillars",
-          text="Keep work data isolated."):
+          text="Keep work data isolated.", level="direct"):
     return RelevanceLink(
         product_id=product, product_title=product.replace("-", " ").title(), item_kind=kind,
-        item_section=section, item_text=text, product_input_revision=REV,
+        item_section=section, item_text=text, product_input_revision=REV, level=level,
         evidence=[RelevanceEvidence(passage_id="passage-connection", quote="work profile")],
     )
 
@@ -93,26 +93,35 @@ def _link(product="android-enterprise", kind="pillar", section="Strategy Pillars
 ANCHOR_TEXT = "A managed work profile permits a selected cross-profile interaction."
 
 
-def test_relevant_verdict_becomes_the_candidate(tmp_path, engine_with_insight):
+def test_two_link_verdict_gives_one_candidate_per_link_in_stored_order(
+    tmp_path, engine_with_insight
+):
     engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
-    verdict = ProductRelevance(decision="relevant", reason="It changes isolation.",
-                               links=[_link()], rubric_revision=REV)
+    verdict = ProductRelevance(
+        decision="linked", reason="It changes isolation.",
+        links=[_link(), _link("example-mobile-product", level="related", kind="constraint",
+                              section="Constraints", text="Ship offline mode.")],
+        rubric_revision=REV,
+    )
     assessment = _with_verdict(engine, insight, verdict)
 
     assert assessment.assessment == "candidates"
-    candidate = assessment.candidates[0]
-    assert (candidate.product_id, candidate.item_kind, candidate.passage_ids) == (
-        "android-enterprise", "pillar", ["passage-connection"]
-    )
-    assert candidate.rationale == (
+    assert [
+        (c.product_id, c.level, c.item_kind, c.passage_ids) for c in assessment.candidates
+    ] == [
+        ("android-enterprise", "direct", "pillar", ["passage-connection"]),
+        ("example-mobile-product", "related", "constraint", ["passage-connection"]),
+    ]
+    assert assessment.candidates[0].rationale == (
         "Bears on Strategy Pillars: Keep work data isolated. It changes isolation."
     )
+    assert assessment.alternatives == []
 
 
 def test_non_goal_rationale_says_it_is_not_a_planned_feature(tmp_path, engine_with_insight):
     engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
     verdict = ProductRelevance(
-        decision="relevant", reason="It challenges that choice.",
+        decision="linked", reason="It challenges that choice.",
         links=[_link(kind="non_goal", section="Non-goals", text="1. Scan personal apps.")],
         rubric_revision=REV,
     )
@@ -123,32 +132,12 @@ def test_non_goal_rationale_says_it_is_not_a_planned_feature(tmp_path, engine_wi
     )
 
 
-def test_ambiguous_verdict_lists_each_product(tmp_path, engine_with_insight):
+def test_anchor_candidates_have_no_level(tmp_path, engine_with_insight):
     engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
-    verdict = ProductRelevance(decision="ambiguous", reason="Both equally.",
-                               links=[_link(), _link("example-mobile-product")],
-                               rubric_revision=REV)
-    assessment = _with_verdict(engine, insight, verdict)
-    assert assessment.assessment == "ambiguous"
-    assert [a.product_id for a in assessment.alternatives] == [
-        "android-enterprise", "example-mobile-product"
-    ]
-    assert assessment.candidates == []
-
-
-def test_ambiguous_alternative_for_a_non_goal_says_so(tmp_path, engine_with_insight):
-    engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
-    verdict = ProductRelevance(
-        decision="ambiguous", reason="Both equally.",
-        links=[_link(kind="non_goal", section="Non-goals", text="1. Scan personal apps."),
-               _link("example-mobile-product")],
-        rubric_revision=REV,
+    assessment = ProductConnectionService(engine.context_loader).assess(
+        insight, engine.insight_store
     )
-    alternatives = _with_verdict(engine, insight, verdict).alternatives
-    assert alternatives[0].reason.startswith(
-        "Bears on a stated non-goal — not a planned feature: 1. Scan personal apps."
-    )
-    assert alternatives[1].reason.startswith("Bears on Strategy Pillars:")
+    assert all(c.level is None for c in assessment.candidates)
 
 
 @pytest.mark.parametrize(("decision", "prefix"), [
@@ -167,7 +156,7 @@ def test_no_link_verdicts_never_fall_back_to_anchors(
 
 def test_editing_context_after_a_verdict_changes_nothing(tmp_path, engine_with_insight):
     engine, insight = engine_with_insight(tmp_path, content=ANCHOR_TEXT)
-    verdict = ProductRelevance(decision="relevant", reason="r", links=[_link()],
+    verdict = ProductRelevance(decision="linked", reason="r", links=[_link()],
                                rubric_revision=REV)
     before = _with_verdict(engine, insight, verdict)
     context = tmp_path / "decision-context" / "products" / "android-enterprise" / "context.md"
