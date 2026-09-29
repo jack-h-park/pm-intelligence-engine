@@ -11,7 +11,8 @@ from scripts.evaluate_product_relevance import evaluate, main, render
 class FixtureLLM:
     async def complete(self, messages, **kwargs):
         return json.dumps({"decision": "linked", "reason": "It changes isolation.", "links": [{
-            "product_id": "android-enterprise", "level": "direct", "item_ref": "android-enterprise/overview/1",
+            "product_id": "android-enterprise", "level": "direct",
+            "item_ref": "android-enterprise/overview/1",
             "evidence": [{"passage_id": "passage-connection", "quote": "managed work profile"}],
         }]})
 
