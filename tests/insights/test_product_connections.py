@@ -16,7 +16,7 @@ def test_connection_service_returns_only_evidence_anchored_candidate(tmp_path, e
 
     assert assessment.assessment == "candidates"
     assert [candidate.product_id for candidate in assessment.candidates] == [
-        "example-mobile-product"
+        "android-enterprise"
     ]
     assert assessment.candidates[0].passage_ids == ["passage-connection"]
     assert assessment.candidates[0].confidence == "medium"

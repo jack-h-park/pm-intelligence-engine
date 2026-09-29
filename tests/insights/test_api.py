@@ -1713,7 +1713,7 @@ def test_insight_review_is_authenticated_idempotent_and_does_not_start_a_decisio
     )
     product_attempt = client.post(
         f"/insights/{insight.insight_id}/reviews",
-        json={**review_payload, "product_id": "example-security-product"},
+        json={**review_payload, "product_id": "example-mobile-product"},
         headers={**auth_headers, "Idempotency-Key": "review-product-attempt"},
     )
 

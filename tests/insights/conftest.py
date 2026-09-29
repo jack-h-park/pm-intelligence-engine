@@ -134,17 +134,17 @@ def engine_with_insight():
 
     def build(tmp_path, *, content: str) -> tuple[PMEngine, InsightRevision]:
         decision_root = tmp_path / "decision-context"
-        android = decision_root / "products" / "example-mobile-product"
+        android = decision_root / "products" / "android-enterprise"
         android.mkdir(parents=True)
         (android / "context.md").write_text(
-            "# Example Mobile Product\n\n## Product Overview\nManaged Android.\n"
+            "# Android Enterprise\n\n## Product Overview\nManaged Android.\n"
             "\n## Connection Anchors\n- managed work profile\n- cross-profile interaction\n",
             encoding="utf-8",
         )
-        security = decision_root / "products" / "example-security-product"
-        security.mkdir(parents=True)
-        (security / "context.md").write_text(
-            "# Example Security Product\n\n## Product Overview\nMobile threat defense.\n"
+        mobile = decision_root / "products" / "example-mobile-product"
+        mobile.mkdir(parents=True)
+        (mobile / "context.md").write_text(
+            "# Example Mobile Product\n\n## Product Overview\nMobile threat defense.\n"
             "\n## Connection Anchors\n- malware detection\n",
             encoding="utf-8",
         )
