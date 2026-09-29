@@ -1560,6 +1560,22 @@ async def search(
     return InsightSearchResults(items=matches[:limit])
 
 
+@router.get("/insights/latest", response_model=InsightSearchResults)
+async def latest_insights(
+    limit: int = Query(default=20, ge=1, le=100),
+    engine: PMEngine = Depends(get_engine),
+) -> InsightSearchResults:
+    """Newest current, valid Insights for bounded reading surfaces; no sync cursor."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
+        )
+    items, _has_more = engine.insight_store.list_current_insights_page(
+        None, None, limit, newest_first=True
+    )
+    return InsightSearchResults(items=items)
+
+
 @router.get("/insights", response_model=InsightSearchResults)
 async def list_insights(
     since: datetime | None = Query(default=None),

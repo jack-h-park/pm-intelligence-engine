@@ -1291,6 +1291,7 @@ class InsightStore:
         *,
         question_id: str | None = None,
         freshness: str | None = None,
+        newest_first: bool = False,
     ) -> tuple[list[InsightRevision], bool]:
         """Page current, valid Insights after applying consumer filters."""
         with self._Session() as session:
@@ -1304,7 +1305,7 @@ class InsightStore:
                 key = (insight.created_at, insight.insight_id)
                 if insight.insight_id in superseded or (since is not None and key[0] <= since):
                     continue
-                if after is not None and key <= after:
+                if after is not None and (key >= after if newest_first else key <= after):
                     continue
                 if question_id is not None and question_id not in insight.question_ids:
                     continue
@@ -1330,7 +1331,7 @@ class InsightStore:
                     if bundle is None or bundle.freshness_status != freshness:
                         continue
                 matching.append(insight)
-        matching.sort(key=lambda item: (item.created_at, item.insight_id))
+        matching.sort(key=lambda item: (item.created_at, item.insight_id), reverse=newest_first)
         return matching[:limit], len(matching) > limit
 
     def operational_summary(self) -> dict[str, Any]:
