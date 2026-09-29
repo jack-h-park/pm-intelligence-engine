@@ -84,8 +84,8 @@ def rubric(tmp_path):
 
 
 def _link(product="android-enterprise", ref="android-enterprise/pillar/1",
-          passage="p1", quote="hides inside the managed work profile"):
-    return {"product_id": product, "item_ref": ref,
+          passage="p1", quote="hides inside the managed work profile", level="direct"):
+    return {"product_id": product, "level": level, "item_ref": ref,
             "evidence": [{"passage_id": passage, "quote": quote}]}
 
 
@@ -99,8 +99,8 @@ async def _judge(payload, rubric, products=(ANDROID, MOBILE), diagnostics=None):
 
 
 @pytest.mark.asyncio
-async def test_relevant_is_pinned_from_engine_input(rubric):
-    payload = {"decision": "relevant", "reason": "It bears on isolation.",
+async def test_linked_is_pinned_from_engine_input(rubric):
+    payload = {"decision": "linked", "reason": "It bears on isolation.",
                "links": [{**_link(), "item_text": "MODEL TEXT", "item_kind": "overview"}]}
     diagnostics: dict = {}
     verdict, _ = await _judge(payload, rubric, diagnostics=diagnostics)
@@ -111,7 +111,7 @@ async def test_relevant_is_pinned_from_engine_input(rubric):
     payload["links"] = [_link()]
     verdict, _ = await _judge(payload, rubric)
     link = verdict.links[0]
-    assert verdict.decision == "relevant"
+    assert verdict.decision == "linked"
     assert (link.item_kind, link.item_section, link.item_text, link.product_input_revision) == (
         "pillar", "Strategy Pillars", "Keep work data isolated from personal apps.", REV_A
     )
@@ -121,15 +121,55 @@ async def test_relevant_is_pinned_from_engine_input(rubric):
 
 
 @pytest.mark.asyncio
-async def test_ambiguous_keeps_every_link(rubric):
-    payload = {"decision": "ambiguous", "reason": "Both equally.",
-               "links": [_link(), _link("example-mobile-product",
-                                        "example-mobile-product/pillar/1")]}
+async def test_linked_keeps_every_link_direct_first_in_allowlist_order(rubric):
+    payload = {"decision": "linked", "reason": "Both.", "links": [
+        _link("example-mobile-product", "example-mobile-product/pillar/1", level="related"),
+        _link(),
+    ]}
     verdict, _ = await _judge(payload, rubric)
-    assert verdict.decision == "ambiguous"
-    assert [link.product_id for link in verdict.links] == [
+    assert verdict.decision == "linked"
+    assert [(x.product_id, x.level) for x in verdict.links] == [
+        ("android-enterprise", "direct"), ("example-mobile-product", "related")
+    ]
+    payload["links"] = [
+        _link("example-mobile-product", "example-mobile-product/pillar/1"), _link()
+    ]
+    verdict, _ = await _judge(payload, rubric)
+    assert [x.product_id for x in verdict.links] == [
         "android-enterprise", "example-mobile-product"
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_bad_level_is_not_judged_at_the_level_coordinate(rubric):
+    for level in ("indirect", None, ["direct"]):
+        diagnostics: dict = {}
+        verdict, _ = await _judge(
+            {"decision": "linked", "reason": "r", "links": [_link(level=level)]}, rubric,
+            diagnostics=diagnostics,
+        )
+        assert verdict.decision == "not_judged"
+        assert diagnostics["failures"] == ["links[0].level"]
+
+
+@pytest.mark.asyncio
+async def test_a_duplicate_product_is_not_judged(rubric):
+    diagnostics: dict = {}
+    verdict, _ = await _judge(
+        {"decision": "linked", "reason": "r", "links": [_link(), _link(level="related")]},
+        rubric, diagnostics=diagnostics,
+    )
+    assert verdict.decision == "not_judged"
+    assert diagnostics["failures"] == ["links[1].product_id.duplicate"]
+
+
+@pytest.mark.asyncio
+async def test_the_prompt_asks_for_every_product_at_both_levels(rubric):
+    _, llm = await _judge({"decision": "not_relevant", "reason": "r", "links": []}, rubric)
+    system = llm.messages[0]["content"]
+    assert "do not pick one" in system
+    assert '"direct"' in system and '"related"' in system
+    assert "how directly" in system
 
 
 @pytest.mark.asyncio
@@ -144,7 +184,7 @@ async def test_ambiguous_keeps_every_link(rubric):
 async def test_each_validation_failure_is_not_judged(rubric, link, coordinate):
     diagnostics: dict = {}
     verdict, _ = await _judge(
-        {"decision": "relevant", "reason": "r", "links": [link]}, rubric, diagnostics=diagnostics,
+        {"decision": "linked", "reason": "r", "links": [link]}, rubric, diagnostics=diagnostics,
     )
     assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)
     assert coordinate in diagnostics["failures"]
@@ -152,15 +192,14 @@ async def test_each_validation_failure_is_not_judged(rubric, link, coordinate):
 
 @pytest.mark.asyncio
 async def test_quote_across_a_line_break_matches(rubric):
-    verdict, _ = await _judge({"decision": "relevant", "reason": "r", "links": [
+    verdict, _ = await _judge({"decision": "linked", "reason": "r", "links": [
         _link(quote="inside the managed work profile to evade")]}, rubric)
-    assert verdict.decision == "relevant"
+    assert verdict.decision == "linked"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [
-    {"decision": "relevant", "reason": "r", "links": []},
-    {"decision": "ambiguous", "reason": "r", "links": [_link(), _link()]},
+    {"decision": "linked", "reason": "r", "links": []},
     {"decision": "not_relevant", "reason": "r", "links": [_link()]},
     {"decision": "maybe", "reason": "r", "links": []},
 ])
@@ -231,8 +270,8 @@ async def test_the_model_sees_items_cited_passages_and_the_non_goal_rule(rubric)
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [
     {"decision": ["relevant"], "reason": "r", "links": []},
-    {"decision": "relevant", "reason": "r", "links": [{**_link(), "product_id": ["x"]}]},
-    {"decision": "relevant", "reason": "r", "links": [{**_link(), "item_ref": {}}]},
+    {"decision": "linked", "reason": "r", "links": [{**_link(), "product_id": ["x"]}]},
+    {"decision": "linked", "reason": "r", "links": [{**_link(), "item_ref": {}}]},
 ])
 async def test_unhashable_model_values_are_not_judged_not_raised(rubric, payload):
     diagnostics: dict = {}
@@ -294,6 +333,6 @@ async def test_an_overlong_reason_is_truncated_and_recorded(rubric, monkeypatch)
 @pytest.mark.asyncio
 async def test_a_truncated_reason_still_needs_every_other_check(rubric):
     verdict, _ = await _judge(
-        {"decision": "relevant", "reason": "x" * 250, "links": []}, rubric
+        {"decision": "linked", "reason": "x" * 250, "links": []}, rubric
     )
     assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)

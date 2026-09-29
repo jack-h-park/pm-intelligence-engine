@@ -991,19 +991,20 @@ def _queued_job(store_factory, candidate_payload, source_payload, bundle_payload
 
 
 @pytest.mark.asyncio
-async def test_worker_persists_a_relevant_verdict(
+async def test_worker_persists_a_linked_verdict(
     store_factory, candidate_payload, source_payload, bundle_payload, monkeypatch, tmp_path,
 ):
     _relevance_setup(monkeypatch, tmp_path)
     store, _job = _queued_job(store_factory, candidate_payload, source_payload, bundle_payload)
-    llm = _RelevanceLLM({"decision": "relevant", "reason": "Bears on isolation.", "links": [{
-        "product_id": "android-enterprise", "item_ref": "android-enterprise/pillar/1",
+    llm = _RelevanceLLM({"decision": "linked", "reason": "Bears on isolation.", "links": [{
+        "product_id": "android-enterprise", "level": "direct",
+        "item_ref": "android-enterprise/pillar/1",
         "evidence": [{"passage_id": "passage-fixture-1", "quote": "managed work profile"}],
     }]})
 
     completed = await process_one(store, llm)
 
-    assert completed.product_relevance.decision == "relevant"
+    assert completed.product_relevance.decision == "linked"
     assert completed.product_relevance.links[0].item_text == "Keep work data isolated."
     assert store.get_insight(completed.insight_id) == completed
 
