@@ -23,9 +23,14 @@ logger = logging.getLogger(__name__)
 
 
 def _s2k_inference_lease_seconds(llm: S2KBridgeProvider) -> float:
-    """Cover both JSON stages and persistence using the enforced parent bound."""
+    """Cover every JSON stage that will run, plus persistence, using the parent bound.
+
+    Analysis and the knowledge verdict always count; the product relevance
+    judgment adds a third stage when it is enabled.
+    """
+    stages = 3 if settings.INSIGHT_PRODUCT_RELEVANCE_ENABLED else 2
     return max(
-        120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
+        120.0, stages * (1 + MAX_REPAIR_ATTEMPTS) * llm.completion_timeout_seconds + 60
     )
 
 

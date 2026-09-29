@@ -1039,3 +1039,40 @@ async def test_disabled_makes_no_call_and_a_missing_budget_is_not_judged(
     decision = completed.product_relevance.decision if completed.product_relevance else None
     assert decision == expected
     assert llm.relevance_calls == 0
+
+
+def test_s2k_lease_gains_one_stage_when_relevance_is_enabled(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.llm.json_call import MAX_REPAIR_ATTEMPTS
+    from config import settings
+
+    stub = SimpleNamespace(completion_timeout_seconds=100)
+    monkeypatch.setattr(settings, "INSIGHT_PRODUCT_RELEVANCE_ENABLED", False)
+    disabled = insight_worker._s2k_inference_lease_seconds(stub)
+    monkeypatch.setattr(settings, "INSIGHT_PRODUCT_RELEVANCE_ENABLED", True)
+    enabled = insight_worker._s2k_inference_lease_seconds(stub)
+
+    assert disabled == max(120.0, 2 * (1 + MAX_REPAIR_ATTEMPTS) * 100 + 60)
+    assert enabled - disabled == (1 + MAX_REPAIR_ATTEMPTS) * 100
+
+
+@pytest.mark.parametrize(("allowance", "maximum", "emitted"), [
+    (10, None, True), (10, 5, False), (None, None, False),
+])
+def test_incomplete_product_relevance_budget_warning(monkeypatch, allowance, maximum, emitted):
+    import app.logging as app_logging
+    from app.api.main import _warn_incomplete_product_relevance_budget_configuration
+    from config import settings
+
+    events = []
+    monkeypatch.setattr(app_logging, "emit_event", lambda *a, **k: events.append(a))
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_ALLOWANCE_MICROS", allowance)
+    monkeypatch.setattr(settings, "INTELLIGENCE_PRODUCT_RELEVANCE_MAXIMUM_MICROS", maximum)
+
+    _warn_incomplete_product_relevance_budget_configuration()
+
+    assert bool(events) is emitted
+    if emitted:
+        assert events[0][:3] == (
+            "insight_product_relevance", "incomplete_budget_configuration", "startup")
