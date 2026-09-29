@@ -237,6 +237,59 @@ class KnowledgeVerdict(BaseModel):
         return self
 
 
+ItemKind = Literal["overview", "pillar", "target_user", "constraint", "non_goal"]
+
+
+class RelevanceEvidence(BaseModel):
+    """One cited passage and a verbatim excerpt from it."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    passage_id: str = Field(min_length=1)
+    quote: str = Field(min_length=1, max_length=200)
+
+
+class RelevanceLink(BaseModel):
+    """A product context item the Insight bears on, pinned as it was shown.
+
+    Every field except `evidence` is copied by the engine from its own input, never from
+    model text, so the evidence shown can be checked after the context file changes.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    product_id: str = Field(min_length=1)
+    product_title: str = Field(min_length=1)
+    item_kind: ItemKind
+    item_section: str = Field(min_length=1)
+    item_text: str = Field(min_length=1, max_length=600)
+    product_input_revision: str = Field(min_length=64, max_length=64)
+    evidence: list[RelevanceEvidence] = Field(min_length=1)
+
+
+class ProductRelevance(BaseModel):
+    """Which product, if any, an Insight bears on. Never a statement that a decision is needed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["relevant", "ambiguous", "not_relevant", "not_judged"]
+    reason: str = Field(min_length=1, max_length=200)
+    links: list[RelevanceLink] = Field(default_factory=list)
+    rubric_revision: str | None = Field(default=None, min_length=64, max_length=64)
+    model: str | None = None
+
+    @model_validator(mode="after")
+    def _links_match_the_decision(self) -> "ProductRelevance":
+        products = {link.product_id for link in self.links}
+        if self.decision == "relevant" and len(self.links) != 1:
+            raise ValueError("relevant requires exactly one link")
+        if self.decision == "ambiguous" and len(products) < 2:
+            raise ValueError("ambiguous requires links to two or more distinct products")
+        if self.decision in {"not_relevant", "not_judged"} and self.links:
+            raise ValueError(f"{self.decision} carries no links")
+        return self
+
+
 class InsightRevision(_Record):
     insight_id: str = Field(default_factory=_new_uuid)
     revision: int = Field(default=1, ge=1)
@@ -256,6 +309,7 @@ class InsightRevision(_Record):
     event_cluster_id: str | None = None
     generation_model: str | None = None
     knowledge_verdict: KnowledgeVerdict | None = None
+    product_relevance: ProductRelevance | None = None
     context_revision: str = Field(min_length=1)
     created_at: datetime = Field(default_factory=_utc_now)
 
