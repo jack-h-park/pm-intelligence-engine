@@ -1,6 +1,7 @@
 import hashlib
 from datetime import UTC, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.deps import get_engine
@@ -21,9 +22,15 @@ from app.storage.insight_store import InsightStore
 from app.storage.sqlite_store import SQLiteStore
 
 
-def test_decision_request_is_idempotent_and_schedules_only_once(tmp_path, monkeypatch):
+@pytest.mark.parametrize("suggestion_mode", ["off", "trial", "on"])
+def test_decision_request_is_idempotent_and_schedules_only_once(
+    tmp_path, monkeypatch, suggestion_mode
+):
     from app.api import runs
     from config import settings
+
+    # Explicit requests never depend on the optional suggestion switch.
+    monkeypatch.setattr(settings, "INSIGHT_DECISION_SUGGESTIONS", suggestion_mode)
 
     async def no_op(*args, **kwargs):
         return None

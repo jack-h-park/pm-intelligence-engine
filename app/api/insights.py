@@ -48,6 +48,11 @@ from app.models.insights import (
     SourceRecord,
 )
 from app.services.decision_case import build_decision_case
+from app.services.decision_suggestions import (
+    DecisionSuggestionPreview,
+    switch_allows,
+)
+from app.services.decision_suggestions import evaluate as evaluate_decision_suggestion
 from app.services.insight_budget import BudgetPolicy, BudgetService, utc_day_window
 from app.services.insight_context import resolve_interest
 from app.services.insight_delivery import confirm_delivery, normalize_insight_mode, queue_delivery
@@ -2072,3 +2077,76 @@ async def submit_research_results(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except (StaleLease, ValueError) as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+class DecisionSuggestion(BaseModel):
+    insight_id: str
+    revision: int
+    state: Literal["shown", "withheld", "none"]
+    product_id: str | None = None
+    product_title: str | None = None
+
+
+class DecisionSuggestionList(BaseModel):
+    items: list[DecisionSuggestionPreview]
+
+
+def _suggestion_preview(
+    engine: PMEngine, insight: InsightRevision, referenced: set[str]
+) -> DecisionSuggestionPreview:
+    from config import settings
+
+    lineage = engine.insight_store.insight_lineage(insight.insight_id)
+    return evaluate_decision_suggestion(
+        insight,
+        is_current=bool(lineage and lineage[0]),
+        assessment=ProductConnectionService(engine.context_loader).assess(
+            insight, engine.insight_store
+        ),
+        referenced=referenced,
+        store=engine.insight_store,
+        allows=switch_allows(
+            insight.insight_id,
+            mode=settings.INSIGHT_DECISION_SUGGESTIONS,
+            trial_ids=settings.INSIGHT_DECISION_SUGGESTION_TRIAL_IDS,
+            v2_enabled=settings.DECISION_PIPELINE_V2_ENABLED,
+        ),
+    )
+
+
+@router.get("/insights/{insight_id}/decision-suggestion", response_model=DecisionSuggestion)
+async def get_decision_suggestion(
+    insight_id: str, engine: PMEngine = Depends(get_engine)
+) -> DecisionSuggestion:
+    """Optional relevance suggestion; reads only, never counted or persisted."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
+        )
+    insight = engine.insight_store.get_insight(insight_id)
+    if insight is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
+    preview = _suggestion_preview(engine, insight, engine.store.referenced_insight_ids())
+    return DecisionSuggestion(
+        **preview.model_dump(
+            include={"insight_id", "revision", "state", "product_id", "product_title"}
+        )
+    )
+
+
+@router.get("/insight-decision-suggestions", response_model=DecisionSuggestionList)
+async def list_decision_suggestions(
+    engine: PMEngine = Depends(get_engine),
+) -> DecisionSuggestionList:
+    """Dry-run listing over current Insights; `would_suggest` ignores the switch."""
+    if engine.insight_store is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Insight storage is unavailable"
+        )
+    referenced = engine.store.referenced_insight_ids()
+    return DecisionSuggestionList(
+        items=[
+            _suggestion_preview(engine, insight, referenced)
+            for insight in engine.insight_store.list_current_insights()
+        ]
+    )
