@@ -11,8 +11,8 @@ from typing import Any, TypeVar, cast
 
 from pydantic import BaseModel
 from sqlalchemy import Engine, and_, create_engine, delete, or_, select, update
-from sqlalchemy.engine import CursorResult
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
