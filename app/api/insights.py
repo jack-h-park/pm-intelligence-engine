@@ -759,7 +759,7 @@ async def get_intelligence_runtime_status() -> IntelligenceRuntimeStatus:
     if settings.INTELLIGENCE_MODE not in {"legacy", "shadow", "insights"}:
         raise HTTPException(status_code=503, detail="Engine intake policy is unavailable")
     return IntelligenceRuntimeStatus(
-        mode=settings.INTELLIGENCE_MODE,
+        mode=normalize_insight_mode(settings.INTELLIGENCE_MODE),
         insight_writes_enabled=settings.INSIGHT_WRITES_ENABLED,
         decision_v2_enabled=settings.DECISION_PIPELINE_V2_ENABLED,
         migration_activation_enabled=settings.INSIGHT_MIGRATION_ACTIVATION_ENABLED,
@@ -2000,7 +2000,10 @@ async def claim_delivery_attempt(
     """Atomically grant one transport attempt; existing intents never grant another."""
     from config import settings
 
-    if normalize_insight_mode(settings.INTELLIGENCE_MODE) != "insights" or not settings.INSIGHT_WRITES_ENABLED:
+    if (
+        normalize_insight_mode(settings.INTELLIGENCE_MODE) != "insights"
+        or not settings.INSIGHT_WRITES_ENABLED
+    ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="delivery_suppressed")
     try:
         result = _store(engine).claim_delivery_once(insight_id, body.revision, body.channel)
@@ -2092,15 +2095,15 @@ class DecisionSuggestionList(BaseModel):
 
 
 def _suggestion_preview(
-    engine: PMEngine, insight: InsightRevision, referenced: set[str]
+    engine: PMEngine, store: InsightStore, insight: InsightRevision, referenced: set[str]
 ) -> DecisionSuggestionPreview:
     from config import settings
 
-    lineage = engine.insight_store.insight_lineage(insight.insight_id)
+    lineage = store.insight_lineage(insight.insight_id)
     is_current = bool(lineage and lineage[0])
     if is_current:
         # Same readability rule as GET /insights/latest (list_current_insights_page).
-        prepared = engine.insight_store.get_prepared_context(insight.prepared_context_id)
+        prepared = store.get_prepared_context(insight.prepared_context_id)
         if prepared is None or prepared.validation_status != "valid":
             return DecisionSuggestionPreview(
                 insight_id=insight.insight_id,
@@ -2113,10 +2116,10 @@ def _suggestion_preview(
         insight,
         is_current=is_current,
         assessment=ProductConnectionService(engine.context_loader).assess(
-            insight, engine.insight_store
+            insight, store
         ),
         referenced=referenced,
-        store=engine.insight_store,
+        store=store,
         allows=switch_allows(
             insight.insight_id,
             mode=settings.INSIGHT_DECISION_SUGGESTIONS,
@@ -2138,7 +2141,9 @@ async def get_decision_suggestion(
     insight = engine.insight_store.get_insight(insight_id)
     if insight is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
-    preview = _suggestion_preview(engine, insight, engine.store.referenced_insight_ids())
+    preview = _suggestion_preview(
+        engine, engine.insight_store, insight, engine.store.referenced_insight_ids()
+    )
     return DecisionSuggestion(
         insight_id=preview.insight_id,
         revision=preview.revision,
@@ -2159,7 +2164,7 @@ async def list_decision_suggestions(
     referenced = engine.store.referenced_insight_ids()
     return DecisionSuggestionList(
         items=[
-            _suggestion_preview(engine, insight, referenced)
+            _suggestion_preview(engine, engine.insight_store, insight, referenced)
             for insight in engine.insight_store.list_current_insights()
         ]
     )

@@ -26,11 +26,14 @@ def test_runtime_status_exposes_effective_mode_and_release_switches(
     }
 
 
-def test_runtime_status_is_authenticated_and_normalizes_unknown_mode(
+def test_runtime_status_is_authenticated_and_fails_closed_on_unknown_mode(
     client, auth_headers, monkeypatch,
 ):
+    # An unrecognized mode must not be reported as "legacy": POST /signals
+    # refuses intake in that state, and legacy-mode readers treat "legacy"
+    # as permission to use legacy intake.
     monkeypatch.setattr(settings, "INTELLIGENCE_MODE", "not-a-mode")
     assert client.get("/intelligence/runtime").status_code == 401
     response = client.get("/intelligence/runtime", headers=auth_headers)
-    assert response.status_code == 200
-    assert response.json()["mode"] == "legacy"
+    assert response.status_code == 503
+    assert "mode" not in response.json()
