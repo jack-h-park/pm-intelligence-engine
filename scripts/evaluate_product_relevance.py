@@ -62,6 +62,7 @@ async def evaluate(store: Any, decision_context_root: str, rubric: Rubric, llm: 
             "reason": verdict.reason,
             "reason_truncated": bool(diagnostics.get("reason_truncated")),
             "reason_original_length": diagnostics.get("reason_original_length"),
+            "quotes_truncated": list(diagnostics.get("quotes_truncated", [])),
             "actual_change": insight.actual_change,
             "takeaway": insight.takeaway,
             "cited_passages": cited,
@@ -125,6 +126,10 @@ def render(rows: list[dict], *, rubric_revision: str) -> str:
         if row["reason_truncated"]:
             original = row["reason_original_length"]
             lines.append(f"- Note: reason truncated (original {original} chars)")
+        for entry in row["quotes_truncated"]:
+            lines.append(
+                f"- Note: quote {entry['at']} truncated (original {entry['original_length']} chars)"
+            )
         lines += [
             f"- Actual change: {row['actual_change']}",
             f"- Takeaway: {row['takeaway']}",

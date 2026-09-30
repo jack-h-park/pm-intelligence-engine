@@ -197,6 +197,64 @@ async def test_quote_across_a_line_break_matches(rubric):
     assert verdict.decision == "linked"
 
 
+LONG_PASSAGE = (
+    "Banking malware now hides inside the managed work profile to evade scanning, and the "
+    "scanner that runs in the personal profile never sees it, because the profile boundary "
+    "keeps each side's apps apart. Operators then request accessibility access to read the "
+    "screen."
+)
+
+
+@pytest.mark.asyncio
+async def test_an_overlong_verbatim_quote_is_cut_and_recorded(rubric, monkeypatch):
+    import app.services.insight_product_relevance as module
+
+    monkeypatch.setitem(globals(), "PASSAGE", LONG_PASSAGE)
+    events: list = []
+    monkeypatch.setattr(module, "emit_event", lambda *args: events.append(args))
+    quote = LONG_PASSAGE[:230]
+    diagnostics: dict = {}
+    verdict, _ = await _judge(
+        {"decision": "linked", "reason": "r", "links": [_link(quote=quote)]}, rubric,
+        diagnostics=diagnostics,
+    )
+    assert verdict.decision == "linked"
+    stored = verdict.links[0].evidence[0].quote
+    assert stored == quote[:200].rstrip() and stored in LONG_PASSAGE
+    assert diagnostics["quotes_truncated"] == [
+        {"at": "links[0].evidence[0]", "original_length": 230}
+    ]
+    assert [(e[1], e[3]) for e in events] == [
+        ("quote_truncated", {"at": "links[0].evidence[0]", "original_length": 230})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_an_overlong_quote_that_is_not_verbatim_is_still_not_judged(rubric, monkeypatch):
+    import app.services.insight_product_relevance as module
+
+    monkeypatch.setitem(globals(), "PASSAGE", LONG_PASSAGE)
+    events: list = []
+    monkeypatch.setattr(module, "emit_event", lambda *args: events.append(args))
+    diagnostics: dict = {}
+    verdict, _ = await _judge(
+        {"decision": "linked", "reason": "r", "links": [
+            _link(quote=LONG_PASSAGE[:199] + " and more words the passage never says")
+        ]}, rubric, diagnostics=diagnostics,
+    )
+    assert (verdict.decision, verdict.reason) == ("not_judged", VALIDATION_FAILED)
+    assert diagnostics["failures"] == ["links[0].evidence[0].quote"]
+    assert all(e[1] != "quote_truncated" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_a_short_quote_records_no_truncation(rubric):
+    diagnostics: dict = {}
+    await _judge({"decision": "linked", "reason": "r", "links": [_link()]}, rubric,
+                 diagnostics=diagnostics)
+    assert diagnostics["quotes_truncated"] == []
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("payload", [
     {"decision": "linked", "reason": "r", "links": []},
