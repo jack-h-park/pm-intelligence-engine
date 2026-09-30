@@ -108,6 +108,11 @@ async def test_every_row_carries_the_change_takeaway_cited_passages_and_timing(
     for pid, text in row["cited_passages"]:
         assert pid in table and text in table
     assert "reason truncated (original 250 chars)" in table
+    assert row["quotes_truncated"] == []
+
+    row["quotes_truncated"] = [{"at": "links[0].evidence[0]", "original_length": 230}]
+    table = render(rows, rubric_revision=rubric.revision)
+    assert "quote links[0].evidence[0] truncated (original 230 chars)" in table
     assert "Elapsed" in table
     assert "Products that should be linked but are not:" in table
     assert "Is any level wrong? yes / no" in table

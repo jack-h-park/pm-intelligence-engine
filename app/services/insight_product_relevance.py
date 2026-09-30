@@ -33,6 +33,7 @@ STAGE = "insight_product_relevance"
 VALIDATION_FAILED = "model output failed validation"
 _DECISIONS = {"linked", "not_relevant"}
 _REASON_LIMIT = 200
+_QUOTE_LIMIT = 200
 _TOP_KEYS = {"decision", "reason", "links"}
 _LINK_KEYS = {"product_id", "level", "item_ref", "evidence"}
 _LEVELS = {"direct", "related"}
@@ -111,8 +112,11 @@ def _cited_passages(insight: InsightRevision, bundle: EvidenceBundle) -> dict[st
 
 
 def _resolve(
-    payload: Any, products: list[ProductInput], cited: dict[str, str]
+    payload: Any, products: list[ProductInput], cited: dict[str, str],
+    truncated_quotes: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, list[RelevanceLink], list[str]]:
+    """Validate the model output. An overlong verbatim quote is cut to its first
+    `_QUOTE_LIMIT` characters, which are still verbatim, and listed in `truncated_quotes`."""
     failures: list[str] = []
     if not isinstance(payload, dict):
         return "", "", [], ["payload"]
@@ -174,12 +178,17 @@ def _resolve(
                 continue
             quote = entry["quote"]
             if (
-                not isinstance(quote, str) or not quote.strip() or len(quote) > 200
+                not isinstance(quote, str) or not quote.strip()
                 or _normalise(quote) not in _normalise(passage)
             ):
                 failures.append(f"{at}.quote")
                 continue
-            evidence.append(RelevanceEvidence(passage_id=passage_id, quote=quote.strip()))
+            quote = quote.strip()
+            if len(quote) > _QUOTE_LIMIT:
+                if truncated_quotes is not None:
+                    truncated_quotes.append({"at": at, "original_length": len(quote)})
+                quote = quote[:_QUOTE_LIMIT].rstrip()
+            evidence.append(RelevanceEvidence(passage_id=passage_id, quote=quote))
         if len(evidence) != len(raw_evidence):
             continue
         item = resolved[1]
@@ -298,9 +307,13 @@ async def judge_relevance(
                 "product relevance budget was unavailable", rubric_revision=rubric.revision
             )
     try:
-        decision, reason, links, failures = _resolve(payload, products, cited)
+        truncated_quotes: list[dict[str, Any]] = []
+        decision, reason, links, failures = _resolve(payload, products, cited, truncated_quotes)
         truncated = len(reason) > _REASON_LIMIT
         if not failures:
+            for entry in truncated_quotes:
+                emit_event(STAGE, "quote_truncated", run_id, entry)
+            sink["quotes_truncated"] = truncated_quotes
             if truncated:
                 sink["reason_original_length"] = len(reason)
                 emit_event(STAGE, "reason_truncated", run_id, {"original_length": len(reason)})
