@@ -21,6 +21,7 @@ class ProductConnectionCandidate(BaseModel):
     rationale: str
     passage_ids: list[str] = Field(min_length=1)
     item_kind: ItemKind | None = None
+    level: Literal["direct", "related"] | None = None
 
 
 class ProductConnectionAlternative(BaseModel):
@@ -56,9 +57,7 @@ def _from_verdict(
         "revision": insight.revision,
         "profile_revision": verdict.rubric_revision or _NO_REVISION,
     }
-    if verdict.decision == "relevant":
-        link = verdict.links[0]
-        lead = _lead(link)
+    if verdict.decision == "linked":
         return ProductConnectionAssessment(
             **base,
             assessment="candidates",
@@ -66,28 +65,13 @@ def _from_verdict(
                 ProductConnectionCandidate(
                     product_id=link.product_id,
                     product_title=link.product_title,
-                    rationale=f"{lead} {verdict.reason}",
+                    rationale=f"{_lead(link)} {verdict.reason}",
                     passage_ids=sorted({e.passage_id for e in link.evidence}),
                     item_kind=link.item_kind,
+                    level=link.level,
                 )
+                for link in verdict.links
             ],
-            reason=verdict.reason,
-        )
-    if verdict.decision == "ambiguous":
-        seen: dict[str, ProductConnectionAlternative] = {}
-        for link in verdict.links:
-            seen.setdefault(
-                link.product_id,
-                ProductConnectionAlternative(
-                    product_id=link.product_id,
-                    product_title=link.product_title,
-                    reason=_lead(link),
-                ),
-            )
-        return ProductConnectionAssessment(
-            **base,
-            assessment="ambiguous",
-            alternatives=list(seen.values()),
             reason=verdict.reason,
         )
     reason = (

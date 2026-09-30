@@ -260,6 +260,7 @@ class RelevanceLink(BaseModel):
 
     product_id: str = Field(min_length=1)
     product_title: str = Field(min_length=1)
+    level: Literal["direct", "related"]
     item_kind: ItemKind
     item_section: str = Field(min_length=1)
     item_text: str = Field(min_length=1, max_length=600)
@@ -268,11 +269,14 @@ class RelevanceLink(BaseModel):
 
 
 class ProductRelevance(BaseModel):
-    """Which product, if any, an Insight bears on. Never a statement that a decision is needed."""
+    """Which products, if any, an Insight bears on, and how directly.
+
+    Never a statement that a decision is needed.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    decision: Literal["relevant", "ambiguous", "not_relevant", "not_judged"]
+    decision: Literal["linked", "not_relevant", "not_judged"]
     reason: str = Field(min_length=1, max_length=200)
     links: list[RelevanceLink] = Field(default_factory=list)
     rubric_revision: str | None = Field(default=None, min_length=64, max_length=64)
@@ -280,11 +284,11 @@ class ProductRelevance(BaseModel):
 
     @model_validator(mode="after")
     def _links_match_the_decision(self) -> "ProductRelevance":
-        products = {link.product_id for link in self.links}
-        if self.decision == "relevant" and len(self.links) != 1:
-            raise ValueError("relevant requires exactly one link")
-        if self.decision == "ambiguous" and len(products) < 2:
-            raise ValueError("ambiguous requires links to two or more distinct products")
+        products = [link.product_id for link in self.links]
+        if len(products) != len(set(products)):
+            raise ValueError("a product may be linked at most once")
+        if self.decision == "linked" and not self.links:
+            raise ValueError("linked requires at least one link")
         if self.decision in {"not_relevant", "not_judged"} and self.links:
             raise ValueError(f"{self.decision} carries no links")
         return self

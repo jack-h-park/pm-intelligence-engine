@@ -50,6 +50,7 @@ from app.models.insights import (
 from app.services.decision_case import build_decision_case
 from app.services.decision_suggestions import (
     DecisionSuggestionPreview,
+    SuggestedProduct,
     switch_allows,
 )
 from app.services.decision_suggestions import evaluate as evaluate_decision_suggestion
@@ -2083,8 +2084,7 @@ class DecisionSuggestion(BaseModel):
     insight_id: str
     revision: int
     state: Literal["shown", "withheld", "none"]
-    product_id: str | None = None
-    product_title: str | None = None
+    products: list[SuggestedProduct] = []
 
 
 class DecisionSuggestionList(BaseModel):
@@ -2140,9 +2140,10 @@ async def get_decision_suggestion(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Insight not found")
     preview = _suggestion_preview(engine, insight, engine.store.referenced_insight_ids())
     return DecisionSuggestion(
-        **preview.model_dump(
-            include={"insight_id", "revision", "state", "product_id", "product_title"}
-        )
+        insight_id=preview.insight_id,
+        revision=preview.revision,
+        state=preview.state,
+        products=preview.products if preview.state == "shown" else [],
     )
 
 

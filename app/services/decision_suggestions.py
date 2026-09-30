@@ -1,9 +1,12 @@
 """Optional decision suggestions, derived on every read and never persisted.
 
-A product-connection `candidates` assessment says an Insight is relevant to one product.
-It does not say a decision is needed; this module only reports the relevance and whether
-the release switch lets it be shown.
-A link to a stated non-goal is never suggested. It never starts, counts or records anything.
+A product-connection `candidates` assessment says an Insight is relevant to one or more
+products. It does not say a decision is needed; this module only reports the relevance and
+whether the release switch lets it be shown. Several products may be listed. A suggestion
+needs at least one direct link that is not a stated non-goal, so a related-only or
+non-goal-only verdict is never suggested. A verdict-free anchor assessment (candidates
+without a level) still needs exactly one candidate. It never starts, counts or records
+anything.
 """
 
 from __future__ import annotations
@@ -16,13 +19,19 @@ _LINEAGE_LIMIT = 100
 NON_GOAL_REASON = "Links to a stated non-goal; not suggested"
 
 
+class SuggestedProduct(BaseModel):
+    product_id: str
+    product_title: str
+    level: Literal["direct", "related"] | None = None
+    item_kind: str | None = None
+
+
 class DecisionSuggestionPreview(BaseModel):
     insight_id: str
     revision: int
     would_suggest: bool
     state: Literal["shown", "withheld", "none"]
-    product_id: str | None = None
-    product_title: str | None = None
+    products: list[SuggestedProduct] = []
     reason: str
 
 
@@ -64,20 +73,36 @@ def evaluate(
     if not is_current:
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason="Superseded revision")
-    if assessment.assessment != "candidates" or len(assessment.candidates) != 1:
+    candidates = list(assessment.candidates) if assessment.assessment == "candidates" else []
+    if not candidates:
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason=assessment.reason)
-    if getattr(assessment.candidates[0], "item_kind", None) == "non_goal":
+    anchor = all(getattr(c, "level", None) is None for c in candidates)
+    if anchor:
+        if len(candidates) != 1:
+            return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
+                                             reason=assessment.reason)
+        directs = candidates
+    else:
+        directs = [c for c in candidates if getattr(c, "level", None) == "direct"]
+        if not directs:
+            return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
+                                             reason="No direct product link")
+    if all(getattr(c, "item_kind", None) == "non_goal" for c in directs):
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason=NON_GOAL_REASON)
     if lineage_ids(insight, store) & referenced:
         return DecisionSuggestionPreview(**base, would_suggest=False, state="none",
                                          reason="A decision was already requested for this Insight")
-    candidate = assessment.candidates[0]
-    if not allows:
-        return DecisionSuggestionPreview(**base, would_suggest=True, state="withheld",
-                                         reason=assessment.reason)
-    return DecisionSuggestionPreview(**base, would_suggest=True, state="shown",
-                                     product_id=candidate.product_id,
-                                     product_title=candidate.product_title,
-                                     reason=assessment.reason)
+    products = [
+        SuggestedProduct(
+            product_id=c.product_id,
+            product_title=c.product_title,
+            level=getattr(c, "level", None),
+            item_kind=getattr(c, "item_kind", None),
+        )
+        for c in candidates
+    ]
+    return DecisionSuggestionPreview(**base, would_suggest=True,
+                                     state="shown" if allows else "withheld",
+                                     products=products, reason=assessment.reason)

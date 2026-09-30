@@ -44,7 +44,8 @@ def test_single_route_states(client_for, mode, trial, v2, state):
     client, insight, engine = client_for(mode=mode, trial=trial, v2=v2)
     body = client.get(f"/insights/{insight.insight_id}/decision-suggestion", headers=H).json()
     assert body["state"] == state
-    assert (body["product_id"] is not None) is (state == "shown")
+    assert bool(body["products"]) is (state == "shown")
+    assert "product_id" not in body
     assert engine.store.list_runs(limit=10) == []
 
 
@@ -86,6 +87,14 @@ def test_list_route_reports_would_suggest_in_every_state(client_for, mode):
     assert [(i["insight_id"], i["would_suggest"]) for i in items] == [(insight.insight_id, True)]
 
 
+def test_list_route_lists_products_even_when_withheld(client_for):
+    client, insight, _ = client_for(mode="off")
+    (item,) = client.get("/insight-decision-suggestions", headers=H).json()["items"]
+    assert item["state"] == "withheld"
+    assert item["products"] and item["products"][0]["product_id"]
+    assert "product_id" not in item
+
+
 def _save_needs_evidence_insight(engine, insight):
     prepared = engine.insight_store.get_prepared_context(insight.prepared_context_id)
     engine.insight_store.save_prepared_context(
@@ -111,7 +120,7 @@ def test_an_insight_the_reading_surfaces_hide_answers_none(client_for):
     hidden = _save_needs_evidence_insight(engine, insight)
     body = client.get(f"/insights/{hidden.insight_id}/decision-suggestion", headers=H).json()
     assert body["state"] == "none"
-    assert body["product_id"] is None
+    assert body["products"] == []
 
 
 def test_list_route_does_not_suggest_a_hidden_insight(client_for):
