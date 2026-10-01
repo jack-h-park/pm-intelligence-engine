@@ -79,6 +79,7 @@ from app.storage.insight_store import (
     StaleLease,
     TriageOperationNotRunning,
 )
+from app.telemetry import insight_session, insight_stage_span
 
 router = APIRouter(tags=["insights"])
 
@@ -680,6 +681,7 @@ async def create_decision_request(
             _request_hash(body),
             case,
             body.decision_pipeline_version,
+            origin_trace_id=insight_session(prepared.candidate_id),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
@@ -1544,27 +1546,29 @@ async def search(
     maximum = settings.INTELLIGENCE_RETRIEVAL_MAXIMUM_MICROS or 0
     if allowance <= 0 or maximum <= 0 or not settings.INTELLIGENCE_RATE_REVISION:
         return InsightSearchResults(items=[])
-    matches = await search_with_expansion(
-        engine.insight_store,
-        q,
-        llm_factory=build_s2k_llm_provider,
-        budget=BudgetService(
+    # No Candidate exists for a search, so this span carries no session.
+    with insight_stage_span("retrieval expansion"):
+        matches = await search_with_expansion(
             engine.insight_store,
-            BudgetPolicy(
-                allowances_micros={"retrieval": allowance},
-                rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+            q,
+            llm_factory=build_s2k_llm_provider,
+            budget=BudgetService(
+                engine.insight_store,
+                BudgetPolicy(
+                    allowances_micros={"retrieval": allowance},
+                    rate_revision=settings.INTELLIGENCE_RATE_REVISION,
+                ),
             ),
-        ),
-        reservation_payload={
-            "operation_type": "search_expansion",
-            "policy_revision": SEARCH_EXPANSION_REVISION,
-            "provider": "s2k_hermes_route",
-            "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
-            "maximum_micros": maximum,
-            "allowance_class": "retrieval",
-            "budget_window": utc_day_window(),
-        },
-    )
+            reservation_payload={
+                "operation_type": "search_expansion",
+                "policy_revision": SEARCH_EXPANSION_REVISION,
+                "provider": "s2k_hermes_route",
+                "rate_revision": settings.INTELLIGENCE_RATE_REVISION,
+                "maximum_micros": maximum,
+                "allowance_class": "retrieval",
+                "budget_window": utc_day_window(),
+            },
+        )
     return InsightSearchResults(items=matches[:limit])
 
 
@@ -1693,25 +1697,27 @@ async def _semantic_triage(
                 detail="S2K inference is unavailable",
             ) from None
     try:
-        decision = await triage_with_reservation(
-            question=question,
-            constraints=constraints,
-            title=body.title,
-            content=body.content,
-            llm=llm if llm is not None else engine.llm,
-            budget=_triage_budget(engine),
-            reservation_payload={
-                "operation_id": body.operation_id,
-                "operation_type": "semantic_triage",
-                "policy_revision": body.policy_revision,
-                "provider": body.provider,
-                "rate_revision": body.rate_revision,
-                "maximum_micros": body.maximum_micros,
-                "allowance_class": "sensing",
-                "budget_window": utc_day_window(),
-            },
-            actual_micros=body.actual_micros,
-        )
+        # Triage runs before a Candidate exists, so there is no session to join.
+        with insight_stage_span("triage"):
+            decision = await triage_with_reservation(
+                question=question,
+                constraints=constraints,
+                title=body.title,
+                content=body.content,
+                llm=llm if llm is not None else engine.llm,
+                budget=_triage_budget(engine),
+                reservation_payload={
+                    "operation_id": body.operation_id,
+                    "operation_type": "semantic_triage",
+                    "policy_revision": body.policy_revision,
+                    "provider": body.provider,
+                    "rate_revision": body.rate_revision,
+                    "maximum_micros": body.maximum_micros,
+                    "allowance_class": "sensing",
+                    "budget_window": utc_day_window(),
+                },
+                actual_micros=body.actual_micros,
+            )
     except TriageBudgetDenied as exc:
         store.abandon_triage_claim(body.operation_id)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="budget_denied") from exc

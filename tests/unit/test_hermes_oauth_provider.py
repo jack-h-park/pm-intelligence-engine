@@ -33,7 +33,11 @@ def test_s2k_factory_builds_the_configured_bounded_bridge(monkeypatch, tmp_path)
 
     provider = build_s2k_llm_provider()
 
-    assert isinstance(provider, S2KBridgeProvider)
+    # The factory returns the bridge inside the tracing wrapper.
+    from app.telemetry import TracingLLMProvider, unwrap_provider
+
+    assert isinstance(provider, TracingLLMProvider)
+    assert isinstance(unwrap_provider(provider), S2KBridgeProvider)
 
 
 def test_s2k_factory_fails_closed_without_an_isolated_profile(monkeypatch):

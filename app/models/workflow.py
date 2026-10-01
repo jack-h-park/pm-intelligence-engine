@@ -282,13 +282,15 @@ class WorkflowRun(Base):
     # re-ingest, not as "attempt N of N" of a failure-retry lineage. create_run
     # scopes attempt counting to runs at/after the latest refresh boundary.
     origin: Mapped[str] = mapped_column(String, nullable=False, default="start")
-    # The caller's telemetry session, supplied by whoever POSTed /runs/start
-    # (telemetry plan P3). The engine never generates it and never interprets it
-    # — it is an opaque key that the run's own spans carry as
-    # `langfuse.session.id`, so the run's trace and the agent turn that asked for
-    # it land under one session instead of being two unrelated traces.
-    # NULL = the caller was not being traced, which must stay distinguishable
-    # from "" (see SQLiteStore.create_run).
+    # The telemetry session this run's spans join (telemetry plan P3), carried as
+    # `langfuse.session.id`. Two writers, by how the run began:
+    #   - POST /runs/start: the CALLER's session, so the run and the agent turn
+    #     that asked for it are one session. Opaque; the engine never reads it.
+    #   - a decision request: the engine sets it to the Candidate's Insight
+    #     session (`telemetry.insight_session`), so the run joins the worker
+    #     analysis it was made from. Nothing is propagated from a caller.
+    # NULL = no session, which must stay distinguishable from "" (see
+    # SQLiteStore.create_run).
     origin_trace_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # New evaluation behavior is versioned per run. Existing rows and callers
     # remain on legacy until evidence_v1 is explicitly selected and validated.

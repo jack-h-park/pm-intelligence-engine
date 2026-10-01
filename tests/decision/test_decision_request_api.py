@@ -181,6 +181,12 @@ def test_decision_request_is_idempotent_and_schedules_only_once(
                 engine.store.get_run(evidence.json()["run_id"])["decision_pipeline_version"]
                 == "evidence_v1"
             )
+            # The run joins the session of the Candidate it was made from, set
+            # by the engine itself -- no caller supplied it.
+            assert (
+                engine.store.get_run(evidence.json()["run_id"])["origin_trace_id"]
+                == "insight:candidate-api"
+            )
             first_insight_request = client.post(
                 f"/insights/{insight.insight_id}/decision-requests",
                 json=insight_payload,

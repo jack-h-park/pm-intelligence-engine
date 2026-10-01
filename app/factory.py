@@ -126,7 +126,13 @@ def describe_llm_config() -> dict[str, object]:
 
 
 def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
-    """Build the fixture-bounded S2K transport provider for scoped Insight work."""
-    from app.llm.s2k_bridge import build_s2k_llm_provider as build_provider
+    """Build the fixture-bounded S2K transport provider for scoped Insight work.
 
-    return build_provider(operation_id=operation_id)
+    Wrapped for tracing at this single construction point, like the configured
+    provider above. The span measures the engine's side of the subprocess call;
+    callers that need the bridge itself use ``telemetry.unwrap_provider``.
+    """
+    from app.llm.s2k_bridge import build_s2k_llm_provider as build_provider
+    from app.telemetry import TracingLLMProvider
+
+    return TracingLLMProvider(build_provider(operation_id=operation_id))

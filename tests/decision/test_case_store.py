@@ -55,6 +55,31 @@ def test_store_creates_direct_signal_run_and_case_link_atomically(tmp_path):
     assert signal["source_type"] == "manual"
     assert signal["source_ref"] == "decision-case:case-direct:1"
     assert store.get_decision_case(result["run_id"]) == case
+    # No session was supplied, and that is stored as NULL -- not "".
+    assert run["origin_trace_id"] is None
+
+
+@pytest.mark.parametrize(
+    ("supplied", "stored"),
+    [("insight:candidate-1", "insight:candidate-1"), ("  ", None), ("", None)],
+)
+def test_a_decision_run_stores_the_session_it_is_given(tmp_path, supplied, stored):
+    """Blank is normalized the way `create_run` does it: an empty session id is a
+    real grouping key and would pool unrelated runs."""
+    store = SQLiteStore(f"sqlite:///{tmp_path}/workflow.db")
+    case = DecisionCase(
+        case_id="case-session",
+        revision=1,
+        prepared_context_id="prepared-session",
+        prepared_context_revision=1,
+        product_id="android-enterprise",
+        decision_question="Should we inspect this policy behavior?",
+        input_origins=["direct"],
+    )
+
+    result = store.create_decision_request_run(case, origin_trace_id=supplied)
+
+    assert store.get_run(result["run_id"])["origin_trace_id"] == stored
 
 
 def test_failed_duplicate_case_insert_rolls_back_the_new_signal_and_run(tmp_path):
@@ -160,9 +185,9 @@ def test_concurrent_idempotency_retries_replay_the_single_created_run(tmp_path, 
     original = SQLiteStore._create_decision_request_run
     stores = [SQLiteStore(database_url), SQLiteStore(database_url)]
 
-    def synchronized_create(session, decision_case, pipeline_version="legacy"):
+    def synchronized_create(*args, **kwargs):
         barrier.wait(timeout=5)
-        return original(session, decision_case, pipeline_version)
+        return original(*args, **kwargs)
 
     monkeypatch.setattr(
         SQLiteStore, "_create_decision_request_run", staticmethod(synchronized_create)

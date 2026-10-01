@@ -421,7 +421,10 @@ class SQLiteStore:
 
     @staticmethod
     def _create_decision_request_run(
-        session: Session, case: DecisionCase, pipeline_version: str = "legacy"
+        session: Session,
+        case: DecisionCase,
+        pipeline_version: str = "legacy",
+        origin_trace_id: str | None = None,
     ) -> dict[str, Any]:
         input_title = (
             "Insight-backed product decision input"
@@ -443,6 +446,8 @@ class SQLiteStore:
             signal_id=signal.signal_id,
             attempt_no=1,
             origin="decision_request",
+            # Same normalization as create_run: "" must not become a session.
+            origin_trace_id=(origin_trace_id or "").strip() or None,
             decision_pipeline_version=pipeline_version,
             lifecycle="running",
             position=None,
@@ -469,7 +474,10 @@ class SQLiteStore:
         return {"signal_id": signal.signal_id, "run_id": run.run_id}
 
     def create_decision_request_run(
-        self, case: DecisionCase, pipeline_version: str = "legacy"
+        self,
+        case: DecisionCase,
+        pipeline_version: str = "legacy",
+        origin_trace_id: str | None = None,
     ) -> dict[str, Any]:
         """Create the legacy-compatible signal, run, and case link atomically.
 
@@ -482,7 +490,9 @@ class SQLiteStore:
         if not isinstance(case, DecisionCase):
             raise TypeError("case must be a DecisionCase")
         with self._Session.begin() as session:
-            return self._create_decision_request_run(session, case, pipeline_version)
+            return self._create_decision_request_run(
+                session, case, pipeline_version, origin_trace_id
+            )
 
     def create_idempotent_decision_request(
         self,
@@ -491,6 +501,7 @@ class SQLiteStore:
         request_hash: str,
         case: DecisionCase,
         pipeline_version: str = "legacy",
+        origin_trace_id: str | None = None,
     ) -> tuple[dict[str, Any], int]:
         """Atomically create or replay the one workflow-side request result."""
         from app.models.decision_case import DecisionCase
@@ -511,7 +522,9 @@ class SQLiteStore:
                         "signal_id": existing.signal_id,
                         "run_id": existing.run_id,
                     }, 200
-                result = self._create_decision_request_run(session, case, pipeline_version)
+                result = self._create_decision_request_run(
+                    session, case, pipeline_version, origin_trace_id
+                )
                 request = DecisionRequestRecord(
                     actor=actor,
                     idempotency_key=idempotency_key,
