@@ -59,7 +59,10 @@ class PMWorkflowStore(Protocol):
 
     # --- WorkflowRun ---
     def create_decision_request_run(
-        self, case: DecisionCase, pipeline_version: str = "legacy"
+        self,
+        case: DecisionCase,
+        pipeline_version: str = "legacy",
+        origin_trace_id: str | None = None,
     ) -> dict[str, Any]: ...
 
     def create_idempotent_decision_request(
@@ -69,6 +72,7 @@ class PMWorkflowStore(Protocol):
         request_hash: str,
         case: DecisionCase,
         pipeline_version: str = "legacy",
+        origin_trace_id: str | None = None,
     ) -> tuple[dict[str, Any], int]: ...
 
     def save_decision_case(self, run_id: str, case: DecisionCase) -> None: ...

@@ -332,3 +332,112 @@ def test_startup_records_the_tracing_state_where_the_service_log_shows_it(
     assert events and events[0][:2] == ("telemetry", "tracing_off_no_keys"), (
         "an operator reading the log has to be able to tell tracing is off"
     )
+
+
+# ── the Insight path: one session per Candidate ──────────────────────────────
+
+
+def test_the_insight_session_is_absent_rather_than_a_shared_placeholder(telemetry):
+    assert telemetry.insight_session("cand-1") == "insight:cand-1"
+    assert telemetry.insight_session("  cand-1 ") == "insight:cand-1"
+    # None, not "insight:" -- a constant key would pool every Candidate-less
+    # span into one session that looks meaningful and is not.
+    assert telemetry.insight_session(None) is None
+    assert telemetry.insight_session("  ") is None
+
+
+def test_off_insight_spans_are_no_ops(telemetry):
+    with telemetry.insight_job_span("job-1", "cand-1"):
+        with telemetry.insight_stage_span("analysis", "cand-1"):
+            pass
+
+
+def test_an_insight_stage_reached_without_a_job_span_still_joins_its_session(tracing_on):
+    telemetry, exporter = tracing_on
+
+    with telemetry.insight_stage_span("analysis", "cand-1"):
+        pass
+
+    (span,) = exporter.get_finished_spans()
+    assert span.name == "insight analysis"
+    assert span.attributes["langfuse.session.id"] == "insight:cand-1"
+
+
+def test_an_insight_stage_with_no_candidate_carries_no_session(tracing_on):
+    telemetry, exporter = tracing_on
+
+    with telemetry.insight_stage_span("triage"):
+        pass
+
+    (span,) = exporter.get_finished_spans()
+    assert "langfuse.session.id" not in span.attributes
+
+
+def test_insight_job_span_lets_the_job_error_through(tracing_on):
+    telemetry, exporter = tracing_on
+
+    with pytest.raises(ValueError, match="boom"):
+        with telemetry.insight_job_span("job-1", "cand-1"):
+            raise ValueError("boom")
+
+    assert [span.name for span in exporter.get_finished_spans()] == ["insight job"]
+
+
+@pytest.mark.asyncio
+async def test_an_unmetered_call_still_names_the_model_that_answered(tracing_on):
+    """A provider that cannot meter tokens appends nothing to the sink, which
+    used to leave the span naming no model. The response carries its own route."""
+    telemetry, exporter = tracing_on
+    from app.llm.protocol import CompletionRoute, CompletionText
+
+    class Unmetered:
+        async def complete(self, messages, **kwargs):
+            return CompletionText("ok", CompletionRoute(provider="anthropic", model="m-1"))
+
+    out = await telemetry.TracingLLMProvider(Unmetered()).complete(
+        [{"role": "user", "content": "hi"}]
+    )
+
+    assert out == "ok" and out.route.model == "m-1", "the wrapper must hand the route back"
+    (span,) = exporter.get_finished_spans()
+    assert span.attributes["gen_ai.response.model"] == "m-1"
+    assert span.attributes["gen_ai.response.provider"] == "anthropic"
+    assert "gen_ai.usage.input_tokens" not in span.attributes
+
+
+def test_unwrap_reaches_the_provider_under_nested_wrappers(telemetry):
+    inner = FakeProvider()
+    wrapped = telemetry.TracingLLMProvider(telemetry.TracingLLMProvider(inner))
+
+    assert telemetry.unwrap_provider(wrapped) is inner
+    assert telemetry.unwrap_provider(inner) is inner
+
+
+def test_setup_names_the_service_on_the_provider_it_hands_the_client(telemetry, monkeypatch):
+    """The exported project is shared with the agent fleet, and the resource is
+    fixed when a provider is built. Left to the vendor client, the service name
+    was `unknown_service` -- nothing on a trace said it came from the engine."""
+    pytest.importorskip("opentelemetry.sdk.trace")
+    import sys
+    import types
+
+    from config import settings
+
+    seen: dict = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "langfuse", types.SimpleNamespace(Langfuse=FakeClient))
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "pk", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "sk", raising=False)
+
+    assert telemetry.setup_tracing() is True
+    provider = seen["tracer_provider"]
+    assert provider.resource.attributes["service.name"] == "pm-intelligence-engine"
+    # And the tracer the engine uses comes from that same provider, so the spans
+    # it emits are the ones the client's processor was attached to.
+    with telemetry.stage_span("s1", "run-1"):
+        pass
+    assert telemetry._TRACER is not None

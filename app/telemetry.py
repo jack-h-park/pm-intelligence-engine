@@ -11,11 +11,19 @@ removing the backend is that one function; the stage and provider code never
 names it. That also keeps this service's stated provider-neutrality intact --
 the dependency at the call site is ``opentelemetry``, not a vendor.
 
-Two spans are emitted, and no more:
+Three kinds of span are emitted, and no more:
 
-* one per pipeline stage, around the whole of ``run_stage``
-* one per LLM call, from a wrapper around whatever ``LLMProvider`` the factory
-  built
+* one per pipeline stage, around ``run_stage`` and around the S1/S2 pair that
+  ``_execute_s1_s2`` runs outside it
+* one per Insight job, with one child per worker stage (analysis, knowledge
+  verdict, product relevance)
+* one per LLM call, from a wrapper around whatever ``LLMProvider`` a factory
+  built -- the configured provider and the S2K bridge alike
+
+Grouping: every span that belongs to one Candidate carries the same
+``langfuse.session.id`` (``insight_session``), so the worker's analysis and a
+decision run later made from that Insight read as one session. The engine sets
+it alone -- it holds both ends -- and nothing is propagated from a caller.
 
 The provider span is a wrapper rather than an edit inside each provider on
 purpose. ``LLMProvider`` is a Protocol with several implementations, and
@@ -41,6 +49,21 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 logger = logging.getLogger(__name__)
 
 _TRACER: Any | None = None
+
+# Named explicitly because the project this exports to is shared with the agent
+# fleet: without it the SDK reports ``unknown_service`` and nothing on a trace
+# says it came from the engine.
+SERVICE_NAME = "pm-intelligence-engine"
+
+
+def insight_session(candidate_id: str | None) -> str | None:
+    """The session key for everything descended from one Candidate, or None.
+
+    None rather than a placeholder when there is no Candidate: see ``stage_span``
+    on why an empty or shared key is worse than none.
+    """
+    candidate_id = (candidate_id or "").strip()
+    return f"insight:{candidate_id}" if candidate_id else None
 
 
 def tracing_enabled() -> bool:
@@ -86,7 +109,7 @@ def setup_tracing() -> bool:
 
     try:
         from langfuse import Langfuse
-        from opentelemetry import trace
+        from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
     except ImportError as exc:
         logger.warning(
@@ -110,12 +133,13 @@ def setup_tracing() -> bool:
             kwargs["host"] = settings.LANGFUSE_HOST.strip()
         if getattr(settings, "LANGFUSE_TIMEOUT", 0):
             kwargs["timeout"] = settings.LANGFUSE_TIMEOUT
+        # The provider is built HERE and handed to the client, rather than left
+        # for the client to create: the resource (and so `service.name`) is fixed
+        # when a provider is constructed, and the client's own carries none.
+        provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
+        kwargs["tracer_provider"] = provider
         Langfuse(**kwargs)
-        provider = trace.get_tracer_provider()
-        if not isinstance(provider, TracerProvider):  # pragma: no cover - env dependent
-            logger.warning("No OpenTelemetry TracerProvider is installed; tracing stays off.")
-            return False
-        _TRACER = trace.get_tracer("pm-intelligence-engine")
+        _TRACER = provider.get_tracer(SERVICE_NAME)
     except Exception as exc:  # pragma: no cover - defensive
         logger.warning("Tracing setup failed (%s); continuing without it.", exc)
         return False
@@ -172,6 +196,57 @@ def stage_span(
         yield
 
 
+@contextmanager
+def insight_job_span(job_id: str, candidate_id: str | None) -> Iterator[None]:
+    """Wrap one claimed Insight job: the root its worker stages hang under.
+
+    A no-op when tracing is off. One trace per job, so a retried job is a second
+    trace in the same session rather than a longer first one.
+    """
+    if _TRACER is None:
+        yield
+        return
+    with _TRACER.start_as_current_span("insight job") as span:
+        span.set_attribute("pm.insight.job_id", job_id)
+        if candidate_id:
+            span.set_attribute("pm.insight.candidate_id", candidate_id)
+        session = insight_session(candidate_id)
+        if session:
+            span.set_attribute("langfuse.session.id", session)
+        yield
+
+
+@contextmanager
+def insight_stage_span(stage: str, candidate_id: str | None = None) -> Iterator[None]:
+    """Wrap one worker stage inside ``insight_job_span``. A no-op when off.
+
+    The session is repeated here, not inherited: a stage can also be reached
+    with no job span above it (a backfill or a scoped re-run entered directly),
+    and it must still land in its Candidate's session.
+    """
+    if _TRACER is None:
+        yield
+        return
+    with _TRACER.start_as_current_span(f"insight {stage}") as span:
+        span.set_attribute("pm.insight.stage", stage)
+        session = insight_session(candidate_id)
+        if session:
+            span.set_attribute("langfuse.session.id", session)
+        yield
+
+
+def unwrap_provider(llm: Any) -> Any:
+    """The provider underneath any tracing wrapper.
+
+    For the few callers that need the concrete type -- the Insight worker sizes
+    its lease from the S2K bridge's own timeout. Calls still go through the
+    wrapper; only the type check looks underneath.
+    """
+    while isinstance(llm, TracingLLMProvider):
+        llm = llm.inner
+    return llm
+
+
 class TracingLLMProvider:
     """An ``LLMProvider`` that emits one span per call and delegates the rest.
 
@@ -184,6 +259,10 @@ class TracingLLMProvider:
 
     def __init__(self, inner: LLMProvider) -> None:
         self._inner = inner
+
+    @property
+    def inner(self) -> LLMProvider:
+        return self._inner
 
     async def complete(
         self,
@@ -208,13 +287,21 @@ class TracingLLMProvider:
                 span.set_attribute("gen_ai.request.model", model)
             span.set_attribute("gen_ai.request.max_tokens", max_tokens)
             try:
-                return await self._inner.complete(
+                result = await self._inner.complete(
                     messages,
                     model=model,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     usage_sink=local,
                 )
+                # A provider that cannot meter tokens appends nothing to the
+                # sink, and would leave the span naming no model at all. The
+                # response's own route says which one answered either way.
+                route = getattr(result, "route", None)
+                if route is not None and not local:
+                    span.set_attribute("gen_ai.response.model", route.model)
+                    span.set_attribute("gen_ai.response.provider", route.provider)
+                return result
             finally:
                 # In `finally` so a failed call still reports what it spent:
                 # a provider that raises after two retries has still burned

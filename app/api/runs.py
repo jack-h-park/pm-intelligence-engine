@@ -912,31 +912,42 @@ async def _execute_s1_s2(
 
         context = load_run_context(run_id, engine)
 
+        # S1 and S2 run here, outside `run_stage`, so they open their own stage
+        # spans: without them each model call was a parentless trace naming
+        # neither the run nor its session.
+        from app.telemetry import stage_span
+
         engine.store.advance(run_id, "s1")
-        s1_out = await s1_signal.run(
-            input=S1Input(
-                signal_id=signal_id,
-                title=signal["title"],
-                raw_content=signal["raw_content"],
-                source_url=signal["source_url"],
-                source_type=signal["source_type"],
-            ),
-            context=context,
-            llm=engine.llm,
-            store=engine.store,
-        )
+        with stage_span(
+            "s1", run_id, product_id=product_id, origin_trace_id=context.origin_trace_id
+        ):
+            s1_out = await s1_signal.run(
+                input=S1Input(
+                    signal_id=signal_id,
+                    title=signal["title"],
+                    raw_content=signal["raw_content"],
+                    source_url=signal["source_url"],
+                    source_type=signal["source_type"],
+                ),
+                context=context,
+                llm=engine.llm,
+                store=engine.store,
+            )
 
         engine.store.advance(run_id, "s2")
-        s2_out = await s2_insight.run(
-            input=S2Input(
-                signal_id=signal_id,
-                s1_output=s1_out.output,
-                product_id=product_id,
-            ),
-            context=context,
-            llm=engine.llm,
-            store=engine.store,
-        )
+        with stage_span(
+            "s2", run_id, product_id=product_id, origin_trace_id=context.origin_trace_id
+        ):
+            s2_out = await s2_insight.run(
+                input=S2Input(
+                    signal_id=signal_id,
+                    s1_output=s1_out.output,
+                    product_id=product_id,
+                ),
+                context=context,
+                llm=engine.llm,
+                store=engine.store,
+            )
 
         # Store S2 recommendation so the API caller can display it.
         #

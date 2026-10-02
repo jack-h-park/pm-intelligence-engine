@@ -18,6 +18,7 @@ from app.services.insight_product_relevance import judge_relevance, load_rubric,
 from app.services.insight_projection import reconcile_store_projections
 from app.services.product_relevance_input import build_product_inputs
 from app.storage.insight_store import InsightStore
+from app.telemetry import insight_job_span, insight_stage_span, unwrap_provider
 from config import settings
 
 logger = logging.getLogger(__name__)
@@ -69,8 +70,11 @@ async def _process_claimed_job(
 ) -> InsightRevision | None:
     if job is None:
         return None
-    if isinstance(llm, S2KBridgeProvider):
-        llm.bind_job_id(job.job_id)
+    # The factory hands back a tracing wrapper; the bridge's own methods are on
+    # the provider underneath. Completions still go through `llm`.
+    bridge = unwrap_provider(llm)
+    if isinstance(bridge, S2KBridgeProvider):
+        bridge.bind_job_id(job.job_id)
     if job.bundle_id is None:
         if job.backfill_id:
             bundle = store.prepare_backfill_evidence(job.job_id, job.lease_token or "")
@@ -113,29 +117,39 @@ async def _process_claimed_job(
             job.job_id, job.lease_token or "", "Evidence bundle has no material delta"
         )
         return None
-    try:
-        prepared = load_prepared_context(
-            candidate, bundle,
-            decision_context_root if decision_context_root is not None
-            else settings.DECISION_CONTEXT_ROOT,
-        )
-        if isinstance(llm, S2KBridgeProvider):
-            store.mark_job_inference_started(
-                job.job_id, job.lease_token or "",
-                lease_seconds=_s2k_inference_lease_seconds(llm),
+    # The span opens here, below every early return above: a job that needed
+    # evidence or carried nothing new called no model, and a trace should show
+    # the work that happened.
+    with insight_job_span(job.job_id, job.candidate_id):
+        try:
+            prepared = load_prepared_context(
+                candidate, bundle,
+                decision_context_root if decision_context_root is not None
+                else settings.DECISION_CONTEXT_ROOT,
             )
-        insight = await analyze_bundle(bundle, prepared, llm)
-    except Exception as exc:
-        store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))
-        raise
-    if job.supersedes_insight_id:
-        insight = insight.model_copy(update={"supersedes_insight_id": job.supersedes_insight_id})
-    insight = await _attach_knowledge_verdict(store, job, insight, llm)
-    insight = await _attach_product_relevance(
-        store, job, insight, bundle, llm,
-        decision_context_root if decision_context_root is not None
-        else settings.DECISION_CONTEXT_ROOT,
-    )
+            if isinstance(bridge, S2KBridgeProvider):
+                store.mark_job_inference_started(
+                    job.job_id, job.lease_token or "",
+                    lease_seconds=_s2k_inference_lease_seconds(bridge),
+                )
+            with insight_stage_span("analysis", job.candidate_id):
+                insight = await analyze_bundle(bundle, prepared, llm)
+        except Exception as exc:
+            store.fail_job_retryable(job.job_id, job.lease_token or "", str(exc))
+            raise
+        if job.supersedes_insight_id:
+            insight = insight.model_copy(
+                update={"supersedes_insight_id": job.supersedes_insight_id}
+            )
+        with insight_stage_span("knowledge verdict", job.candidate_id):
+            insight = await _attach_knowledge_verdict(store, job, insight, llm)
+        if settings.INSIGHT_PRODUCT_RELEVANCE_ENABLED:
+            with insight_stage_span("product relevance", job.candidate_id):
+                insight = await _attach_product_relevance(
+                    store, job, insight, bundle, llm,
+                    decision_context_root if decision_context_root is not None
+                    else settings.DECISION_CONTEXT_ROOT,
+                )
     completed = store.complete_job_analysis(job.job_id, job.lease_token or "", prepared, insight)
     if settings.INSIGHT_PROJECTION_ENABLED:
         try:

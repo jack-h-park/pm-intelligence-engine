@@ -31,6 +31,9 @@ from app.storage.sqlite_store import SQLiteStore
 
 TRACE = "20260920_143001_abc123"
 
+# Captured before the `client` fixture replaces it, for the test that runs it.
+REAL_EXECUTE_S1_S2 = runs_module._execute_s1_s2
+
 
 @pytest.fixture()
 def engine(tmp_path):
@@ -189,3 +192,86 @@ def test_it_reaches_the_stage_span_as_the_langfuse_session(client, engine, monke
         assert span.attributes["langfuse.session.id"] == TRACE
     finally:
         importlib.reload(telemetry)
+
+
+
+@pytest.mark.asyncio
+async def test_s1_and_s2_open_stage_spans_that_hold_their_model_calls(
+    client, engine, monkeypatch
+):
+    """S1 and S2 run in `_execute_s1_s2`, outside `run_stage`. They used to open
+    no span, so on the live service each model call was a parentless trace with
+    no run id and no session. Runs the real function with real spans."""
+    sdk = pytest.importorskip("opentelemetry.sdk.trace")
+    from types import SimpleNamespace
+
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    import app.stages.s1_signal as s1_signal
+    import app.stages.s2_insight as s2_insight
+    import app.telemetry as telemetry
+
+    monkeypatch.setattr(runs_module, "_validate_product_exists", _exists)
+    signal_id = _seed_signal(engine)
+    run_id = client.post(
+        "/runs/start",
+        json={"signal_id": signal_id, "product_id": "prod-a", "origin_trace_id": TRACE},
+    ).json()["run_id"]
+    engine.context_loader.load_full_context.return_value = MagicMock(
+        pm_identity="i", company_context="c", product_context="p"
+    )
+    engine.notifier.send_gate1 = AsyncMock()
+
+    exporter = InMemorySpanExporter()
+    provider = sdk.TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(telemetry, "_TRACER", provider.get_tracer("test"))
+    traced = telemetry.TracingLLMProvider(engine.llm)
+
+    from app.models.stages import S1OutputData
+
+    async def first_stage(*, llm, **_kwargs):
+        await traced.complete([{"role": "user", "content": "x"}])
+        return SimpleNamespace(
+            output=S1OutputData(
+                signal_id=signal_id,
+                title="t",
+                summary="s",
+                category="other",
+                source="fixture",
+                quality_passed=True,
+            )
+        )
+
+    async def stage(*, llm, **_kwargs):
+        # What a real stage does with the provider it is handed.
+        await traced.complete([{"role": "user", "content": "x"}])
+        return SimpleNamespace(
+            output=SimpleNamespace(
+                suggested_mode="note",
+                depth_basis="fixture",
+                suggestion_reasoning="fixture",
+                relevance_score=0.9,
+                what_changed="",
+                relevance_explanation="",
+                pillar_references=[],
+            )
+        )
+
+    monkeypatch.setattr(s1_signal, "run", first_stage)
+    monkeypatch.setattr(s2_insight, "run", stage)
+
+    await REAL_EXECUTE_S1_S2(run_id, signal_id, "prod-a", None, engine)
+
+    spans = exporter.get_finished_spans()
+    stages = {span.name: span for span in spans if span.name.startswith("stage ")}
+    assert set(stages) == {"stage s1", "stage s2"}
+    for span in stages.values():
+        assert span.attributes["pm.run_id"] == run_id
+        assert span.attributes["langfuse.session.id"] == TRACE
+    calls = [span for span in spans if span.name == "llm call"]
+    assert len(calls) == 2
+    assert {call.parent.span_id for call in calls} == {
+        span.context.span_id for span in stages.values()
+    }
