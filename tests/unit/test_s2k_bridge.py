@@ -411,3 +411,88 @@ def test_product_decision_openai_factory_remains_independent(monkeypatch):
         "api_key": "fixture-openai-key",
         "default_model": "fixture-openai-model",
     }
+
+
+async def _captured_request(tmp_path, task):
+    capture = tmp_path / "request.json"
+    script = _executable(
+        tmp_path,
+        "import json, sys\n"
+        f"open({str(capture)!r}, 'w').write(sys.stdin.read())\n"
+        "route = {'provider': 'openai-codex', 'model': 'm'}\n"
+        "print(json.dumps({'text': 'ok', 'route': route, 'usage': None}))\n",
+    )
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "config.yaml").write_text("auxiliary: {}\n", encoding="utf-8")
+    kwargs = {} if task is None else {"task": task}
+    provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 5, 4096, **kwargs)
+    await provider.complete([{"role": "user", "content": "fixture"}])
+    return json.loads(capture.read_text(encoding="utf-8"))
+
+
+@pytest.mark.asyncio
+async def test_s2k_requests_carry_no_task_field(tmp_path):
+    assert "task" not in await _captured_request(tmp_path, None)
+
+
+@pytest.mark.asyncio
+async def test_decision_requests_carry_the_task(tmp_path):
+    assert (await _captured_request(tmp_path, "decision"))["task"] == "decision"
+
+
+def test_unknown_task_is_rejected(tmp_path):
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "config.yaml").write_text("auxiliary: {}\n", encoding="utf-8")
+    script = _executable(tmp_path, "print('{}')\n")
+    with pytest.raises(ValueError, match="task"):
+        S2KBridgeProvider((sys.executable, str(script)), str(profile), 5, 4096, task="analysis")
+
+
+def test_bridge_provider_value_builds_the_decision_bridge(monkeypatch, tmp_path):
+    import config
+    from app.factory import _build_raw_llm_provider
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "config.yaml").write_text("auxiliary: {}\n", encoding="utf-8")
+    script = _executable(tmp_path, "print('{}')\n")
+    monkeypatch.setattr(
+        config,
+        "settings",
+        SimpleNamespace(
+            LLM_PROVIDER="bridge",
+            DECISION_COMPLETION_COMMAND="",
+            DECISION_COMPLETION_PROFILE_HOME="",
+            DECISION_COMPLETION_TIMEOUT_SECONDS=120.0,
+            S2K_COMPLETION_COMMAND=f"{sys.executable} {script}",
+            S2K_COMPLETION_PROFILE_HOME=str(profile),
+            S2K_COMPLETION_MAX_STDOUT_BYTES=1_048_576,
+        ),
+    )
+    provider = _build_raw_llm_provider()
+    assert isinstance(provider, S2KBridgeProvider)
+    assert provider.task == "decision"
+    assert provider.completion_timeout_seconds == 120.0
+
+
+def test_bridge_provider_value_fails_closed_without_a_command(monkeypatch):
+    import config
+    from app.factory import _build_raw_llm_provider
+
+    monkeypatch.setattr(
+        config,
+        "settings",
+        SimpleNamespace(
+            LLM_PROVIDER="bridge",
+            DECISION_COMPLETION_COMMAND="",
+            DECISION_COMPLETION_PROFILE_HOME="",
+            DECISION_COMPLETION_TIMEOUT_SECONDS=120.0,
+            S2K_COMPLETION_COMMAND="",
+            S2K_COMPLETION_PROFILE_HOME="",
+            S2K_COMPLETION_MAX_STDOUT_BYTES=1_048_576,
+        ),
+    )
+    with pytest.raises(ValueError, match="DECISION_COMPLETION_COMMAND"):
+        _build_raw_llm_provider()
