@@ -141,6 +141,7 @@ print(json.dumps({_success()!r}))
             "output_tokens": 4,
             "model": "fixture-model",
             "provider": "anthropic",
+            "credential_kind": "oauth",
             "tokens_available": True,
         }
     ]
@@ -160,7 +161,7 @@ print(json.dumps({_success()!r}))
 
 
 @pytest.mark.asyncio
-async def test_unknown_usage_does_not_append_fabricated_zeroes(tmp_path):
+async def test_unknown_usage_appends_an_unmeasured_entry_not_fabricated_tokens(tmp_path):
     profile = _profile(tmp_path)
     script = _executable(tmp_path, f"import json\nprint(json.dumps({_success(usage=None)!r}))\n")
     provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
@@ -170,7 +171,16 @@ async def test_unknown_usage_does_not_append_fabricated_zeroes(tmp_path):
         await provider.complete([{"role": "user", "content": "fixture"}], usage_sink=usage)
         == "fixture answer"
     )
-    assert usage == []
+    assert usage == [
+        {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "model": "fixture-model",
+            "provider": "anthropic",
+            "credential_kind": "oauth",
+            "tokens_available": False,
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -496,3 +506,36 @@ def test_bridge_provider_value_fails_closed_without_a_command(monkeypatch):
     )
     with pytest.raises(ValueError, match="DECISION_COMPLETION_COMMAND"):
         _build_raw_llm_provider()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider", "usage", "kind", "available"),
+    [
+        ("openai-codex", {"input_tokens": 5, "output_tokens": 2}, "oauth", True),
+        ("openai", {"input_tokens": 5, "output_tokens": 2}, "api_key", True),
+        ("anthropic", None, "oauth", False),
+    ],
+)
+async def test_bridge_usage_entry_names_route_and_credential(
+    tmp_path, provider, usage, kind, available
+):
+    script = _executable(
+        tmp_path,
+        "import json\n"
+        f"route = {{'provider': {provider!r}, 'model': 'm'}}\n"
+        f"print(json.dumps({{'text': 'ok', 'route': route, 'usage': {usage!r}}}))\n",
+    )
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "config.yaml").write_text("auxiliary: {}\n", encoding="utf-8")
+    sink: list = []
+    bridge = S2KBridgeProvider(
+        (sys.executable, str(script)), str(profile), 5, 4096, task="decision"
+    )
+    await bridge.complete([{"role": "user", "content": "fixture"}], usage_sink=sink)
+    (entry,) = sink
+    observed = (
+        entry["provider"], entry["model"], entry["credential_kind"], entry["tokens_available"]
+    )
+    assert observed == (provider, "m", kind, available)

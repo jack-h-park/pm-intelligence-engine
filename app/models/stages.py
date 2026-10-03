@@ -52,6 +52,14 @@ class StageMetadata(BaseModel):
             "or null if no LLM was called"
         ),
     )
+    provider: str | None = Field(
+        default=None,
+        description="Provider route(s) that served this stage, comma-joined; null on older rows",
+    )
+    credential_kind: str | None = Field(
+        default=None,
+        description="oauth and/or api_key, comma-joined in provider order; null on older rows",
+    )
 
     @classmethod
     def with_usage(cls, model: str | None, usage_sink: list[Usage] | None) -> StageMetadata:
@@ -73,7 +81,17 @@ class StageMetadata(BaseModel):
             dict.fromkeys(u["model"] for u in (usage_sink or []) if u.get("model"))
         )
         effective_model = ",".join(actual_models) if actual_models else model
-        return cls(model_used=effective_model, input_tokens=inp, output_tokens=out)
+        def _joined(key: str) -> str | None:
+            values = list(dict.fromkeys(u[key] for u in (usage_sink or []) if u.get(key)))  # type: ignore[literal-required]
+            return ",".join(values) if values else None
+
+        return cls(
+            model_used=effective_model,
+            input_tokens=inp,
+            output_tokens=out,
+            provider=_joined("provider"),
+            credential_kind=_joined("credential_kind"),
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -482,14 +482,16 @@ class S2KBridgeProvider:
                 raise S2KBridgeError("invalid_usage")
             measured = {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
-        if measured is not None and usage_sink is not None:
+        credential_kind = "api_key" if provider == "openai" else "oauth"
+        if usage_sink is not None:
             usage_sink.append(
                 {
-                    "input_tokens": measured["input_tokens"],
-                    "output_tokens": measured["output_tokens"],
+                    "input_tokens": measured["input_tokens"] if measured is not None else 0,
+                    "output_tokens": measured["output_tokens"] if measured is not None else 0,
                     "model": resolved_model,
                     "provider": provider,
-                    "tokens_available": True,
+                    "credential_kind": credential_kind,
+                    "tokens_available": measured is not None,
                 }
             )
         self._emit_event(
@@ -498,7 +500,7 @@ class S2KBridgeProvider:
             {
                 "provider": provider,
                 "model": resolved_model,
-                "credential_kind": "api_key" if provider == "openai" else "oauth",
+                "credential_kind": credential_kind,
                 "usage_status": "measured" if measured is not None else "unknown",
                 "input_tokens": measured["input_tokens"] if measured is not None else None,
                 "output_tokens": measured["output_tokens"] if measured is not None else None,

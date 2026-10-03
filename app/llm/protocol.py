@@ -34,6 +34,7 @@ class Usage(TypedDict):
     model: NotRequired[str]
     provider: NotRequired[str]
     tokens_available: NotRequired[bool]
+    credential_kind: NotRequired[str]
 
 
 @runtime_checkable
