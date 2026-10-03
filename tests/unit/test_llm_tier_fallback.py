@@ -165,3 +165,51 @@ def test_s2k_bridge_is_described_by_profile_name_never_by_path(monkeypatch):
     described = describe_llm_config()
     assert described["s2k_bridge"] == {"enabled": True, "profile": "researcher"}
     assert "/Users/" not in str(described)
+
+
+def test_openai_description_keeps_its_shape(monkeypatch):
+    from app.factory import describe_llm_config
+
+    _settings(monkeypatch, LLM_PROVIDER="openai", OPENAI_MODEL="gpt-6-sol")
+
+    assert set(describe_llm_config()) == {
+        "provider",
+        "credential",
+        "model",
+        "fallback",
+        "s2k_bridge",
+    }
+
+
+def test_bridge_provider_is_described_by_profile_name_for_the_decision_task(monkeypatch):
+    from app.factory import describe_llm_config
+
+    _settings(
+        monkeypatch,
+        LLM_PROVIDER="bridge",
+        DECISION_COMPLETION_PROFILE_HOME="/Users/someone/.hermes/profiles/decider",
+        S2K_COMPLETION_COMMAND="/usr/bin/python3 /opt/s2k_completion.py",
+        S2K_COMPLETION_PROFILE_HOME="/Users/someone/.hermes/profiles/researcher",
+    )
+    described = describe_llm_config()
+
+    assert described["provider"] == "bridge"
+    assert described["model"] is None
+    assert described["fallback"] is None
+    assert described["credential"] == "hermes-profile"
+    assert described["decision_bridge"] == {"profile": "decider", "task": "decision"}
+    assert "/Users/" not in str(described)
+
+
+def test_bridge_description_uses_the_s2k_profile_when_no_decision_profile_is_set(monkeypatch):
+    from app.factory import describe_llm_config
+
+    _settings(
+        monkeypatch,
+        LLM_PROVIDER="bridge",
+        DECISION_COMPLETION_PROFILE_HOME="",
+        S2K_COMPLETION_COMMAND="/usr/bin/python3 /opt/s2k_completion.py",
+        S2K_COMPLETION_PROFILE_HOME="/Users/someone/.hermes/profiles/researcher",
+    )
+
+    assert describe_llm_config()["decision_bridge"] == {"profile": "researcher", "task": "decision"}

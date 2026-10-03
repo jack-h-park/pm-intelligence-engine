@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     S2K_COMPLETION_PROFILE_HOME: str = ""
     S2K_COMPLETION_TIMEOUT_SECONDS: float = 210.0
     S2K_COMPLETION_MAX_STDOUT_BYTES: int = 1_048_576
+    # Product Decision through the same bridge (LLM_PROVIDER=bridge). Empty command or
+    # profile home falls back to the S2K values: one profile serves both tasks.
+    DECISION_COMPLETION_COMMAND: str = ""
+    DECISION_COMPLETION_PROFILE_HOME: str = ""
+    DECISION_COMPLETION_TIMEOUT_SECONDS: float = 120.0
 
     DATABASE_URL: str = "sqlite:///./pm_platform.db"
 

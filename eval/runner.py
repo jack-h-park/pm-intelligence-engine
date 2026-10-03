@@ -39,6 +39,8 @@ def resolve_eval_model_name(settings_obj: Settings) -> str:
         return settings_obj.ANTHROPIC_MODEL
     if provider == "openai":
         return settings_obj.OPENAI_MODEL
+    if provider == "bridge":
+        return "profile-selected"
     raise ValueError(f"Unsupported LLM_PROVIDER '{settings_obj.LLM_PROVIDER}' for eval")
 
 

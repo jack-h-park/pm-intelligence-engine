@@ -56,6 +56,7 @@ class ClaudeProvider:
                         else 0,
                         "model": response.model if hasattr(response, "model") else kwargs["model"],
                         "provider": "anthropic",
+                        "credential_kind": "api_key",
                         "tokens_available": response.usage is not None,
                     }
                 )

@@ -34,3 +34,9 @@ def test_resolve_eval_model_name_rejects_unsupported_provider():
 
     with pytest.raises(ValueError, match="Unsupported LLM_PROVIDER"):
         resolve_eval_model_name(_settings(provider="gemini"))
+
+
+def test_resolve_eval_model_name_accepts_the_bridge():
+    from eval.runner import resolve_eval_model_name
+
+    assert resolve_eval_model_name(_settings(provider="bridge")) == "profile-selected"

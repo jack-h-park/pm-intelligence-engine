@@ -79,9 +79,14 @@ def _build_raw_llm_provider() -> LLMProvider:
             default_model=settings.ANTHROPIC_MODEL,
         )
         return TieredFallbackProvider(primary, fallback, default_model=settings.OPENAI_MODEL)
+    elif provider == "bridge":
+        from app.llm.s2k_bridge import build_decision_llm_provider
+
+        # No engine-side fallback: the bridge walks the profile's three routes.
+        return build_decision_llm_provider()
     else:
         raise ValueError(
-            f"Unknown LLM_PROVIDER '{provider}'. Set LLM_PROVIDER=claude or LLM_PROVIDER=openai"
+            f"Unknown LLM_PROVIDER '{provider}'. Set LLM_PROVIDER=openai, claude or bridge"
         )
 
 
@@ -98,6 +103,23 @@ def describe_llm_config() -> dict[str, object]:
     from config import settings
 
     provider = settings.LLM_PROVIDER.lower()
+    if provider == "bridge":
+        home = settings.DECISION_COMPLETION_PROFILE_HOME or settings.S2K_COMPLETION_PROFILE_HOME
+        return {
+            "provider": "bridge",
+            "credential": "hermes-profile",
+            "model": None,
+            "fallback": None,
+            "decision_bridge": {"profile": Path(home).name if home else None, "task": "decision"},
+            "s2k_bridge": {
+                "enabled": bool(
+                    settings.S2K_COMPLETION_COMMAND and settings.S2K_COMPLETION_PROFILE_HOME
+                ),
+                "profile": Path(settings.S2K_COMPLETION_PROFILE_HOME).name
+                if settings.S2K_COMPLETION_PROFILE_HOME
+                else None,
+            },
+        }
     if provider == "claude":
         model, fallback = settings.ANTHROPIC_MODEL, None
     else:

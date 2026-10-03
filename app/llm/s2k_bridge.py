@@ -225,6 +225,9 @@ def _child_failure(
     return kind, retryable, attempts
 
 
+_TASKS = {"s2k": "s2k_inference", "decision": "decision_inference"}
+
+
 class S2KBridgeProvider:
     """A provider-neutral Engine adapter to the isolated S2K bridge protocol."""
 
@@ -235,7 +238,11 @@ class S2KBridgeProvider:
         timeout_seconds: float,
         max_stdout_bytes: int,
         operation_id: str | None = None,
+        task: str = "s2k",
     ) -> None:
+        if task not in _TASKS:
+            raise ValueError("S2K bridge task must be 's2k' or 'decision'")
+        self._task = task
         self._command = tuple(command)
         if len(self._command) != 2:
             raise ValueError(
@@ -291,6 +298,10 @@ class S2KBridgeProvider:
         self._operation_id = operation_id
 
     @property
+    def task(self) -> str:
+        return self._task
+
+    @property
     def completion_timeout_seconds(self) -> float:
         """Expose the enforced parent bound for worker lease sizing."""
         return self._timeout_seconds
@@ -317,7 +328,7 @@ class S2KBridgeProvider:
         if self._operation_id is not None:
             detail = {**detail, "operation_id": self._operation_id}
         try:
-            emit_event("s2k_inference", action, request_id, detail)
+            emit_event(_TASKS[self._task], action, request_id, detail)
         except Exception:
             # Diagnostic telemetry must never trigger a paid retry.
             pass
@@ -341,19 +352,18 @@ class S2KBridgeProvider:
         ):
             raise ValueError("temperature must be a number or null")
         request_id = str(uuid.uuid4())
+        request: dict[str, Any] = {
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "request_id": request_id,
+            # Leave time for child cleanup/serialization before the parent kills it.
+            "timeout_seconds": self._timeout_seconds * 0.9,
+        }
+        if self._task != "s2k":
+            request["task"] = self._task
         try:
-            payload = json.dumps(
-                {
-                    "messages": messages,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "request_id": request_id,
-                    # Leave time for child cleanup/serialization before the parent kills it.
-                    "timeout_seconds": self._timeout_seconds * 0.9,
-                },
-                ensure_ascii=False,
-                separators=(",", ":"),
-            ).encode("utf-8")
+            payload = json.dumps(request, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         except (TypeError, ValueError):
             raise ValueError("S2K request is not JSON serializable") from None
 
@@ -472,14 +482,16 @@ class S2KBridgeProvider:
                 raise S2KBridgeError("invalid_usage")
             measured = {"input_tokens": input_tokens, "output_tokens": output_tokens}
 
-        if measured is not None and usage_sink is not None:
+        credential_kind = "api_key" if provider == "openai" else "oauth"
+        if usage_sink is not None:
             usage_sink.append(
                 {
-                    "input_tokens": measured["input_tokens"],
-                    "output_tokens": measured["output_tokens"],
+                    "input_tokens": measured["input_tokens"] if measured is not None else 0,
+                    "output_tokens": measured["output_tokens"] if measured is not None else 0,
                     "model": resolved_model,
                     "provider": provider,
-                    "tokens_available": True,
+                    "credential_kind": credential_kind,
+                    "tokens_available": measured is not None,
                 }
             )
         self._emit_event(
@@ -488,7 +500,7 @@ class S2KBridgeProvider:
             {
                 "provider": provider,
                 "model": resolved_model,
-                "credential_kind": "api_key" if provider == "openai" else "oauth",
+                "credential_kind": credential_kind,
                 "usage_status": "measured" if measured is not None else "unknown",
                 "input_tokens": measured["input_tokens"] if measured is not None else None,
                 "output_tokens": measured["output_tokens"] if measured is not None else None,
@@ -514,4 +526,32 @@ def build_s2k_llm_provider(operation_id: str | None = None) -> LLMProvider:
         timeout_seconds=settings.S2K_COMPLETION_TIMEOUT_SECONDS,
         max_stdout_bytes=settings.S2K_COMPLETION_MAX_STDOUT_BYTES,
         operation_id=operation_id,
+    )
+
+
+def build_decision_llm_provider() -> LLMProvider:
+    """The Product Decision pipeline's provider when LLM_PROVIDER=bridge.
+
+    The decision command and profile home fall back to the S2K values, so one profile
+    serves both tasks until an operator names a separate one.
+    """
+    from config import settings
+
+    command_text = settings.DECISION_COMPLETION_COMMAND or settings.S2K_COMPLETION_COMMAND
+    profile_home = settings.DECISION_COMPLETION_PROFILE_HOME or settings.S2K_COMPLETION_PROFILE_HOME
+    if not command_text or not profile_home:
+        raise ValueError(
+            "LLM_PROVIDER=bridge needs DECISION_COMPLETION_COMMAND and "
+            "DECISION_COMPLETION_PROFILE_HOME, or their S2K_COMPLETION_* counterparts"
+        )
+    try:
+        command = shlex.split(command_text)
+    except ValueError:
+        raise ValueError("DECISION_COMPLETION_COMMAND is malformed") from None
+    return S2KBridgeProvider(
+        command=command,
+        profile_home=profile_home,
+        timeout_seconds=settings.DECISION_COMPLETION_TIMEOUT_SECONDS,
+        max_stdout_bytes=settings.S2K_COMPLETION_MAX_STDOUT_BYTES,
+        task="decision",
     )
