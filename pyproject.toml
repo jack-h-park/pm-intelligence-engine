@@ -27,8 +27,10 @@ anthropic = ["anthropic>=0.40.0"]
 openai = ["openai>=1.60.0", "anthropic>=0.40.0"]
 # Span export. `opentelemetry-sdk` is what app/telemetry.py imports; the
 # langfuse client is only used in setup_tracing() to attach its span processor,
-# so swapping the backend does not reach the stage or provider code.
-telemetry = ["opentelemetry-sdk>=1.33.0", "langfuse>=4.0.0,<5.0.0"]
+# so swapping the backend does not reach the stage or provider code. The floor is
+# the version `should_export_span` and `is_default_export_span` were verified
+# against on the ops host; setup_tracing() needs both.
+telemetry = ["opentelemetry-sdk>=1.33.0", "langfuse>=4.15.6,<5.0.0"]
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
@@ -45,7 +47,7 @@ all = [
     "anthropic>=0.40.0",
     "openai>=1.60.0",
     "opentelemetry-sdk>=1.33.0",
-    "langfuse>=4.0.0,<5.0.0",
+    "langfuse>=4.15.6,<5.0.0",
 ]
 
 [tool.ruff]
