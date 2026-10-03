@@ -58,7 +58,10 @@ class StageMetadata(BaseModel):
     )
     credential_kind: str | None = Field(
         default=None,
-        description="oauth and/or api_key, comma-joined in provider order; null on older rows",
+        description=(
+            "Credential kinds that served this stage (oauth, api_key), "
+            "de-duplicated and comma-joined; null on older rows"
+        ),
     )
 
     @classmethod
