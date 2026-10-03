@@ -86,6 +86,27 @@ def _keys() -> tuple[str, str]:
     )
 
 
+def _export_filter(default: Any) -> Any:
+    """Export this service's own spans, plus whatever the vendor would by default.
+
+    The vendor's default filter keeps only its own SDK spans, spans carrying a
+    ``gen_ai.*`` attribute, and known LLM instrumentation scopes. Every stage and
+    Insight-job span here is none of those, so under the default they were
+    dropped at export while the ``llm call`` generations beneath them survived:
+    the backend showed parentless generations with no session, because the
+    session lives on the dropped parents. In-memory exporter tests cannot see
+    this -- the filter is applied by the vendor's processor, not by OTel.
+    """
+
+    def should_export(span: Any) -> bool:
+        scope = getattr(span, "instrumentation_scope", None)
+        if scope is not None and scope.name == SERVICE_NAME:
+            return True
+        return bool(default(span))
+
+    return should_export
+
+
 def setup_tracing() -> bool:
     """Attach an exporter if one is configured. Returns whether tracing is on.
 
@@ -108,7 +129,7 @@ def setup_tracing() -> bool:
         return False
 
     try:
-        from langfuse import Langfuse
+        from langfuse import Langfuse, is_default_export_span
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
     except ImportError as exc:
@@ -138,6 +159,7 @@ def setup_tracing() -> bool:
         # when a provider is constructed, and the client's own carries none.
         provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
         kwargs["tracer_provider"] = provider
+        kwargs["should_export_span"] = _export_filter(is_default_export_span)
         Langfuse(**kwargs)
         _TRACER = provider.get_tracer(SERVICE_NAME)
     except Exception as exc:  # pragma: no cover - defensive

@@ -429,7 +429,11 @@ def test_setup_names_the_service_on_the_provider_it_hands_the_client(telemetry, 
         def __init__(self, **kwargs):
             seen.update(kwargs)
 
-    monkeypatch.setitem(sys.modules, "langfuse", types.SimpleNamespace(Langfuse=FakeClient))
+    monkeypatch.setitem(
+        sys.modules,
+        "langfuse",
+        types.SimpleNamespace(Langfuse=FakeClient, is_default_export_span=lambda span: False),
+    )
     monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "pk", raising=False)
     monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "sk", raising=False)
 
@@ -441,3 +445,60 @@ def test_setup_names_the_service_on_the_provider_it_hands_the_client(telemetry, 
     with telemetry.stage_span("s1", "run-1"):
         pass
     assert telemetry._TRACER is not None
+
+
+def test_setup_exports_the_engines_own_spans_past_the_vendor_default(telemetry, monkeypatch):
+    """The vendor's default export filter drops spans with no `gen_ai.*`
+    attribute, which is every stage and Insight-job span. Live, that left only
+    parentless generations with no session. The in-memory exporter tests above
+    never see this: the filter runs inside the vendor's processor. So this
+    builds real spans and runs them through the filter setup_tracing hands over,
+    with a default that -- like the vendor's -- rejects them."""
+    sdk = pytest.importorskip("opentelemetry.sdk.trace")
+    import sys
+    import types
+
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from config import settings
+
+    seen: dict = {}
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            seen.update(kwargs)
+
+    def vendor_default(span):
+        return any(key.startswith("gen_ai") for key in (span.attributes or {}))
+
+    monkeypatch.setitem(
+        sys.modules,
+        "langfuse",
+        types.SimpleNamespace(Langfuse=FakeClient, is_default_export_span=vendor_default),
+    )
+    monkeypatch.setattr(settings, "LANGFUSE_PUBLIC_KEY", "pk", raising=False)
+    monkeypatch.setattr(settings, "LANGFUSE_SECRET_KEY", "sk", raising=False)
+    assert telemetry.setup_tracing() is True
+
+    memory = InMemorySpanExporter()
+    seen["tracer_provider"].add_span_processor(SimpleSpanProcessor(memory))
+    with telemetry.insight_job_span("job-1", "cand-1"):
+        with telemetry.insight_stage_span("analysis", "cand-1"):
+            pass
+    with telemetry.stage_span("s1", "run-1"):
+        pass
+    other = sdk.TracerProvider()
+    other.add_span_processor(SimpleSpanProcessor(memory))
+    with other.get_tracer("some.other.library").start_as_current_span("unrelated"):
+        pass
+
+    should_export = seen["should_export_span"]
+    verdicts = {span.name: should_export(span) for span in memory.get_finished_spans()}
+    assert verdicts == {
+        "insight analysis": True,
+        "insight job": True,
+        "stage s1": True,
+        # Anything else still gets the vendor's own decision.
+        "unrelated": False,
+    }
