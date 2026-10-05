@@ -412,6 +412,11 @@ class InsightEvidenceView(BaseModel):
 
     insight_id: str
     revision: int = Field(ge=1)
+    # The Candidate this Insight was analysed from. A reader needs it to find the
+    # Insight's telemetry session (`telemetry.insight_session`), which is keyed by
+    # Candidate so the worker's analysis and any decision run made from it group
+    # together. An identifier only: it exposes nothing the evidence does not.
+    candidate_id: str
     question: str = Field(min_length=1)
     constraints: list[str] = Field(default_factory=list)
     sources: list[InsightEvidenceSource]

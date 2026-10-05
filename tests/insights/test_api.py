@@ -1128,6 +1128,7 @@ def test_insight_evidence_response_shape_includes_stored_context_and_excludes_un
     assert response.json() == {
         "insight_id": insight.insight_id,
         "revision": 1,
+        "candidate_id": source.candidate_id,
         "question": "What should I test?",
         "constraints": ["Keep claims attributed."],
         "sources": [
