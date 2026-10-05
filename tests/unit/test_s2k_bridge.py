@@ -550,3 +550,65 @@ async def test_bridge_usage_entry_names_route_and_credential(
         entry["provider"], entry["model"], entry["credential_kind"], entry["tokens_available"]
     )
     assert observed == (provider, "m", kind, available)
+
+
+def _failure_with_attempt(**extra):
+    attempt = {
+        "provider": "openai-codex",
+        "outcome": "failed",
+        "error_type": "provider_request_failed",
+        "retryable": False,
+        **extra,
+    }
+    return json.dumps({
+        "error": {"type": "provider_request_failed", "retryable": False, "attempts": [attempt]},
+        "request_id": "req-1",
+    }).encode()
+
+
+def test_child_failure_keeps_a_sanitized_attempt_cause():
+    from app.llm.s2k_bridge import _child_failure
+
+    cause = {"exception": "openai.BadRequestError", "status": 400}
+    kind, retryable, attempts = _child_failure(_failure_with_attempt(cause=cause), "req-1")
+    assert (kind, retryable) == ("provider_request_failed", False)
+    assert attempts[0]["cause"] == cause
+
+    no_status = {"exception": "RuntimeError", "status": None}
+    _, _, attempts = _child_failure(_failure_with_attempt(cause=no_status), "req-1")
+    assert attempts[0]["cause"] == no_status
+
+
+def test_child_failure_without_a_cause_is_unchanged():
+    from app.llm.s2k_bridge import _child_failure
+
+    _, _, attempts = _child_failure(_failure_with_attempt(), "req-1")
+    assert "cause" not in attempts[0]
+
+
+@pytest.mark.parametrize(
+    "cause",
+    [
+        {"exception": "Bad Request: prompt text here", "status": 400},
+        {"exception": "x" * 129, "status": 400},
+        {"exception": "", "status": 400},
+        {"exception": "RuntimeError", "status": 99},
+        {"exception": "RuntimeError", "status": True},
+        {"exception": "RuntimeError", "status": "400"},
+        {"exception": "RuntimeError"},
+        {"exception": "RuntimeError", "status": 400, "message": "secret"},
+        "RuntimeError",
+    ],
+)
+def test_child_failure_rejects_an_unsafe_cause(cause):
+    from app.llm.s2k_bridge import _child_failure
+
+    assert _child_failure(_failure_with_attempt(cause=cause), "req-1") is None
+
+
+def test_a_selected_attempt_cannot_carry_a_cause():
+    from app.llm.s2k_bridge import _validated_attempts
+
+    selected = {"provider": "openai-codex", "outcome": "selected", "error_type": None,
+                "retryable": False, "cause": {"exception": "RuntimeError", "status": None}}
+    assert _validated_attempts([selected]) is None
