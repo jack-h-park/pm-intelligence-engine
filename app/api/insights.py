@@ -1897,6 +1897,7 @@ async def get_insight_evidence(
     return InsightEvidenceView(
         insight_id=insight.insight_id,
         revision=insight.revision,
+        candidate_id=prepared_context.candidate_id,
         question=prepared_context.question,
         constraints=prepared_context.constraints,
         sources=[
