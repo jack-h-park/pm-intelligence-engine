@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import os
+import re
 import shlex
 import uuid
 from collections.abc import Sequence
@@ -39,6 +40,23 @@ _SAFE_CHILD_ERRORS = {
     "route_identity_unverifiable",
 }
 _ATTEMPT_OUTCOMES = {"failed", "selected", "unavailable"}
+_ATTEMPT_KEYS = {"provider", "outcome", "error_type", "retryable"}
+# A failed attempt may name the exception class and HTTP status behind it. Never a
+# message: provider error text can echo the prompt.
+_CAUSE_EXCEPTION = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,127}")
+
+
+def _validated_cause(value: object) -> dict[str, object] | None:
+    if not isinstance(value, dict) or set(value) != {"exception", "status"}:
+        return None
+    exception, status = value["exception"], value["status"]
+    if not isinstance(exception, str) or not _CAUSE_EXCEPTION.fullmatch(exception):
+        return None
+    if status is not None and (
+        isinstance(status, bool) or not isinstance(status, int) or not 100 <= status <= 599
+    ):
+        return None
+    return {"exception": exception, "status": status}
 
 
 class S2KBridgeError(RuntimeError):
@@ -152,9 +170,7 @@ def _validated_attempts(value: object) -> list[dict[str, object]] | None:
     result: list[dict[str, object]] = []
     previous_route_index = -1
     for item in value:
-        if not isinstance(item, dict) or set(item) != {
-            "provider", "outcome", "error_type", "retryable"
-        }:
+        if not isinstance(item, dict) or set(item) - {"cause"} != _ATTEMPT_KEYS:
             return None
         provider = item.get("provider")
         outcome = item.get("outcome")
@@ -177,14 +193,18 @@ def _validated_attempts(value: object) -> list[dict[str, object]] | None:
         if route_index <= previous_route_index:
             return None
         previous_route_index = route_index
-        result.append(
-            {
-                "provider": provider,
-                "outcome": outcome,
-                "error_type": error_type,
-                "retryable": retryable,
-            }
-        )
+        attempt: dict[str, object] = {
+            "provider": provider,
+            "outcome": outcome,
+            "error_type": error_type,
+            "retryable": retryable,
+        }
+        if "cause" in item:
+            cause = _validated_cause(item["cause"])
+            if cause is None or outcome == "selected":
+                return None
+            attempt["cause"] = cause
+        result.append(attempt)
     return result
 
 
