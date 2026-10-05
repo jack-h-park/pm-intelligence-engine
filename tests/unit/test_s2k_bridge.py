@@ -27,6 +27,13 @@ def _executable(tmp_path: Path, body: str) -> Path:
     return path
 
 
+# The real bridge child reads its request before answering. A fixture child that
+# answers without reading races the parent's stdin write: when the child has exited
+# before the write lands, the write fails and the bridge reports
+# bridge_process_failed. Any test that expects a successful completion reads first.
+_READ_REQUEST = "import sys\nsys.stdin.read()\n"
+
+
 _UNSET = object()
 
 
@@ -163,7 +170,10 @@ print(json.dumps({_success()!r}))
 @pytest.mark.asyncio
 async def test_unknown_usage_appends_an_unmeasured_entry_not_fabricated_tokens(tmp_path):
     profile = _profile(tmp_path)
-    script = _executable(tmp_path, f"import json\nprint(json.dumps({_success(usage=None)!r}))\n")
+    script = _executable(
+        tmp_path,
+        _READ_REQUEST + f"import json\nprint(json.dumps({_success(usage=None)!r}))\n",
+    )
     provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
     usage = []
 
@@ -522,7 +532,8 @@ async def test_bridge_usage_entry_names_route_and_credential(
 ):
     script = _executable(
         tmp_path,
-        "import json\n"
+        _READ_REQUEST
+        + "import json\n"
         f"route = {{'provider': {provider!r}, 'model': 'm'}}\n"
         f"print(json.dumps({{'text': 'ok', 'route': route, 'usage': {usage!r}}}))\n",
     )
