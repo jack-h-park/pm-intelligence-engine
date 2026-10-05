@@ -686,6 +686,10 @@ async def create_decision_request(
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     if stored_status == status.HTTP_202_ACCEPTED:
+        # A decision request is a PM-initiated start: the person confirmed the
+        # product and wrote the question. S2 auto-triage filters agent-admitted
+        # volume and must not archive it, so a request without a depth always
+        # opens Gate 1.
         background_tasks.add_task(
             _execute_s1_s2,
             result["run_id"],
@@ -693,6 +697,7 @@ async def create_decision_request(
             body.product_id,
             body.depth,
             engine,
+            force_gate1=True,
         )
     response.status_code = stored_status
     return DecisionRequestAccepted(request_id=result["request_id"], run_id=result["run_id"])
