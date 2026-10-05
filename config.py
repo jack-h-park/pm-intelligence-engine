@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = "openai"
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-sonnet-5"
-    OPENAI_MODEL: str = "gpt-6-sol"
+    ANTHROPIC_MODEL: str = "claude-sonnet-5-5"
+    OPENAI_MODEL: str = "gpt-6.1-sol"
     # S2K completions use a separate bounded control-plane bridge subprocess.
     # These remain unset until the isolated profile and absolute bridge command
     # have been provisioned; the factory fails closed when either is missing.

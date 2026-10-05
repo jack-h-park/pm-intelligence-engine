@@ -13,7 +13,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 class ClaudeProvider:
-    def __init__(self, api_key: str, default_model: str = "claude-sonnet-5") -> None:
+    def __init__(self, api_key: str, default_model: str = "claude-sonnet-5-5") -> None:
         try:
             from anthropic import AsyncAnthropic
         except ImportError as e:
@@ -40,7 +40,7 @@ class ClaudeProvider:
         if system_parts:
             kwargs["system"] = "\n\n".join(system_parts)
         # `temperature` is not forwarded: the configured default model
-        # (claude-sonnet-5) rejects it outright — "`temperature` is deprecated
+        # (claude-sonnet-5 and claude-sonnet-5-5) reject it outright — "`temperature` is deprecated
         # for this model" — so passing the caller's value here would 400 every
         # call. Pin ANTHROPIC_MODEL to a temperature-accepting snapshot (Sonnet
         # or Opus 4.6) before relying on `temperature` again.
