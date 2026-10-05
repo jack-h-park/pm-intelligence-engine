@@ -22,20 +22,10 @@ from app.storage.insight_store import InsightStore
 from app.storage.sqlite_store import SQLiteStore
 
 
-@pytest.mark.parametrize("suggestion_mode", ["off", "trial", "on"])
-def test_decision_request_is_idempotent_and_schedules_only_once(
-    tmp_path, monkeypatch, suggestion_mode
-):
-    from app.api import runs
+def _decision_api(tmp_path, monkeypatch):
+    """A workflow store, an insight store and one valid prepared context."""
     from config import settings
 
-    # Explicit requests never depend on the optional suggestion switch.
-    monkeypatch.setattr(settings, "INSIGHT_DECISION_SUGGESTIONS", suggestion_mode)
-
-    async def no_op(*args, **kwargs):
-        return None
-
-    monkeypatch.setattr(runs, "_execute_s1_s2", no_op)
     decision_root = tmp_path / "decision-context"
     (decision_root / "products" / "android-enterprise").mkdir(parents=True)
     (decision_root / "products" / "android-enterprise" / "context.md").write_text(
@@ -139,6 +129,24 @@ def test_decision_request_is_idempotent_and_schedules_only_once(
     monkeypatch.setattr(settings, "DECISION_CONTEXT_ROOT", str(decision_root))
     monkeypatch.setattr(settings, "DECISION_SYSTEM_ROOT", str(decision_root))
     app.dependency_overrides[get_engine] = lambda: engine
+    return engine, prepared, insufficient, insight
+
+
+@pytest.mark.parametrize("suggestion_mode", ["off", "trial", "on"])
+def test_decision_request_is_idempotent_and_schedules_only_once(
+    tmp_path, monkeypatch, suggestion_mode
+):
+    from app.api import runs
+    from config import settings
+
+    # Explicit requests never depend on the optional suggestion switch.
+    monkeypatch.setattr(settings, "INSIGHT_DECISION_SUGGESTIONS", suggestion_mode)
+
+    async def no_op(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(runs, "_execute_s1_s2", no_op)
+    engine, prepared, insufficient, insight = _decision_api(tmp_path, monkeypatch)
     headers = {"Authorization": "Bearer decision-token", "Idempotency-Key": "request-api"}
     payload = {
         "prepared_context_id": prepared.prepared_context_id,
@@ -242,3 +250,52 @@ def test_decision_request_is_idempotent_and_schedules_only_once(
     assert repeated.status_code == 200
     assert repeated.json() == first.json()
     assert len(engine.store.list_runs(limit=10)) == 3
+
+
+def test_a_request_without_depth_always_reaches_gate1(tmp_path, monkeypatch):
+    """A decision request is a PM-initiated start, so S2 auto-triage must not
+    archive it: the run pauses at Gate 1 even below the relevance threshold.
+    ``force_gate1`` is the flag ``_execute_s1_s2`` already honours for that
+    (tests/integration/test_auto_triage_boundary.py pins what it does)."""
+    from app.api import runs
+
+    calls = []
+
+    async def record(*args, **kwargs):
+        calls.append(kwargs)
+
+    monkeypatch.setattr(runs, "_execute_s1_s2", record)
+    engine, prepared, _, insight = _decision_api(tmp_path, monkeypatch)
+    from config import settings
+
+    monkeypatch.setattr(settings, "DECISION_PIPELINE_V2_ENABLED", True)
+    headers = {"Authorization": "Bearer decision-token"}
+    try:
+        with TestClient(app, raise_server_exceptions=True) as client:
+            direct = client.post(
+                "/decision-requests",
+                json={
+                    "prepared_context_id": prepared.prepared_context_id,
+                    "prepared_context_revision": prepared.revision,
+                    "product_id": "android-enterprise",
+                    "confirmed_product_id": "android-enterprise",
+                    "question": "Should we investigate the behavior?",
+                },
+                headers={**headers, "Idempotency-Key": "no-depth-direct"},
+            )
+            from_insight = client.post(
+                f"/insights/{insight.insight_id}/decision-requests",
+                json={
+                    "revision": insight.revision,
+                    "product_id": "android-enterprise",
+                    "confirmed_product_id": "android-enterprise",
+                    "question": "Should we change the sharing policy?",
+                },
+                headers={**headers, "Idempotency-Key": "no-depth-insight"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert direct.status_code == 202
+    assert from_insight.status_code == 202
+    assert [call.get("force_gate1") for call in calls] == [True, True]
