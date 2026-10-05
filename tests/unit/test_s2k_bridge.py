@@ -30,7 +30,8 @@ def _executable(tmp_path: Path, body: str) -> Path:
 # The real bridge child reads its request before answering. A fixture child that
 # answers without reading races the parent's stdin write: when the child has exited
 # before the write lands, the write fails and the bridge reports
-# bridge_process_failed. Any test that expects a successful completion reads first.
+# bridge_process_failed. Any test that expects a successful completion, or a specific
+# failure kind, reads first.
 _READ_REQUEST = "import sys\nsys.stdin.read()\n"
 
 
@@ -194,45 +195,60 @@ async def test_unknown_usage_appends_an_unmeasured_entry_not_fabricated_tokens(t
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "kind"),
     [
-        {"text": "answer", "usage": None},
-        {"text": "answer", "route": {"provider": "openrouter", "model": "bad"}, "usage": None},
-        _success(usage={"input_tokens": 0, "output_tokens": 0}),
-        _success(usage={"input_tokens": -1, "output_tokens": 2}),
+        ({"text": "answer", "usage": None}, "invalid_bridge_response"),
+        (
+            {"text": "answer", "route": {"provider": "openrouter", "model": "bad"}, "usage": None},
+            "unapproved_route",
+        ),
+        (_success(usage={"input_tokens": 0, "output_tokens": 0}), "invalid_usage"),
+        (_success(usage={"input_tokens": -1, "output_tokens": 2}), "invalid_usage"),
     ],
     ids=("absent-route", "unapproved-route", "fabricated-zero-usage", "negative-usage"),
 )
 @pytest.mark.asyncio
-async def test_bridge_rejects_invalid_route_or_usage(tmp_path, response):
+async def test_bridge_rejects_invalid_route_or_usage(tmp_path, response, kind):
     profile = _profile(tmp_path)
-    script = _executable(tmp_path, f"import json\nprint(json.dumps({response!r}))\n")
+    script = _executable(
+        tmp_path, _READ_REQUEST + f"import json\nprint(json.dumps({response!r}))\n"
+    )
     provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
 
-    with pytest.raises(S2KBridgeError):
+    with pytest.raises(S2KBridgeError) as exc_info:
         await provider.complete([{"role": "user", "content": "fixture"}])
+
+    assert exc_info.value.kind == kind
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "timeout_seconds", "kind"),
     [
-        "print('not-json')\n",
-        "import sys\nsys.stderr.write('PRIVATE_ERROR_OUTPUT')\nsys.exit(7)\n",
-        "print('x' * 200000)\n",
-        "import time\ntime.sleep(10)\n",
+        (_READ_REQUEST + "print('not-json')\n", 2, "invalid_bridge_json"),
+        (
+            _READ_REQUEST + "sys.stderr.write('PRIVATE_ERROR_OUTPUT')\nsys.exit(7)\n",
+            2,
+            "bridge_process_failed",
+        ),
+        (_READ_REQUEST + "print('x' * 200000)\n", 2, "stdout_too_large"),
+        # Only the timeout case runs on a short budget: a child that has to start
+        # inside 0.15s would turn every other case into bridge_timeout under load.
+        ("import time\ntime.sleep(10)\n", 0.15, "bridge_timeout"),
     ],
     ids=("malformed-json", "nonzero-exit", "oversized-stdout", "timeout"),
 )
 @pytest.mark.asyncio
-async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body, monkeypatch):
+async def test_bridge_process_failures_are_bounded_and_sanitized(
+    tmp_path, body, timeout_seconds, kind, monkeypatch
+):
     profile = _profile(tmp_path)
     script = _executable(tmp_path, body)
     provider = S2KBridgeProvider(
         (sys.executable, str(script)),
         str(profile),
-        0.15,
+        timeout_seconds,
         4096,
-        operation_id="timeout-operation",
+        operation_id="failed-operation",
     )
     events = []
     monkeypatch.setattr("app.llm.s2k_bridge.emit_event", lambda *args: events.append(args))
@@ -243,12 +259,9 @@ async def test_bridge_process_failures_are_bounded_and_sanitized(tmp_path, body,
     assert "PRIVATE" not in str(exc_info.value)
     assert "not-json" not in str(exc_info.value)
     assert "x" * 100 not in str(exc_info.value)
-    if body.startswith("import time"):
-        assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
-        assert events[-1][3] == {
-            "operation_id": "timeout-operation",
-            "error_type": "bridge_timeout",
-        }
+    assert exc_info.value.kind == kind
+    assert [event[1] for event in events] == ["bridge_started", "bridge_failed"]
+    assert events[-1][3] == {"operation_id": "failed-operation", "error_type": kind}
 
 
 @pytest.mark.asyncio
@@ -312,12 +325,15 @@ def test_child_failure_rejects_attempts_without_matching_request_id():
 @pytest.mark.asyncio
 async def test_bridge_rejects_oversized_stderr_and_reaps_child(tmp_path):
     profile = _profile(tmp_path)
-    script = _executable(tmp_path, "import sys\nsys.stderr.write('x' * 70000)\nprint('{}')\n")
+    script = _executable(
+        tmp_path, _READ_REQUEST + "sys.stderr.write('x' * 70000)\nprint('{}')\n"
+    )
     provider = S2KBridgeProvider((sys.executable, str(script)), str(profile), 2, 4096)
 
     with pytest.raises(S2KBridgeError) as exc_info:
         await provider.complete([{"role": "user", "content": "fixture"}])
 
+    assert exc_info.value.kind == "stderr_too_large"
     assert "x" * 100 not in str(exc_info.value)
 
 
