@@ -28,10 +28,14 @@ class RecordingLLM:
 
     async def complete(self, messages, **kwargs):
         self.messages = list(messages)
-        return json.dumps({
-            "disposition": "quiet_reference", "relevance": "adjacent",
-            "novelty": "unknown", "reason": "Recorded.",
-        })
+        return json.dumps(
+            {
+                "disposition": "quiet_reference",
+                "relevance": "adjacent",
+                "novelty": "unknown",
+                "reason": "Recorded.",
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -61,7 +65,9 @@ async def test_triage_prompt_carries_interest_constraints_as_context():
     await triage_source(
         question="What changed in enterprise mobile security?",
         constraints=["State the affected device and deployment scope."],
-        title="Desktop browser patch", content="Windows, Mac, and Linux fixes.", llm=llm,
+        title="Desktop browser patch",
+        content="Windows, Mac, and Linux fixes.",
+        llm=llm,
     )
 
     context = json.loads(llm.messages[1]["content"])
@@ -75,10 +81,14 @@ async def test_triage_admits_relevant_evidence_with_a_meaningful_delta():
         question="What practical learning should be tested next?",
         title="A change",
         content="Evidence.",
-        llm=FixtureLLM({
-            "disposition": "admit", "relevance": "relevant",
-            "novelty": "meaningful_delta", "reason": "New attributed mechanism.",
-        }),
+        llm=FixtureLLM(
+            {
+                "disposition": "admit",
+                "relevance": "relevant",
+                "novelty": "meaningful_delta",
+                "reason": "New attributed mechanism.",
+            }
+        ),
     )
 
     assert result.disposition == "admit"
@@ -90,10 +100,14 @@ async def test_triage_never_admits_unchanged_or_irrelevant_evidence():
         question="What practical learning should be tested next?",
         title="An old item",
         content="Evidence.",
-        llm=FixtureLLM({
-            "disposition": "admit", "relevance": "irrelevant",
-            "novelty": "unchanged", "reason": "No delta.",
-        }),
+        llm=FixtureLLM(
+            {
+                "disposition": "admit",
+                "relevance": "irrelevant",
+                "novelty": "unchanged",
+                "reason": "No delta.",
+            }
+        ),
     )
 
     assert result.disposition == "quiet_reference"
@@ -111,11 +125,17 @@ async def test_triage_does_not_admit_without_both_supported_conditions(
     relevance, novelty, expected
 ):
     result = await triage_source(
-        question="What changed?", title="A candidate", content="Evidence.",
-        llm=FixtureLLM({
-            "disposition": "admit", "relevance": relevance,
-            "novelty": novelty, "reason": "Model requested admission.",
-        }),
+        question="What changed?",
+        title="A candidate",
+        content="Evidence.",
+        llm=FixtureLLM(
+            {
+                "disposition": "admit",
+                "relevance": relevance,
+                "novelty": novelty,
+                "reason": "Model requested admission.",
+            }
+        ),
     )
 
     assert result.disposition == expected
@@ -123,8 +143,12 @@ async def test_triage_does_not_admit_without_both_supported_conditions(
 
 def _reservation(operation_id: str) -> dict[str, Any]:
     return {
-        "operation_id": operation_id, "operation_type": "triage", "policy_revision": "fixture-v1",
-        "provider": "fixture", "rate_revision": "fixture-rates", "maximum_micros": 10,
+        "operation_id": operation_id,
+        "operation_type": "triage",
+        "policy_revision": "fixture-v1",
+        "provider": "fixture",
+        "rate_revision": "fixture-rates",
+        "maximum_micros": 10,
         "allowance_class": "sensing",
     }
 
@@ -138,7 +162,11 @@ async def test_triage_does_not_call_the_model_when_reservation_is_denied(store_f
     budget = BudgetService(store_factory(), BudgetPolicy({"sensing": 0}, "fixture-rates"))
     with pytest.raises(TriageBudgetDenied):
         await triage_with_reservation(
-            question="Question", title="Title", content="Evidence", llm=NoCallLLM(), budget=budget,
+            question="Question",
+            title="Title",
+            content="Evidence",
+            llm=NoCallLLM(),
+            budget=budget,
             reservation_payload=_reservation("denied"),
         )
 
@@ -148,13 +176,85 @@ async def test_triage_finalizes_confirmed_usage_after_the_model_returns(store_fa
     store = store_factory()
     budget = BudgetService(store, BudgetPolicy({"sensing": 10}, "fixture-rates"))
     result = await triage_with_reservation(
-        question="Question", title="Title", content="Evidence", budget=budget, actual_micros=4,
+        question="Question",
+        title="Title",
+        content="Evidence",
+        budget=budget,
+        actual_micros=4,
         reservation_payload=_reservation("confirmed"),
-        llm=FixtureLLM({
-            "disposition": "admit", "relevance": "relevant",
-            "novelty": "meaningful_delta", "reason": "New evidence.",
-        }),
+        llm=FixtureLLM(
+            {
+                "disposition": "admit",
+                "relevance": "relevant",
+                "novelty": "meaningful_delta",
+                "reason": "New evidence.",
+            }
+        ),
     )
 
     assert result.disposition == "admit"
     assert store.operational_summary()["cost_micros"]["finalized"] == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "title",
+    ["Android Security Bulletin—October 2026", "Samsung Security Maintenance Release October 2026"],
+)
+@pytest.mark.parametrize(
+    "quote,content,expected",
+    [
+        (None, "Monthly patches include critical CVEs.", "quiet_reference"),
+        (
+            "Android devices are affected. CVE-2026-1234 is actively exploited.",
+            "Android devices are affected. CVE-2026-1234 is actively exploited.",
+            "admit",
+        ),
+        (
+            "Android devices are affected.\nCVE-2026-1234 is actively exploited.",
+            "Android devices are affected.\nCVE-2026-1234 is actively exploited.",
+            "admit",
+        ),
+        (
+            "Monthly patches include critical CVEs.",
+            "Monthly patches include critical CVEs.",
+            "quiet_reference",
+        ),
+        (
+            "CVE-2026-1234 is actively exploited in the wild.",
+            "CVE-2026-1234 is actively exploited in the wild.",
+            "admit",
+        ),
+        (
+            "No vulnerabilities are actively exploited.",
+            "No vulnerabilities are actively exploited.",
+            "quiet_reference",
+        ),
+        (
+            "actively exploited",
+            "There is no evidence that these vulnerabilities are actively exploited.",
+            "quiet_reference",
+        ),
+        (
+            "CVE-2026-1234 is actively exploited in the wild.",
+            "Monthly patches include critical CVEs.",
+            "quiet_reference",
+        ),
+    ],
+)
+async def test_monthly_bulletins_need_notable_original_evidence(title, quote, content, expected):
+    payload = {
+        "disposition": "admit",
+        "relevance": "relevant",
+        "novelty": "meaningful_delta",
+        "reason": "Monthly bulletin.",
+    }
+    if quote is not None:
+        payload["bulletin_notable_quote"] = quote
+    result = await triage_source(
+        question="What changed in enterprise mobile security?",
+        title=title,
+        content=content,
+        llm=FixtureLLM(payload),
+    )
+    assert result.disposition == expected
