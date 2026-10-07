@@ -1,6 +1,7 @@
 """Bounded semantic admission before an insight analysis job is created."""
 
 import json
+import re
 import uuid
 from typing import Any, Literal, get_args
 
@@ -41,13 +42,68 @@ def _schema_instruction() -> str:
 
 
 _SCHEMA_INSTRUCTION = _schema_instruction()
+_MONTHLY_BULLETIN = re.compile(
+    r"(?:android\s+security\s+bulletin|samsung.*(?:security\s+(?:maintenance\s+release|update|bulletin)|SMR))",
+    re.I,
+)
+_NOTABLE_BULLETIN = re.compile(
+    r"actively exploited|exploitation in the wild|targeted exploitation|"
+    r"(?:confirmed|demonstrated) control bypass|remediation failure|emergency mitigation",
+    re.I,
+)
+_NEGATED_NOTABILITY = re.compile(
+    r"\b(?:no|not|never|without|unconfirmed|hypothetical|potential)\b", re.I
+)
+
+
+def _notable_bulletin_quote(payload: Any, content: str) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    quote = payload.get("bulletin_notable_quote")
+    if not (
+        isinstance(quote, str)
+        and 1 <= len(quote) <= 1000
+        and quote in content
+        and _NOTABLE_BULLETIN.search(quote)
+        and not _NEGATED_NOTABILITY.search(quote)
+    ):
+        return False
+    # A model may extract only "actively exploited" from a negated sentence.
+    # Inspect the containing original sentence as well as the quoted substring.
+    sentences = list(re.finditer(r".+?(?:[.!?](?=\s|$)|\n|$)", content, re.S))
+    for occurrence in re.finditer(re.escape(quote), content):
+        overlapping = [
+            sentence.group()
+            for sentence in sentences
+            if sentence.start() < occurrence.end() and sentence.end() > occurrence.start()
+        ]
+        if overlapping and not any(_NEGATED_NOTABILITY.search(s) for s in overlapping):
+            return True
+    return False
 
 
 async def triage_source(
-    *, question: str, title: str, content: str, llm: LLMProvider,
+    *,
+    question: str,
+    title: str,
+    content: str,
+    llm: LLMProvider,
     constraints: list[str] | None = None,
 ) -> TriageDecision:
     """Classify one bounded source without treating its content as instructions."""
+    monthly = bool(_MONTHLY_BULLETIN.search(title))
+    schema = _SCHEMA_INSTRUCTION
+    if monthly:
+        schema = schema.removesuffix(".") + (
+            '; "bulletin_notable_quote": an exact, self-contained passage from the source '
+            "supporting a notable event, or an empty string. "
+            "Monthly publication, CVE count, critical severity, and routine patch availability "
+            "alone are quiet_reference. Admit a monthly bulletin only for directly relevant "
+            "evidenced active exploitation, targeted exploitation, confirmed control bypass, "
+            "remediation failure, or emergency mitigation. Include affected scope in the "
+            "reason; a quoted claim is not independent verification. Never strip a negation "
+            "from a quotation to make an exploitation claim affirmative."
+        )
     payload = await complete_json(
         llm,
         [
@@ -75,15 +131,18 @@ async def triage_source(
                     "adoption metrics. Use admit only for directly relevant "
                     "material with a supported meaningful delta. Use quiet_reference "
                     "for adjacent, unchanged, or irrelevant material, and defer when "
-                    "the evidence cannot establish novelty. "
-                    + _SCHEMA_INSTRUCTION
+                    "the evidence cannot establish novelty. " + schema
                 ),
             },
             {
                 "role": "user",
                 "content": json.dumps(
-                    {"question": question, "constraints": constraints or [],
-                     "title": title, "source": content}
+                    {
+                        "question": question,
+                        "constraints": constraints or [],
+                        "title": title,
+                        "source": content,
+                    }
                 ),
             },
         ],
@@ -91,6 +150,18 @@ async def triage_source(
         run_id=str(uuid.uuid4()),
     )
     decision = TriageDecision.model_validate(payload)
+    if (
+        monthly
+        and decision.disposition == "admit"
+        and not _notable_bulletin_quote(payload, content)
+    ):
+        return decision.model_copy(
+            update={
+                "disposition": "quiet_reference",
+                "reason": "Routine monthly bulletin: no validated notable original passage. "
+                + decision.reason,
+            }
+        )
     if decision.disposition == "admit":
         if decision.relevance != "relevant" or decision.novelty == "unchanged":
             return decision.model_copy(update={"disposition": "quiet_reference"})
@@ -116,7 +187,10 @@ async def triage_with_reservation(
         raise TriageBudgetDenied("budget_denied")
     try:
         decision = await triage_source(
-            question=question, title=title, content=content, llm=llm,
+            question=question,
+            title=title,
+            content=content,
+            llm=llm,
             constraints=constraints,
         )
     except Exception:
