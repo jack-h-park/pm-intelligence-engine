@@ -1382,7 +1382,7 @@ class InsightStore:
             result = session.execute(sqlite_insert(IntelligenceDeliveryReceiptRow).values(
                 **payload, payload_json=json.dumps(payload, sort_keys=True)
             ).on_conflict_do_nothing(index_elements=["insight_id", "revision", "channel"]))
-            inserted = result.rowcount == 1
+            inserted = _dml_result(result).rowcount == 1
             if not inserted:
                 existing = session.scalar(select(IntelligenceDeliveryReceiptRow).where(
                     IntelligenceDeliveryReceiptRow.insight_id == insight_id,
