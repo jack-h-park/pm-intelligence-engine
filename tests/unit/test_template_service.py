@@ -78,6 +78,9 @@ def service() -> TemplateService:
     return TemplateService(settings.decision_system_root)
 
 
+# Pins the REAL persona prompts' base lens, so it needs the private companion
+# checkout; CI's stub carries placeholder lenses. `make test` runs it.
+@pytest.mark.requires_decision_context
 @pytest.mark.parametrize("persona", sorted(_EXPECTED))
 def test_persona_prompt_preserves_base_lens_and_adds_evidence_v1_contract(service, persona):
     loaded = service.load_persona_prompt(persona)

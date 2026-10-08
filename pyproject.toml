@@ -81,4 +81,5 @@ testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
     "integration: marks tests as integration tests",
+    "requires_decision_context: reads the REAL companion decision-context checkout (deselected in CI, which has only tests/fixtures/decision-context-stub)",
 ]
