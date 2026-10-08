@@ -7,7 +7,10 @@ import pytest
 from app.services.context_loader import ContextLoader
 from config import Settings, settings
 
-pytestmark = pytest.mark.integration
+# Reads real product, identity and portfolio files, which the stub in
+# tests/fixtures/decision-context-stub deliberately does not carry: the companion
+# repository is private. CI deselects these; `make test` runs them.
+pytestmark = [pytest.mark.integration, pytest.mark.requires_decision_context]
 
 
 @pytest.fixture
