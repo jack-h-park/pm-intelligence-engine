@@ -55,6 +55,44 @@ The evaluation fixtures are examples only. Replace them with domain-appropriate
 fixtures before using the engine for production decisions. Do not commit API
 keys, generated databases, run archives, or private context repositories.
 
+## Tracing
+
+Off unless `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set (see `.env.example`); with
+them, `app/telemetry.py` exports plain OpenTelemetry spans to Langfuse. Install the extra
+with `pip install -e '.[telemetry]'`. Telemetry never breaks a run: setup fails open, and
+every span helper is a no-op when tracing is off.
+
+**What is traced.**
+
+| Span | Where | Children |
+|---|---|---|
+| `stage s1` … `stage s7` | each pipeline stage, including S1/S2 run by `_execute_s1_s2` | the stage's `llm call`s |
+| `insight job` | one claimed Insight job that reaches a model call | `insight analysis`, `insight knowledge verdict`, `insight product relevance` |
+| `insight triage`, `insight retrieval expansion` | the pre-Candidate calls | their `llm call` |
+| `llm call` | every provider call, from `TracingLLMProvider` — the configured provider and the S2K bridge alike | — |
+
+**Sessions.** Spans carry `langfuse.session.id`, so related work groups in one session:
+
+- an Insight's worker spans use `insight:<candidate_id>` (`telemetry.insight_session`);
+- a decision request stores that same key as the run's `origin_trace_id`, so the run's stages
+  join the analysis it was made from;
+- a run started through `POST /runs/start` uses the caller's `origin_trace_id`, if one was sent.
+
+`GET /insights/{id}/evidence` returns `candidate_id`, so a reader can link an Insight to its
+session without storing anything.
+
+**Two things that are easy to break.**
+
+- *The export filter.* The Langfuse SDK's default filter exports only its own spans, spans
+  with `gen_ai.*` attributes, and known LLM instrumentation scopes. Every stage and job span
+  here is none of those. `setup_tracing()` therefore passes `should_export_span`, which
+  exports this service's own scope and defers to the default for everything else. Without
+  it, only the `llm call` spans arrive, parentless and with no session. In-memory exporter
+  tests cannot see this, because the filter runs inside the vendor's processor.
+- *The service name.* `setup_tracing()` builds the `TracerProvider` with
+  `service.name = pm-intelligence-engine` and hands it to the client. A provider's resource
+  is fixed at construction, so this cannot be added afterwards.
+
 ## Ambiguous S2K job recovery
 
 S2K workers persist `inference_state=started` and `inference_started_at` before
