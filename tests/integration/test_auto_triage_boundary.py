@@ -40,6 +40,7 @@ def engine(tmp_path):
         pm_identity="PM identity",
         company_context="Company context",
         product_context="Product context",
+        judgment_patterns="",
         product_id="example-security-product",
     )
 

@@ -171,7 +171,7 @@ def test_it_reaches_the_stage_span_as_the_langfuse_session(client, engine, monke
     ).json()["run_id"]
 
     engine.context_loader.load_full_context.return_value = MagicMock(
-        pm_identity="i", company_context="c", product_context="p"
+        pm_identity="i", company_context="c", product_context="p", judgment_patterns=""
     )
     context = load_run_context(run_id, engine)
     assert context.origin_trace_id == TRACE, "the context builder dropped it"
@@ -219,7 +219,7 @@ async def test_s1_and_s2_open_stage_spans_that_hold_their_model_calls(
         json={"signal_id": signal_id, "product_id": "prod-a", "origin_trace_id": TRACE},
     ).json()["run_id"]
     engine.context_loader.load_full_context.return_value = MagicMock(
-        pm_identity="i", company_context="c", product_context="p"
+        pm_identity="i", company_context="c", product_context="p", judgment_patterns=""
     )
     engine.notifier.send_gate1 = AsyncMock()
 
