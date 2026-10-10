@@ -5,6 +5,11 @@ from typing import Any
 
 import yaml
 
+# The judgment pack: patterns compiled by hand from the PM wiki's frameworks into
+# the decision-context repo, the same way core/00-pm-identity.md is compiled from
+# its philosophy pages. Optional, so a checkout that predates it still runs.
+JUDGMENT_PATTERNS_PATH = Path("core") / "17-judgment-patterns.md"
+
 
 @dataclass
 class FullContext:
@@ -12,6 +17,7 @@ class FullContext:
     company_context: str
     product_context: str
     product_id: str
+    judgment_patterns: str = ""
 
 
 @dataclass
@@ -126,6 +132,17 @@ class ContextLoader:
     def load_pm_identity(self) -> str:
         return (self._root / "core" / "00-pm-identity.md").read_text(encoding="utf-8")
 
+    def load_judgment_patterns(self) -> str:
+        """The judgment pack, or "" when the checkout has none.
+
+        Absence is not an error: the pack is an addition to the identity layer,
+        and a run without it is the run the engine made before it existed.
+        """
+        path = self._root / JUDGMENT_PATTERNS_PATH
+        if not path.is_file():
+            return ""
+        return path.read_text(encoding="utf-8").strip()
+
     def load_company_context(self) -> str:
         return (self._root / "company-context.md").read_text(encoding="utf-8")
 
@@ -175,6 +192,7 @@ class ContextLoader:
             company_context=self.load_company_context(),
             product_context=self.load_product_context(product_id),
             product_id=canonical,
+            judgment_patterns=self.load_judgment_patterns(),
         )
 
     def load_portfolio_profiles(

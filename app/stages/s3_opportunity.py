@@ -10,6 +10,7 @@ from app.logging import emit_event
 from app.models.stages import RunContext, S3Input, S3Output, S3OutputData, StageMetadata
 from app.services.decision_case import render_decision_case
 from app.services.template_service import TemplateService
+from app.stages.judgment import judgment_patterns_block
 from app.storage.protocol import PMWorkflowStore
 
 _JSON_SCHEMA = """{
@@ -36,6 +37,7 @@ async def run(
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"
         f"{context.pm_identity}"
+        f"{judgment_patterns_block(context)}"
     )
 
     user_message = f"""## Stage 3 Framework
