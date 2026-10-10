@@ -24,6 +24,7 @@ from app.models.stages import (
 from app.services.decision_case import render_decision_case
 from app.services.decision_readiness import assess_readiness
 from app.services.template_service import TemplateService
+from app.stages.judgment import judgment_patterns_block
 from app.storage.protocol import PMWorkflowStore
 
 _DEFAULT_WEIGHTS = {
@@ -207,6 +208,7 @@ async def run(
     system_message = (
         "You are a Product Manager. Follow the PM identity and operating philosophy below.\n\n"
         f"{context.pm_identity}"
+        f"{judgment_patterns_block(context)}"
     )
 
     persona_summary = "\n".join(

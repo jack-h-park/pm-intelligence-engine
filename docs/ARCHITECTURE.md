@@ -123,6 +123,7 @@ keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 | Path | Usage | Direction |
 |---|---|---|
 | `core/00-pm-identity.md` | Loaded into every LLM call as system-level context | Read |
+| `core/17-judgment-patterns.md` | Optional judgment pack, appended to the S3 and S5 system message after the identity; absent → those stages run as before | Read |
 | `company-context.md` | Company strategy layer for context loading | Read |
 | `products/<name>/context.md` | Product-specific context layer | Read |
 | `products/<name>/signal-sources.md` | RSS/URL sources for signal collection | Read |
@@ -133,7 +134,8 @@ keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 
 | Path | Usage | Direction | Owner |
 |---|---|---|---|
-| `raw/from-web/sensing/` | Source of new signal files (ops plane watches) | Read (by ops plane) | Ops plane |
+| `raw/from-web/sensing/` | Legacy signal files. Intake through this path was retired on 2026-09-29; new signals arrive as Insights through the S2K route | Read (legacy `source_ref` only) | Ops plane |
+| `outputs/signal-intelligence/` | Rebuildable reading copy of Insight revisions | Write (projection writer) | pm-engine |
 | `raw/from-pm-decision-context/kills/` | Kill decision S7 reports | Write | Ops plane |
 | `raw/from-pm-decision-context/prds/` | PRD decision S7 reports | Write | Ops plane |
 | `raw/from-pm-decision-context/poc-upgrades/` | PoC decision S7 reports | Write | Ops plane |
@@ -144,6 +146,12 @@ ops-plane-owned. The auto-triage archive path is the only exception and is trans
 `docs/EXPORT_AND_SYNC_CONTRACT.md`.
 
 Both paths are configured in `config.py` as `DECISION_SYSTEM_ROOT` and `WIKI_ROOT`.
+
+**pm-engine never reads the wiki's distilled pages.** Wiki knowledge reaches a run only through
+the two copies compiled from it into the decision-context repo — `00-pm-identity.md` from its
+philosophy pages and `17-judgment-patterns.md` from its framework pages. Keeping those copies
+current is the wiki's ingest workflow's job, not the engine's. What the wiki is for is defined
+in the wiki repo's `CLAUDE.md` § The Three Roles This Repo Plays.
 
 ---
 
@@ -430,7 +438,7 @@ eval/
 | v1 (current) | SQLite, manual trigger, ops-plane integration contract, eval harness |
 | v2 | PostgreSQL, run history UI, ops-plane harvesting live |
 | v3 | LangGraph for complex branching, if needed |
-| v4 | Wiki semantic search (RAG) for context injection |
+| v4 | ~~Wiki semantic search (RAG) for context injection~~ — superseded 2026-10-10 by the compiled judgment pack (`core/17-judgment-patterns.md`): wiki knowledge is compiled into the bounded execution input rather than retrieved at run time |
 | v5 | Multi-user, Prefect/Temporal for durable execution |
 
 **Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned

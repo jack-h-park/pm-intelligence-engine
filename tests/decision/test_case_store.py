@@ -120,7 +120,10 @@ def test_context_reloads_the_case_pinned_to_the_run(tmp_path):
         store=store,
         context_loader=SimpleNamespace(
             load_full_context=lambda _: SimpleNamespace(
-                pm_identity="identity", company_context="company", product_context="product"
+                pm_identity="identity",
+                company_context="company",
+                product_context="product",
+                judgment_patterns="",
             )
         ),
     )

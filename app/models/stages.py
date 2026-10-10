@@ -21,6 +21,10 @@ class RunContext(BaseModel):
     pm_identity: str = Field(description="Full text of core/00-pm-identity.md")
     company_context: str = Field(description="Full text of company-context.md")
     product_context: str = Field(description="Full text of products/<name>/context.md")
+    # Patterns compiled from the PM wiki (core/17-judgment-patterns.md). Empty
+    # when the decision-context checkout carries no pack; S3 and S5 then build
+    # exactly the system message they built before the pack existed.
+    judgment_patterns: str = Field(default="")
     # New decision-request runs pin this separately from legacy S1/S2 summaries.
     # Historical runs omit it and retain their exact former context shape.
     decision_case: DecisionCase | None = Field(default=None)
