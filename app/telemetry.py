@@ -55,6 +55,13 @@ _TRACER: Any | None = None
 # says it came from the engine.
 SERVICE_NAME = "pm-intelligence-engine"
 
+# The Langfuse `environment` every engine trace carries. The fleet's profiles each
+# trace under their own name in the same project; without this the engine's traces
+# arrived as `default`, indistinguishable from anything else unlabelled. The vendor
+# client sets it as a resource attribute only on a provider IT builds, and this
+# module builds its own (see setup_tracing), so it is set here.
+TRACE_ENVIRONMENT = "engine"
+
 
 def insight_session(candidate_id: str | None) -> str | None:
     """The session key for everything descended from one Candidate, or None.
@@ -157,7 +164,10 @@ def setup_tracing() -> bool:
         # The provider is built HERE and handed to the client, rather than left
         # for the client to create: the resource (and so `service.name`) is fixed
         # when a provider is constructed, and the client's own carries none.
-        provider = TracerProvider(resource=Resource.create({"service.name": SERVICE_NAME}))
+        provider = TracerProvider(resource=Resource.create({
+            "service.name": SERVICE_NAME,
+            "langfuse.environment": TRACE_ENVIRONMENT,
+        }))
         kwargs["tracer_provider"] = provider
         kwargs["should_export_span"] = _export_filter(is_default_export_span)
         Langfuse(**kwargs)

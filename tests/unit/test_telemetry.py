@@ -440,6 +440,9 @@ def test_setup_names_the_service_on_the_provider_it_hands_the_client(telemetry, 
     assert telemetry.setup_tracing() is True
     provider = seen["tracer_provider"]
     assert provider.resource.attributes["service.name"] == "pm-intelligence-engine"
+    # And the Langfuse environment, which the vendor sets only on a provider it
+    # builds itself: without it the engine's traces arrive as `default`.
+    assert provider.resource.attributes["langfuse.environment"] == "engine"
     # And the tracer the engine uses comes from that same provider, so the spans
     # it emits are the ones the client's processor was attached to.
     with telemetry.stage_span("s1", "run-1"):
