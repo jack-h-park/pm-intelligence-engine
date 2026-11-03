@@ -80,6 +80,25 @@ _DECISION_INVARIANTS = (
 )
 
 
+_WIKI_INDEX_MAX_CHARS = 40_000
+_DEDUP_INSTRUCTION = (
+    " existing_wiki_pages is the catalog of knowledge pages that already exist. When a listed page"
+    ' already covers the same idea, decide "leave_as_evidence" with deciding_test "dedup" and name'
+    " that page in the reason; propose a new page only for knowledge no listed page holds."
+)
+
+
+def _read_wiki_index(path: str | None) -> str | None:
+    """Return the page catalog, or None so a missing catalog never blocks a verdict."""
+    if not path:
+        return None
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return text[:_WIKI_INDEX_MAX_CHARS] or None
+
+
 def not_judged(reason: str, *, rubric_revision: str | None = None) -> KnowledgeVerdict:
     """Return the terminal, non-blocking outcome for an unavailable judgment."""
     return KnowledgeVerdict(
@@ -133,6 +152,7 @@ async def judge_knowledge(
     budget: BudgetService | None = None,
     reservation_payload: dict[str, Any] | None = None,
     actual_micros: int | str = "unknown",
+    wiki_index_path: str | None = None,
 ) -> KnowledgeVerdict:
     """Judge one newly analyzed Insight without allowing a verdict failure to escape."""
     if not rubric_path:
@@ -143,6 +163,7 @@ async def judge_knowledge(
     except (OSError, UnicodeDecodeError, ValueError):
         return not_judged("knowledge rubric could not be read")
     rubric_revision = hashlib.sha256(rubric_text.encode("utf-8")).hexdigest()
+    wiki_index = _read_wiki_index(wiki_index_path)
     reservation_id: str | None = None
     if budget is not None:
         if reservation_payload is None or reservation_payload.get("maximum_micros", 0) <= 0:
@@ -175,6 +196,7 @@ async def judge_knowledge(
                         "a reusable abstraction title, not a news headline. "
                         + _SCHEMA_INSTRUCTION
                         + _DECISION_INVARIANTS
+                        + (_DEDUP_INSTRUCTION if wiki_index else "")
                     ),
                 },
                 {
@@ -184,6 +206,7 @@ async def judge_knowledge(
                             "rubric": rubric_text,
                             "insight": insight,
                             "related_insights": related_insights,
+                            **({"existing_wiki_pages": wiki_index} if wiki_index else {}),
                         }
                     ),
                 },
