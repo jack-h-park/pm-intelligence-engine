@@ -79,6 +79,9 @@ class Settings(BaseSettings):
     INTELLIGENCE_SEARCH_MAXIMUM_MICROS: int | None = None
     INTELLIGENCE_SEARCH_RATE_REVISION: str = ""
     KNOWLEDGE_RUBRIC_PATH: str | None = None
+    # Optional page catalog the dedup test compares against. Unset or unreadable means the
+    # verdict is judged without it.
+    KNOWLEDGE_WIKI_INDEX_PATH: str | None = None
     # Product relevance judgment for new Insight revisions (off by default). It never
     # starts a run; a failure is stored as not_judged. Both budget values must be set.
     INSIGHT_PRODUCT_RELEVANCE_ENABLED: bool = False

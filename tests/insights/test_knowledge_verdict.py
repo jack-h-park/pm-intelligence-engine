@@ -317,3 +317,79 @@ async def test_judgment_truncates_an_overlong_reason_without_a_second_model_call
     assert calls == 1
     assert result.decision == "leave_as_evidence"
     assert result.reason == "x" * 200
+
+
+def _leave_payload():
+    return {
+        "decision": "leave_as_evidence",
+        "deciding_test": "dedup",
+        "reason": "Covered by an existing page.",
+        "target_kind": None,
+        "proposed_title": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_wiki_index_is_sent_with_a_dedup_instruction(tmp_path):
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDedup.", encoding="utf-8")
+    index = tmp_path / "index.md"
+    index.write_text("| Security controls as attack surface | concept |", encoding="utf-8")
+    llm = FixtureLLM(_leave_payload())
+
+    result = await judge_knowledge(
+        insight={"headline": "A defense became the attack path", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=llm,
+        model="fixture-model",
+        wiki_index_path=str(index),
+    )
+
+    assert result.decision == "leave_as_evidence"
+    assert result.deciding_test == "dedup"
+    assert "existing_wiki_pages" in llm.messages[-1]["content"]
+    assert "Security controls as attack surface" in llm.messages[-1]["content"]
+    assert "existing_wiki_pages is the catalog" in llm.messages[0]["content"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("missing", [None, "missing-index.md"])
+async def test_missing_wiki_index_still_judges_without_the_catalog(tmp_path, missing):
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDedup.", encoding="utf-8")
+    llm = FixtureLLM(_leave_payload())
+
+    result = await judge_knowledge(
+        insight={"headline": "A release detail", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=llm,
+        model="fixture-model",
+        wiki_index_path=str(tmp_path / missing) if missing else None,
+    )
+
+    assert result.decision == "leave_as_evidence"
+    assert "existing_wiki_pages" not in llm.messages[-1]["content"]
+    assert "existing_wiki_pages is the catalog" not in llm.messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_wiki_index_is_capped(tmp_path):
+    rubric = tmp_path / "knowledge-rubric.md"
+    rubric.write_text("# Four tests\nDedup.", encoding="utf-8")
+    index = tmp_path / "index.md"
+    index.write_text("x" * 100_000, encoding="utf-8")
+    llm = FixtureLLM(_leave_payload())
+
+    await judge_knowledge(
+        insight={"headline": "A release detail", "claims": []},
+        related_insights=[],
+        rubric_path=str(rubric),
+        llm=llm,
+        model="fixture-model",
+        wiki_index_path=str(index),
+    )
+
+    sent = json.loads(llm.messages[-1]["content"])
+    assert len(sent["existing_wiki_pages"]) == 40_000

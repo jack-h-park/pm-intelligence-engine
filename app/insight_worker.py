@@ -182,6 +182,7 @@ async def _attach_knowledge_verdict(
         insight=insight.model_dump(mode="json"),
         related_insights=related,
         rubric_path=settings.KNOWLEDGE_RUBRIC_PATH,
+        wiki_index_path=settings.KNOWLEDGE_WIKI_INDEX_PATH,
         llm=llm,
         model=None,
         budget=BudgetService(
