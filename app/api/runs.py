@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
 from app.api.deps import get_engine
@@ -709,6 +709,12 @@ async def scan_portfolio(
     )
 
 
+@router.get("/monitoring/status")
+async def run_monitoring_status(engine: PMEngine = Depends(get_engine)) -> dict[str, Any]:
+    """Complete run activity and a durable state revision for notification polling."""
+    return engine.store.run_monitoring_status()
+
+
 @router.get("/{run_id}", response_model=RunResponse)
 async def get_run(
     run_id: str,
@@ -743,6 +749,7 @@ async def list_runs(
     event: str | None = None,
     since: str | None = None,
     limit: int = 50,
+    offset: int = Query(default=0, ge=0),
     engine: PMEngine = Depends(get_engine),
 ) -> list[RunResponse]:
     since_dt = None
@@ -787,6 +794,7 @@ async def list_runs(
         event=event,
         since=since_dt,
         limit=limit,
+        offset=offset,
     )
     return [RunResponse(**r) for r in runs]
 

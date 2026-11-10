@@ -106,6 +106,8 @@ class PMWorkflowStore(Protocol):
         reason: str | None = None, **extra: Any,
     ) -> None: ...
 
+    def run_monitoring_status(self) -> dict[str, Any]: ...
+
     def list_runs(
         self,
         product_id: str | None = None,
@@ -118,6 +120,7 @@ class PMWorkflowStore(Protocol):
         position: str | None = None,
         outcome: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> list[dict[str, Any]]: ...
 
     # --- RunBatch (US-49) ---
