@@ -1,4 +1,5 @@
 import json
+import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
 
@@ -55,7 +56,55 @@ class SQLiteStore:
         self._engine = create_engine(database_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(self._engine)
         self._migrate_schema()
+        self._install_monitoring_revision()
         self._Session = sessionmaker(bind=self._engine)
+
+    def _install_monitoring_revision(self) -> None:
+        # Triggers cover every writer and commit/rollback with the run mutation.
+        with self._engine.begin() as conn:
+            conn.execute(
+                text(
+                    "CREATE TABLE IF NOT EXISTS run_monitor_revision "
+                    "(singleton INTEGER PRIMARY KEY CHECK(singleton = 1), "
+                    "epoch TEXT NOT NULL, revision INTEGER NOT NULL)"
+                )
+            )
+            conn.execute(
+                text("INSERT OR IGNORE INTO run_monitor_revision VALUES (1, :epoch, 0)"),
+                {"epoch": str(uuid.uuid4())},
+            )
+            for action in ("INSERT", "UPDATE", "DELETE"):
+                conn.execute(
+                    text(
+                        f"CREATE TRIGGER IF NOT EXISTS run_monitor_{action.lower()} "
+                        f"AFTER {action} ON workflow_runs BEGIN "
+                        "UPDATE run_monitor_revision SET revision = revision + 1 "
+                        "WHERE singleton = 1; END"
+                    )
+                )
+
+    def run_monitoring_status(self) -> dict[str, Any]:
+        # One statement gives revision and activity from the same SQLite snapshot.
+        with self._engine.connect() as conn:
+            row = (
+                conn.execute(
+                    text(
+                        "SELECT epoch, revision, "
+                        "(SELECT COUNT(*) FROM workflow_runs "
+                        "WHERE lifecycle IS NULL OR lifecycle != 'done' "
+                        "OR outcome IS NULL OR outcome NOT IN "
+                        "('completed', 'stopped', 'failed')) AS active_count "
+                        "FROM run_monitor_revision WHERE singleton = 1"
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        return {
+            "epoch": row["epoch"],
+            "revision": row["revision"],
+            "active_count": row["active_count"],
+        }
 
     def _migrate_schema(self) -> None:
         """Idempotent in-place migration for existing local DBs (no Alembic).
@@ -783,6 +832,7 @@ class SQLiteStore:
         position: str | None = None,
         outcome: str | None = None,
         limit: int = 50,
+        offset: int = 0,
     ) -> list[dict[str, Any]]:
         with self._Session() as session:
             q = session.query(WorkflowRun)
@@ -807,7 +857,11 @@ class SQLiteStore:
                 q = q.join(ApprovalEvent).filter(ApprovalEvent.action == ApprovalAction(event))
             if since:
                 q = q.filter(WorkflowRun.created_at >= since)
-            q = q.order_by(WorkflowRun.created_at.desc()).limit(limit)
+            q = (
+                q.order_by(WorkflowRun.created_at.desc(), WorkflowRun.run_id)
+                .offset(offset)
+                .limit(limit)
+            )
             return [self._run_to_dict(r) for r in q.all()]
 
     # --- StageOutput ---
