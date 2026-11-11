@@ -10,7 +10,7 @@ It is intentionally narrow: it runs stages, persists state, manages human gates,
 completed-run artifacts to its in-repo run archive (`archive/runs/`). Signal harvesting, wiki sync, and operational scheduling are
 owned by a separate **external operations plane**.
 
-The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
+The engine runs on an always-on ops host (a desktop Mac that does not sleep). Tailscale makes it reachable from any device (iPhone,
 MacBook) without port-forwarding. Gate and result notifications are composed and delivered
 by the operations plane's notification agent, which polls the gate queues; pm-engine exposes state only
 (US-48 cutover — see `docs/NOTIFICATION_CONTRACT.md`).
@@ -40,7 +40,7 @@ by the operations plane's notification agent, which polls the gate queues; pm-en
 decision-context repo/                 decision-context repo/runs/
 
               │ polled by the notifier,      │ Gate 2 review link
-              │ which composes and           │ http://<imac-tailscale-ip>:8000
+              │ which composes and           │ http://<ops-host-tailscale-ip>:8000
               │ delivers per channel policy  │ /runs/{id}/review
               ▼                             ▼
         📱 Discord / Telegram         📱 Browser (PM's iPhone)
@@ -456,7 +456,7 @@ pm-engine's gate queues and terminal statuses (US-48 cutover). pm-engine owns th
 **state machine, queue queries, and review payloads** — it does not send messages in
 production. The engine's built-in `app/services/notifier.py` (`FanoutNotifier`,
 Telegram/Slack templates) is a local/dev fallback behind `GATE_NOTIFICATIONS_ENABLED`
-(default `true` locally, **`false` on the iMac** — enabling it in prod would duplicate
+(default `true` locally, **`false` on the ops host** — enabling it in prod would duplicate
 every ops-plane message). Ownership, dedup keys, and channel policy are normatively defined in
 `docs/NOTIFICATION_CONTRACT.md`.
 
@@ -465,14 +465,14 @@ accessible from any device connected to the same Tailscale network.
 
 ### Hosting and Tailscale
 
-pm-engine runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
+pm-engine runs on an always-on **ops host**, a desktop Mac that does not sleep. A MacBook is unsuitable as a host because closing
 the lid suspends the process, breaking the ops plane's polling and making review links unreachable.
 
-**Tailscale** is installed on the iMac and the PM's iPhone (and optionally MacBook). Tailscale
-assigns the iMac a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
+**Tailscale** is installed on the ops host and the PM's iPhone (and optionally MacBook). Tailscale
+assigns the ops host a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
 the same Tailnet regardless of network location.
 
-`BASE_URL` in `.env` should be set to the iMac's Tailscale IP:
+`BASE_URL` in `.env` should be set to the ops host's Tailscale IP:
 
 ```
 BASE_URL=http://100.x.x.x:8000
@@ -545,7 +545,7 @@ Ops plane polls GET /runs?status=waiting_approval
   → composes + delivers: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
         │
         ▼ [PM taps link → iPhone browser opens review page via Tailscale]
-GET /runs/{id}/review   (served by iMac over Tailscale)
+GET /runs/{id}/review   (served by the ops host over Tailscale)
         │
    PM taps Approve
         │
@@ -562,7 +562,7 @@ Ops plane reads artifacts → writes to WIKI_ROOT (ops-plane-owned)
 
 | Setting | Description | Example |
 |---------|-------------|---------|
-| `BASE_URL` | iMac's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
+| `BASE_URL` | Ops host's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
 | `GATE_NOTIFICATIONS_ENABLED` | Master switch for the built-in notifier. **`false` in production** (the ops plane owns delivery); `true` only for local/dev use | `false` |
 | `TELEGRAM_BOT_TOKEN` | Local/dev built-in notifier only | `7123456789:AAF...` |
 | `TELEGRAM_CHAT_ID` | Local/dev built-in notifier only | `123456789` |
@@ -573,14 +573,14 @@ All settings live in `.env`. The Telegram/Slack settings only matter when
 notifier wires zero providers. Production delivery configuration lives on the ops-plane side —
 see `docs/NOTIFICATION_CONTRACT.md`.
 
-### iMac Setup Checklist
+### Ops Host Setup Checklist
 
-1. Clone this repo on the iMac: `git clone ...`
+1. Clone this repo on the ops host: `git clone ...`
 2. Clone external repos at the same paths configured in `.env`:
    - your decision-context repo → `DECISION_SYSTEM_ROOT`
    - your product-management-wiki repo → `WIKI_ROOT`
-3. Install Tailscale on the iMac and ensure it is running
-4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
+3. Install Tailscale on the ops host and ensure it is running
+4. Set `BASE_URL=http://<ops-host-tailscale-ip>:8000` in `.env`
 5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is ops-plane-owned; see `docs/NOTIFICATION_CONTRACT.md`)
 6. Start the API: `uvicorn app.api.main:app --reload` (or `make install-service` for auto-start under launchd)
 7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari
