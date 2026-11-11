@@ -1,7 +1,8 @@
 # API Contract
 ## pm-intelligence-engine — Public Interface for External Operators
 
-**Version:** 1.2  
+**Version:** 1.2
+
 **Last updated:** 2026-11-10
 
 ## Authentication
