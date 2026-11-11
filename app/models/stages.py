@@ -113,7 +113,11 @@ class S1Input(BaseModel):
     title: str = Field(description="Short descriptive title for the signal")
     raw_content: str = Field(description="Full raw text of the signal")
     source_url: str | None = Field(default=None, description="Source URL if available")
-    source_type: str = Field(default="manual", description="manual | rss | file_watch")
+    source_type: str = Field(
+        default="manual",
+        description="manual | rss | file_watch | web; under INTELLIGENCE_MODE=insights only "
+        "manual is accepted for new signals, the others remain on legacy rows",
+    )
 
 
 class S1OutputData(BaseModel):

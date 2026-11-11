@@ -7,10 +7,10 @@
 
 This platform is the **workflow execution engine** for a personal PM intelligence system.
 It is intentionally narrow: it runs stages, persists state, manages human gates, and exports
-completed-run artifacts to its in-repo run archive (`archive/runs/`). Signal harvesting, wiki sync, and operational scheduling are
-owned by a separate **external operations plane**.
+completed-run artifacts to its in-repo run archive (`archive/runs/`). Collecting external material (submitted as S2K Insight
+candidates), wiki sync, and operational scheduling are owned by a separate **external operations plane**.
 
-The engine runs on an always-on iMac. Tailscale makes it reachable from any device (iPhone,
+The engine runs on an always-on ops host (a desktop Mac that does not sleep). Tailscale makes it reachable from any device (iPhone,
 MacBook) without port-forwarding. Gate and result notifications are composed and delivered
 by the operations plane's notification agent, which polls the gate queues; pm-engine exposes state only
 (US-48 cutover — see `docs/NOTIFICATION_CONTRACT.md`).
@@ -40,7 +40,7 @@ by the operations plane's notification agent, which polls the gate queues; pm-en
 decision-context repo/                 decision-context repo/runs/
 
               │ polled by the notifier,      │ Gate 2 review link
-              │ which composes and           │ http://<imac-tailscale-ip>:8000
+              │ which composes and           │ http://<ops-host-tailscale-ip>:8000
               │ delivers per channel policy  │ /runs/{id}/review
               ▼                             ▼
         📱 Discord / Telegram         📱 Browser (PM's iPhone)
@@ -50,11 +50,11 @@ decision-context repo/                 decision-context repo/runs/
 ┌─────────────────────────────────────────────────────────────────────────┐
 │              External Operations Plane (separate repo)                  │
 │                                                                         │
-│   Signal harvesting (RSS, file watch)   Wiki sync (WIKI_ROOT writes)   │
+│   Insight candidates (S2K admission)    Wiki sync (WIKI_ROOT writes)   │
 │   Run monitoring / dashboards           Pattern accumulation            │
-│   Operational scheduling (cron/harvest)                                 │
+│   Operational scheduling (cron)                                         │
 └─────────────────────────────────────────────────────────────────────────┘
-        ↓ POST /signals                          ↓ wiki write (on run event)
+        ↓ POST /insight-candidates               ↓ wiki write (on run event)
 pm-intelligence-engine API             product-management-wiki repo/
 
 ```
@@ -65,15 +65,15 @@ pm-intelligence-engine API             product-management-wiki repo/
 
 | Concern | Owner | Notes |
 |---------|-------|-------|
-| Signal intake (manual) | pm-engine | `POST /signals` API |
-| Signal harvesting (RSS, file watch) | Ops plane | Submits via `POST /signals` |
+| Manual Product Decision input | pm-engine | `POST /signals`; under `INTELLIGENCE_MODE=insights` it accepts `source_type=manual` only |
+| External material intake | Ops plane | Submits S2K Insight candidates via `POST /insight-candidates`; a run starts only from a decision request (`POST /insights/{id}/decision-requests`). The RSS/file-watch path was retired on 2026-09-29, and `POST /signals` returns 409 for it |
 | Stage execution (S1–S7) | pm-engine | Background tasks, async |
 | Human gate state machine | pm-engine | 3 gates (pause @ s2/s4/s5), one `POST /runs/{id}/decision` endpoint (US-55) |
 | Persistence (runs, artifacts) | pm-engine | SQLite → PostgreSQL in v2 |
 | Run-archive export | pm-engine | `run_finalizer` triggers on completion at depth note/structure/evaluate/decide (not `archive`); writes the in-repo `archive/runs/` |
 | Wiki sync | Ops plane | Polls for completed/killed events, writes to WIKI_ROOT |
 | Gate/result notification delivery | Ops plane | The ops plane's notification agent polls the gate queues and terminal statuses, composes and delivers all production messages. pm-engine exposes state + review payloads only; built-in `notifier.py` is a local/dev fallback (`GATE_NOTIFICATIONS_ENABLED=false` in prod). See `docs/NOTIFICATION_CONTRACT.md` |
-| Operational scheduling | Ops plane | Cron/harvest jobs |
+| Operational scheduling | Ops plane | Cron jobs |
 | Pattern accumulation | Ops plane | Reads completed runs, maintains wiki |
 
 ---
@@ -101,7 +101,7 @@ The core workflow. A signal enters as raw text; a routing decision and artifact 
 ### External Operations Plane
 Handles everything that requires always-on or scheduled operation.
 
-**Responsibilities:** RSS/file-watch signal harvesting, wiki sync, monitoring dashboards,
+**Responsibilities:** collecting external material as S2K Insight candidates, wiki sync, monitoring dashboards,
 operational scheduling, pattern accumulation.
 
 **Integration:** The operations plane interacts with pm-engine exclusively via the HTTP API.
@@ -126,7 +126,7 @@ keys, and channel policy: `docs/NOTIFICATION_CONTRACT.md`.
 | `core/17-judgment-patterns.md` | Optional judgment pack, appended to the S3 and S5 system message after the identity; absent → those stages run as before | Read |
 | `company-context.md` | Company strategy layer for context loading | Read |
 | `products/<name>/context.md` | Product-specific context layer | Read |
-| `products/<name>/signal-sources.md` | RSS/URL sources for signal collection | Read |
+| `products/<name>/signal-sources.md` | RSS/URL sources for the retired RSS/file-watch intake; no engine code reads it | — |
 | `prompts/s1/` through `prompts/s7/` | Stage prompt templates | Read |
 | `archive/runs/<product_id>/<date>-<slug>/` | Canonical exported run artifacts | Write |
 
@@ -244,7 +244,9 @@ source_url      str | null
 raw_content     text
 category        enum: competitor | platform | regulation | technology | other
 status          enum: new | in_run | done
-source_type     enum: manual | rss | file_watch
+source_type     enum: manual | rss | file_watch | web
+                (under INTELLIGENCE_MODE=insights a new signal must be manual;
+                 rss, file_watch and web remain only on legacy rows)
 ingested_at     datetime
 ```
 
@@ -436,14 +438,16 @@ eval/
 | Version | Changes |
 |---|---|
 | v1 (current) | SQLite, manual trigger, ops-plane integration contract, eval harness |
-| v2 | PostgreSQL, run history UI, ops-plane harvesting live |
+| v2 | PostgreSQL, run history UI |
 | v3 | LangGraph for complex branching, if needed |
 | v4 | ~~Wiki semantic search (RAG) for context injection~~ — superseded 2026-10-10 by the compiled judgment pack (`core/17-judgment-patterns.md`): wiki knowledge is compiled into the bounded execution input rather than retrieved at run time |
 | v5 | Multi-user, Prefect/Temporal for durable execution |
 
 **Note:** RSS/file-watch signal harvesting and operational scheduling were originally planned
-as in-process features (APScheduler). These have been moved to the external operations plane.
-The pm-engine API (`POST /signals`) remains the stable integration point.
+as in-process features (APScheduler) and moved to the external operations plane. That
+harvesting was then retired at the S2K cutover (2026-09-29): external material now enters as
+Insight candidates (`POST /insight-candidates`), a run starts from a decision request, and
+`POST /signals` remains only for manual Product Decision input.
 
 ---
 
@@ -456,7 +460,7 @@ pm-engine's gate queues and terminal statuses (US-48 cutover). pm-engine owns th
 **state machine, queue queries, and review payloads** — it does not send messages in
 production. The engine's built-in `app/services/notifier.py` (`FanoutNotifier`,
 Telegram/Slack templates) is a local/dev fallback behind `GATE_NOTIFICATIONS_ENABLED`
-(default `true` locally, **`false` on the iMac** — enabling it in prod would duplicate
+(default `true` locally, **`false` on the ops host** — enabling it in prod would duplicate
 every ops-plane message). Ownership, dedup keys, and channel policy are normatively defined in
 `docs/NOTIFICATION_CONTRACT.md`.
 
@@ -465,14 +469,14 @@ accessible from any device connected to the same Tailscale network.
 
 ### Hosting and Tailscale
 
-pm-engine runs on an always-on **iMac**. A MacBook is unsuitable as a host because closing
+pm-engine runs on an always-on **ops host**, a desktop Mac that does not sleep. A MacBook is unsuitable as a host because closing
 the lid suspends the process, breaking the ops plane's polling and making review links unreachable.
 
-**Tailscale** is installed on the iMac and the PM's iPhone (and optionally MacBook). Tailscale
-assigns the iMac a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
+**Tailscale** is installed on the ops host and the PM's iPhone (and optionally MacBook). Tailscale
+assigns the ops host a stable private IP (e.g. `100.x.x.x`) that is reachable from any device in
 the same Tailnet regardless of network location.
 
-`BASE_URL` in `.env` should be set to the iMac's Tailscale IP:
+`BASE_URL` in `.env` should be set to the ops host's Tailscale IP:
 
 ```
 BASE_URL=http://100.x.x.x:8000
@@ -545,7 +549,7 @@ Ops plane polls GET /runs?status=waiting_approval
   → composes + delivers: "Gate 2 ready — Skeptic: 'no admin API' — 🔗 review link"
         │
         ▼ [PM taps link → iPhone browser opens review page via Tailscale]
-GET /runs/{id}/review   (served by iMac over Tailscale)
+GET /runs/{id}/review   (served by the ops host over Tailscale)
         │
    PM taps Approve
         │
@@ -562,7 +566,7 @@ Ops plane reads artifacts → writes to WIKI_ROOT (ops-plane-owned)
 
 | Setting | Description | Example |
 |---------|-------------|---------|
-| `BASE_URL` | iMac's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
+| `BASE_URL` | Ops host's Tailscale URL; used to construct review page links | `http://100.x.x.x:8000` |
 | `GATE_NOTIFICATIONS_ENABLED` | Master switch for the built-in notifier. **`false` in production** (the ops plane owns delivery); `true` only for local/dev use | `false` |
 | `TELEGRAM_BOT_TOKEN` | Local/dev built-in notifier only | `7123456789:AAF...` |
 | `TELEGRAM_CHAT_ID` | Local/dev built-in notifier only | `123456789` |
@@ -573,14 +577,14 @@ All settings live in `.env`. The Telegram/Slack settings only matter when
 notifier wires zero providers. Production delivery configuration lives on the ops-plane side —
 see `docs/NOTIFICATION_CONTRACT.md`.
 
-### iMac Setup Checklist
+### Ops Host Setup Checklist
 
-1. Clone this repo on the iMac: `git clone ...`
+1. Clone this repo on the ops host: `git clone ...`
 2. Clone external repos at the same paths configured in `.env`:
    - your decision-context repo → `DECISION_SYSTEM_ROOT`
    - your product-management-wiki repo → `WIKI_ROOT`
-3. Install Tailscale on the iMac and ensure it is running
-4. Set `BASE_URL=http://<imac-tailscale-ip>:8000` in `.env`
+3. Install Tailscale on the ops host and ensure it is running
+4. Set `BASE_URL=http://<ops-host-tailscale-ip>:8000` in `.env`
 5. Set `GATE_NOTIFICATIONS_ENABLED=false` in `.env` (production delivery is ops-plane-owned; see `docs/NOTIFICATION_CONTRACT.md`)
 6. Start the API: `uvicorn app.api.main:app --reload` (or `make install-service` for auto-start under launchd)
 7. Install Tailscale on iPhone — verify `BASE_URL` is reachable from iPhone Safari
