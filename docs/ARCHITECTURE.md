@@ -244,7 +244,9 @@ source_url      str | null
 raw_content     text
 category        enum: competitor | platform | regulation | technology | other
 status          enum: new | in_run | done
-source_type     enum: manual | rss | file_watch
+source_type     enum: manual | rss | file_watch | web
+                (under INTELLIGENCE_MODE=insights a new signal must be manual;
+                 rss, file_watch and web remain only on legacy rows)
 ingested_at     datetime
 ```
 

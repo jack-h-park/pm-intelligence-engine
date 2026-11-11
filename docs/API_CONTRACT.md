@@ -130,14 +130,16 @@ to resume a retired scheduler.
   "title": "Android 16 NFC admin control API released",
   "raw_content": "Full article text or summary...",
   "source_url": "https://example.com/article",
-  "source_type": "rss"
+  "source_type": "manual"
 }
 ```
 
 `original_product_id` is an **optional** origin/provenance hint (US-49) — `null` for
 product-agnostic intake (RSS / file_watch), where Portfolio Triage routes the signal.
 **`product_id` is accepted as a deprecated alias** so existing clients keep
-working. `source_type`: `"manual"` | `"rss"` | `"file_watch"`
+working. `source_type`: `"manual"` | `"rss"` | `"file_watch"` | `"web"`. Under
+`INTELLIGENCE_MODE=insights` only `"manual"` is accepted; the other three return 409
+and survive only on legacy rows.
 
 **Response (201):**
 ```json
