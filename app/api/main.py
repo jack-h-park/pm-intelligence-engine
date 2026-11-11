@@ -18,6 +18,7 @@ from app.api.insights import router as insights_router
 from app.api.review import router as review_router
 from app.api.routing_review import router as routing_review_router
 from app.api.runs import router as runs_router
+from app.api.signal_start import router as signal_start_router
 from app.api.signals import router as signals_router
 from app.api.void import router as void_router
 
@@ -134,6 +135,7 @@ app = FastAPI(
 _auth = [Depends(require_auth)]
 
 app.include_router(signals_router, dependencies=_auth)
+app.include_router(signal_start_router, dependencies=_auth)
 app.include_router(runs_router, dependencies=_auth)
 app.include_router(artifacts_router, dependencies=_auth)
 app.include_router(direction_router, dependencies=_auth)

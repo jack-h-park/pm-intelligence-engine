@@ -1,8 +1,8 @@
 # API Contract
 ## pm-intelligence-engine — Public Interface for External Operators
 
-**Version:** 1.1  
-**Last updated:** 2026-09-27
+**Version:** 1.2  
+**Last updated:** 2026-11-10
 
 ## Authentication
 
@@ -60,6 +60,7 @@ version bump.
 | `POST` | `/signals/{id}/refresh` | Re-ingest content + re-run on a fresh lineage | Recover a mis-crawled capture |
 | `POST` | `/signals/reconcile` | Re-derive every signal's status from its runs | Maintenance / drift repair |
 | `POST` | `/runs/start` | Start a pipeline run | Optional (manual start) |
+| `GET` | `/signal-start/status` | Complete start-recovery classification and grace eligibility | Read-only recovery observer; optional targeted freshness lookup |
 | `GET` | `/runs` | List runs with filters | Polling actionable queues |
 | `GET` | `/runs/{id}` | Get run state + outputs | Completion artifact fetch |
 | `GET` | `/runs/{id}/artifacts` | List persisted artifacts for a run | Lightweight artifact fetch |
@@ -770,3 +771,53 @@ confirmed or uncertain delivery through the existing delivery-receipt endpoint.
 This permission is deliberately not retryable after a crash: availability may
 require operator reconciliation, while blind duplicate transport is prevented.
 No schema or legacy delivery-receipt API change is required.
+
+
+## Start-recovery observation
+
+`GET /signal-start/status` is an authenticated, read-only interface. It never
+starts, retries, archives or reconciles a workflow and never records delivery.
+The Engine owns classification; the operations client owns observation and
+notification receipts. This additive interface does not activate a schedule.
+
+Optional `grace_hours` and `failed_grace_hours` are finite values from zero to
+720, defaulting to 1 and 6. The response echoes the applied policy. Hermes resolves
+its supported configuration and passes the effective values; consumers must not
+infer a different default from a UI. Optional `signal_id` is a UUID. A missing
+specific signal returns 404, while an invalid query returns 422.
+
+The complete snapshot returns `schema_version`, `policy_version`, `evaluated_at`,
+`snapshot_id`, `complete`, separate `stranded`, `abandoned` and overdue `eligible`
+counts, and all matching `items`. Each item includes source identity/title/product,
+original ingestion and latest-attempt timestamps, run/failed counts, classification,
+`fresh`, `eligible`, `age_anchor`, `age_unknown`, `eligible_at` and explicit unknown
+expected-start intent. A targeted lookup also returns nonfresh signals classified
+as `none`. Product may be null, so compatibility callers can render general.
+
+Stranded means status new/in_run and zero runs. Abandoned means status new, at
+least one run, and every run done/failed. The abandoned age is the latest attempt's
+creation time, not its completion time. Inventory membership and overdue eligibility
+are separate: entering a longer grace does not resolve an already reported fault.
+Missing/malformed dates retain the legacy immediately eligible behavior, with age
+unknown explicitly reported. Classification does not establish manual start intent.
+
+One aggregate SQL statement reads the source snapshot; there is no newest-N client
+scan or partial success. More than 10,000 matching items produces 503 rather than a
+truncated complete response. Source/read/classification failure also returns 503,
+never an empty fault-free snapshot. Authentication behavior is unchanged. The
+fingerprint identifies returned facts/policy, not a durable global mutation counter.
+Observation freshness comes from evaluated_at and a successful current request.
+
+Optional cross-repository acceptance is executable with the matching Hermes
+checkout and no live profile or destination:
+
+```bash
+HERMES_CONTROL_PLANE_ROOT=/path/to/hermes-control-plane \
+  python -m pytest tests/integration/test_signal_start_hermes_contract.py -q
+```
+
+It hosts the real Engine router over local HTTP and an isolated Telegram HTTP
+server, covering rejected delivery, ambiguous accepted-send response loss, restart,
+resolution and recurrence. It skips explicitly when the companion checkout is not
+configured; regular CI validates the Engine contract independently. This is local
+acceptance evidence, not deployment or a naturally occurring production fault.

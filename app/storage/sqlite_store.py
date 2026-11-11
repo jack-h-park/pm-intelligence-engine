@@ -106,6 +106,28 @@ class SQLiteStore:
             "active_count": row["active_count"],
         }
 
+    def signal_start_snapshot(self, signal_id: str | None = None) -> list[dict[str, Any]]:
+        """One SQL statement supplies source facts from one SQLite snapshot.
+
+        No client pagination or newest-N limit can hide an older start. All
+        classification and grace computation belongs to signal_start_status.
+        """
+        with self._engine.connect() as conn:
+            rows = conn.execute(
+                text(
+                    "SELECT s.signal_id, s.title, s.original_product_id AS product_id, "
+                    "s.status, s.ingested_at, COUNT(r.run_id) AS run_count, "
+                    "SUM(CASE WHEN r.lifecycle='done' AND r.outcome='failed' "
+                    "THEN 1 ELSE 0 END) AS failed_count, "
+                    "MAX(r.created_at) AS last_attempt_at "
+                    "FROM signals s LEFT JOIN workflow_runs r ON r.signal_id=s.signal_id "
+                    "WHERE (:signal_id IS NULL OR s.signal_id=:signal_id) "
+                    "GROUP BY s.signal_id ORDER BY s.signal_id"
+                ),
+                {"signal_id": signal_id},
+            ).mappings().all()
+        return [dict(row) for row in rows]
+
     def _migrate_schema(self) -> None:
         """Idempotent in-place migration for existing local DBs (no Alembic).
 

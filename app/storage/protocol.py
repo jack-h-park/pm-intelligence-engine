@@ -108,6 +108,8 @@ class PMWorkflowStore(Protocol):
 
     def run_monitoring_status(self) -> dict[str, Any]: ...
 
+    def signal_start_snapshot(self, signal_id: str | None = None) -> list[dict[str, Any]]: ...
+
     def list_runs(
         self,
         product_id: str | None = None,
