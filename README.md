@@ -114,6 +114,10 @@ send a notification, release a reservation, or assert zero provider usage.
 The Engine checks lease/state eligibility; checking process liveness is the
 operator's prerequisite. Preserve uncertain billing and source evidence for review.
 
+## macOS permissions
+
+This service needs no macOS privacy grants.
+
 ## Repository layout
 
 ```text
