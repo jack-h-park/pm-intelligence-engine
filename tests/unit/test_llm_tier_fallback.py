@@ -38,6 +38,7 @@ def _rate_limit_error():
     "primary_model,fallback_model",
     [
         ("gpt-6.1-sol", "claude-sonnet-5-5"),
+        ("gpt-6.2-sol", "claude-sonnet-5-5"),
         ("gpt-6-sol", "claude-sonnet-5-5"),
         ("gpt-6-luna", "claude-haiku-4-5-20251001"),
     ],
@@ -95,9 +96,9 @@ def test_engine_defaults_select_sol_with_sonnet_fallback(monkeypatch):
 
     provider = _build_raw_llm_provider()
 
-    assert settings.OPENAI_MODEL == "gpt-6.1-sol"
-    assert provider._default_model == "gpt-6.1-sol"
-    assert provider._primary._default_model == "gpt-6.1-sol"
+    assert settings.OPENAI_MODEL == "gpt-6.2-sol"
+    assert provider._default_model == "gpt-6.2-sol"
+    assert provider._primary._default_model == "gpt-6.2-sol"
     assert provider._fallback._default_model == "claude-sonnet-5-5"
 
 
@@ -115,7 +116,7 @@ def _settings(monkeypatch, **overrides):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("primary_model", ["gpt-6-sol", "gpt-6-luna", "gpt-custom"])
+@pytest.mark.parametrize("primary_model", ["gpt-6.2-sol", "gpt-6-sol", "gpt-6-luna", "gpt-custom"])
 async def test_described_fallback_is_the_one_the_provider_takes(monkeypatch, primary_model):
     from app.factory import describe_llm_config
 

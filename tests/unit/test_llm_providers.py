@@ -99,7 +99,7 @@ async def test_openai_provider_retries_without_temperature_on_unsupported_param(
     assert "temperature" not in mock_create.call_args_list[1].kwargs
 
 
-@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"])
+@pytest.mark.parametrize("model", ["gpt-6-sol", "gpt-6.1-sol", "gpt-6.2-sol", "gpt-6-luna"])
 @pytest.mark.asyncio
 async def test_gpt6_provider_omits_unsupported_temperature_on_first_call(model):
     provider = OpenAIProvider(api_key="test-key")
