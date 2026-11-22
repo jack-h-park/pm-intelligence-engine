@@ -13,7 +13,7 @@ def _is_retryable(exc: Exception) -> bool:
 
 
 class OpenAIProvider:
-    def __init__(self, api_key: str, default_model: str = "gpt-6.1-sol") -> None:
+    def __init__(self, api_key: str, default_model: str = "gpt-6.2-sol") -> None:
         try:
             from openai import AsyncOpenAI
         except ImportError as e:
@@ -37,6 +37,7 @@ class OpenAIProvider:
         if temperature is not None and kwargs["model"] not in {
             "gpt-6-sol",
             "gpt-6.1-sol",
+            "gpt-6.2-sol",
             "gpt-6-luna",
         }:
             kwargs["temperature"] = temperature

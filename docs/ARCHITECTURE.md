@@ -382,7 +382,7 @@ class LLMProvider(Protocol):
 # .env
 LLM_PROVIDER=openai
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-6.1-sol
+OPENAI_MODEL=gpt-6.2-sol
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 

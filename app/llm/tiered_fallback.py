@@ -8,6 +8,7 @@ from app.llm.openai import _is_retryable
 from app.llm.protocol import LLMProvider, Message, Usage
 
 _FALLBACK_MODELS = {
+    "gpt-6.2-sol": "claude-sonnet-5-5",
     "gpt-6.1-sol": "claude-sonnet-5-5",
     "gpt-6-sol": "claude-sonnet-5-5",
     "gpt-6-luna": "claude-haiku-4-5-20251001",
