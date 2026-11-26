@@ -29,8 +29,10 @@ PID_FILE  := .pid
 LOG_FILE  := logs/server.log
 SERVICE   := com.jackpark.pm-engine
 SVC_DOMAIN := gui/$(shell id -u)
+SVC_CONTROL := /bin/sh deploy/launchd-service.sh
 PLIST_SRC := deploy/com.jackpark.pm-engine.plist
-PLIST_DST := $(HOME)/Library/LaunchAgents/com.jackpark.pm-engine.plist
+GUI_PLIST := $(HOME)/Library/LaunchAgents/$(SERVICE).plist
+PLIST_DST := $(GUI_PLIST)
 
 # Filled into the plist template by install-service / render-plist.
 # UVICORN must be absolute: launchd resolves nothing through a shell, so the bare
@@ -90,18 +92,21 @@ logs/:
 # ---------------------------------------------------------------------------
 
 service-restart:
+	@$(SVC_CONTROL) require-gui
 	launchctl kickstart -k $(SVC_DOMAIN)/$(SERVICE)
 	@echo "Kicked $(SERVICE). Verify: make service-status"
 
 service-start:
+	@$(SVC_CONTROL) require-gui
 	@launchctl start $(SERVICE) && echo "Started $(SERVICE)."
 
 service-stop:
+	@$(SVC_CONTROL) require-gui
 	@echo "Note: KeepAlive=true means launchd restarts the service after stop."
 	@launchctl stop $(SERVICE) && echo "Sent stop to $(SERVICE)."
 
 service-status:
-	@launchctl list | grep $(SERVICE) || echo "$(SERVICE) not loaded (run 'make install-service')."
+	@$(SVC_CONTROL) status
 
 service-logs:
 	@tail -f $(LOG_FILE)
@@ -126,19 +131,23 @@ fixture-replay:
 # so the substitution can be checked (or the file inspected) before installing:
 #   make render-plist PLIST_DST=/tmp/pm-engine.plist
 render-plist:
+	@if [ "$(PLIST_DST)" = "$(GUI_PLIST)" ]; then $(SVC_CONTROL) require-gui; fi
 	@case "$(UVICORN)" in /*) : ;; *) echo "uvicorn not found as an absolute path: pass UVICORN=/absolute/path/to/uvicorn"; exit 1;; esac
 	mkdir -p $(dir $(PLIST_DST)) logs
 	sed -e "s|__WORKDIR__|$(CURDIR)|g" -e "s|__UVICORN__|$(UVICORN)|g" \
 	    -e "s|__VENV_BIN__|$(patsubst %/,%,$(dir $(UVICORN)))|g" -e "s|__HOST__|$(HOST)|g" \
 	    $(PLIST_SRC) > $(PLIST_DST)
 
-install-service: render-plist
+install-service:
+	@$(SVC_CONTROL) require-gui
+	@$(MAKE) render-plist
 	launchctl unload $(PLIST_DST) 2>/dev/null || true
 	launchctl load $(PLIST_DST)
 	@echo "Service installed (uvicorn: $(UVICORN), bind: $(HOST):8000). pm-engine will start automatically on login."
-	@echo "To check: launchctl list | grep pm-engine"
+	@echo "To check: make service-status"
 
 uninstall-service:
+	@$(SVC_CONTROL) require-gui
 	@launchctl unload $(PLIST_DST) 2>/dev/null || true
 	@rm -f $(PLIST_DST)
 	@echo "Service removed."
