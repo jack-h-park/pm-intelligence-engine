@@ -38,6 +38,15 @@ the Anthropic SDK for its same-tier retryable-failure fallback. On a deployed
 service, install `.[openai]` into the same Python environment selected by its
 service definition before restarting it with `make service-restart`.
 
+On a Mac with the system LaunchDaemon configured, use
+`make service-status` to inspect the system registration. Install, uninstall,
+start, stop and restart from the administrator's system maintenance procedure.
+To restart the installed service, run
+`sudo /bin/launchctl kickstart -k system/com.jackpark.pm-engine` and check
+`make service-status` and `/health`. The GUI service commands stop if a system
+registration or plist exists. For a render-only check, set `PLIST_DST` to a
+separate file.
+
 All authenticated endpoints require `PM_PLATFORM_API_TOKEN`; `/health` is the
 only unauthenticated endpoint. The default context and wiki roots are local
 directories. Provide your own context files or override the paths in `.env`.
